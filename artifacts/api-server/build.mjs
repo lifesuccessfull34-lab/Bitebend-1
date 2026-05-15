@@ -3,9 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp } from "node:fs/promises";
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -45,6 +45,7 @@ async function buildAll() {
     entryPoints: [
       path.resolve(artifactDir, "src/index.ts"),
       path.resolve(artifactDir, "src/seed-admin.ts"),
+      path.resolve(artifactDir, "src/migrate.ts"),
     ],
     platform: "node",
     bundle: true,
@@ -158,7 +159,23 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function copyMigrations(distDir) {
+  const workspaceRoot = path.resolve(artifactDir, "..", "..");
+  const migrationsSource = path.resolve(workspaceRoot, "lib/db/drizzle");
+  const migrationsDest = path.resolve(distDir, "migrations");
+
+  if (!existsSync(migrationsSource)) {
+    console.warn("[build] no lib/db/drizzle folder found — skipping migrations copy");
+    return;
+  }
+
+  await cp(migrationsSource, migrationsDest, { recursive: true });
+  console.log(`[build] copied migrations → dist/migrations`);
+}
+
+buildAll()
+  .then(() => copyMigrations(path.resolve(artifactDir, "dist")))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

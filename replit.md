@@ -53,6 +53,8 @@ Example: `/menu/1/table/3` → Spice Garden, Table T3
 - `pnpm run verify-deployment` — full pre-deploy gate: render safety + freshness + hooks lint
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/db run generate` — generate a new migration file from schema changes
+- `pnpm --filter @workspace/db run migrate` — apply pending migrations (dev; production runs automatically on startup)
 
 ## Architecture
 
