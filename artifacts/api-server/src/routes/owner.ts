@@ -15,11 +15,12 @@ import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
 import { requireOwner } from "../middlewares/auth";
 import QRCode from "qrcode";
 import bcrypt from "bcrypt";
-import type { RequestHandler } from "express";
+import type { RequestHandler, Request, Response } from "express";
 import multer from "multer";
 import { extname } from "path";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
+import { addConnection, removeConnection } from "../lib/orderEvents";
 
 const router = Router();
 
@@ -738,6 +739,39 @@ const updateAccount: RequestHandler = async (req, res) => {
   res.json({ ok: true, emailChanged: !!updates.email, passwordChanged: !!updates.passwordHash });
 };
 
+// ─── SSE: live order notifications ────────────────────────────────────────────
+
+function streamOrders(req: Request, res: Response) {
+  const user = req.user!;
+  if (!user.restaurantId) {
+    res.status(403).json({ error: "No restaurant" });
+    return;
+  }
+  const restaurantId = user.restaurantId;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  addConnection(restaurantId, res);
+
+  // Keep-alive heartbeat every 25 s (proxy idle timeouts are typically 60 s)
+  const heartbeat = setInterval(() => {
+    try {
+      res.write("event: heartbeat\ndata: {}\n\n");
+    } catch {
+      clearInterval(heartbeat);
+    }
+  }, 25000);
+
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    removeConnection(restaurantId, res);
+  });
+}
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 router.get("/owner/restaurant", requireOwner, getRestaurant);
@@ -759,6 +793,7 @@ router.post("/owner/tables", requireOwner, createTable);
 router.delete("/owner/tables/:tableId", requireOwner, deleteTable);
 router.post("/owner/tables/:tableId/qr", requireOwner, regenerateQr);
 
+router.get("/owner/orders/stream", requireOwner, streamOrders);
 router.get("/owner/orders", requireOwner, listOrders);
 router.get("/owner/orders/:orderId", requireOwner, getOwnerOrder);
 router.put("/owner/orders/:orderId", requireOwner, updateOrder);

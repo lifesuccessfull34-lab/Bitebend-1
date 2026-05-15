@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm";
 import type { RequestHandler } from "express";
 import Razorpay from "razorpay";
 import { normalizeRestaurantParam, isNumericRestaurantParam } from "@workspace/url-utils";
+import { emitOrderEvent } from "../lib/orderEvents";
 
 const router = Router();
 
@@ -245,6 +246,14 @@ const placeOrder: RequestHandler = async (req, res) => {
     }
   }
   // ─────────────────────────────────────────────────────────────────────────
+
+  emitOrderEvent(restaurantId, {
+    id: order.id,
+    customerName: order.customerName,
+    tableNumber: order.tableNumber,
+    total: order.total,
+    itemCount: createdItems.length,
+  });
 
   res.status(201).json({ ...order, items: createdItems });
 };

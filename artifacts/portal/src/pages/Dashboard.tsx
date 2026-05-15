@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
+import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import type { Order, DashboardStats } from "@/lib/types";
 import {
   IndianRupee,
@@ -143,6 +144,11 @@ export default function Dashboard() {
     const interval = setInterval(fetchData, 8000);
     return () => clearInterval(interval);
   }, [fetchData, user]);
+
+  useOrderNotifications({
+    enabled: !!user && user.role === "owner",
+    onNewOrder: fetchData,
+  });
 
   const clearError = (id: number) =>
     setOrderErrors((prev) => { const next = { ...prev }; delete next[id]; return next; });

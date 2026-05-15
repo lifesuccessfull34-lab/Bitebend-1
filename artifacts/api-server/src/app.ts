@@ -73,7 +73,10 @@ app.use(
     store: new PgSession({
       pool,
       tableName: "sessions",
-      createTableIfMissing: true,
+      // The sessions table is created by the migration; setting this to true
+      // would cause connect-pg-simple to look for table.sql via __dirname
+      // which resolves to dist/ after esbuild bundling (not the package dir).
+      createTableIfMissing: false,
     }),
     secret: process.env.SESSION_SECRET ?? "dev-secret-change-in-prod",
     resave: false,

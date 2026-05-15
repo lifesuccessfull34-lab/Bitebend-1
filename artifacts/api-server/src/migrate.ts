@@ -56,9 +56,34 @@ async function stampPushInitialisedDb(folder: string) {
   }
 }
 
+/**
+ * The `sessions` table is managed by connect-pg-simple, not Drizzle ORM,
+ * so it is not included in the migration SQL. We ensure it exists here so
+ * the session store works even on a fresh DB (and even when
+ * createTableIfMissing is disabled, which is required when running from the
+ * esbuild bundle because __dirname resolves to dist/ rather than the
+ * connect-pg-simple package directory).
+ */
+async function ensureSessionsTable() {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "sessions" (
+      "sid"    varchar        NOT NULL,
+      "sess"   json           NOT NULL,
+      "expire" timestamp(6)   NOT NULL,
+      CONSTRAINT "sessions_pkey" PRIMARY KEY ("sid")
+    ) WITH (OIDS=FALSE)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS "IDX_sessions_expire" ON "sessions" ("expire")
+  `);
+  console.log("[migrate] sessions table ready");
+}
+
 async function main() {
   const migrationsFolder = path.join(__dirname, "migrations");
   console.log(`[migrate] running migrations from ${migrationsFolder}`);
+
+  await ensureSessionsTable();
 
   try {
     await migrate(db, { migrationsFolder });
