@@ -15,7 +15,7 @@
     "check:css-bundle": "pnpm --filter @workspace/scripts run check:css-bundle",
     "check:no-http-links": "pnpm --filter @workspace/scripts run check:no-http-links",
     "check:qr-generation": "pnpm --filter @workspace/scripts run check:qr-generation",
-    "verify-deployment": "pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:hooks && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
+    "verify-deployment": "pnpm run build && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
   },
   "private": true,
   "devDependencies": {
