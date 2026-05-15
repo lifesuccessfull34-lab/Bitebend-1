@@ -1,0 +1,67 @@
+Update ONLY the customer menu UI design as shown in the picture uploaded here (not the exact) to match the new template style shown in the reference image. 
+
+IMPORTANT:
+- Do NOT change any backend logic.
+- Do NOT modify database structure.
+- Do NOT change order flow, cart logic, checkout logic, admin panel logic, payment flow, QR flow, or API routes.
+- Preserve all existing functionality exactly as it is.
+- This task is ONLY a frontend UI redesign of the customer menu page.
+
+Design Requirements:
+1. Use a clean modern restaurant menu layout similar to premium food ordering apps.
+2. Keep the existing dynamic menu functionality.
+3. Food item image should be OPTIONAL:
+   - If image exists → show image thumbnail on left.
+   - If no image → show a clean placeholder or compact card without breaking layout.
+4. Card Layout:
+   - Rounded cards
+   - Soft shadow
+   - White/light cream background
+   - Modern spacing and padding
+5. Each item card should contain:
+   - Food image (optional)
+   - Item name
+   - Short description (optional) 
+   - Price
+   - Veg/Non-veg indicator
+   - “Add” button
+6. Add sticky bottom cart bar:
+   - Show total items
+   - Show total amount
+   - “View Cart” button
+7. Add horizontal category tabs below search bar:
+   - Example: All, Starters, Main Course, Beverages, Desserts
+   - Scrollable on mobile
+8. Add search bar at top.
+9. Keep fully mobile responsive.
+10. Use smooth modern UI transitions/hover effects.
+11. Use elegant typography and spacing.
+12. Keep loading fast and optimized.
+
+Color Theme:
+- Warm restaurant theme
+- Light cream / white background
+- Brown accent color
+- Soft borders and subtle shadows
+
+Technical Constraints:
+- Reuse existing components and APIs where possible.
+- Do not remove any current state management.
+- Do not break cart persistence.
+- Do not modify existing routes.
+- Keep current order placement functionality intact.
+- Keep WhatsApp/send bill/payment integration untouched.
+
+Implementation Goal:
+Only redesign the visual appearance of:
+- Menu page
+- Item list cards
+- Category tabs
+- Cart bar
+- Search section
+
+without changing business logic.
+
+After implementation:
+- Ensure all existing features still work exactly as before.
+- Test add-to-cart, quantity update, and order placement flow.

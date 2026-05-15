@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/menu/"
+title = "Bitebend Menu"
+version = "1.0.0"
+id = "artifacts/menu"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/menu/", "/menu" ]
+localPort = 5173
+
+[services.development]
+run = "pnpm --filter @workspace/menu run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/menu", "run", "build" ]
+
+[services.production.run]
+args = [ "node", "artifacts/menu/static-server.mjs" ]
+
+[services.production.run.env]
+PORT = "5173"
+
+[services.env]
+PORT = "5173"
+BASE_PATH = "/menu/"

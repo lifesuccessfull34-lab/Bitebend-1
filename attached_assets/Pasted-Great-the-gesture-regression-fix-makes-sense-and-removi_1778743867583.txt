@@ -1,0 +1,103 @@
+Great — the gesture regression fix makes sense and removing `touch-action: pan-y pinch-zoom` from `#root` was the correct move.
+
+Now that scrolling and pinch behavior are fixed, I want a dedicated responsive UI stabilization pass because the interface still appears visually scaled/zoomed and unstable on mobile devices.
+
+Please focus on visual responsiveness rather than gesture fixes.
+
+Current remaining issues:
+
+• Menu cards still appear oversized/zoomed on some Android devices
+• Horizontal composition feels too wide
+• Item cards consume excessive vertical space
+• Quantity controls feel detached from card content
+• Sticky cart still looks oversized and partially cut off
+• Cart CTA overlaps mobile navigation space
+• Overall UI does not feel compact like modern food-ordering apps
+• Excess whitespace remains throughout the layout
+
+Please investigate these specifically:
+
+ROOT RESPONSIVE AUDIT:
+
+* Verify viewport meta tag:
+  `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`
+* Check for hidden width expansion
+* Audit min-width values
+* Check width:100vw usage
+* Check flex children forcing overflow
+* Check transform side effects
+* Detect accidental horizontal overflow
+* Audit absolute-positioned elements
+* Ensure no container exceeds viewport width
+
+MENU CARD REFACTOR:
+
+Rebuild card layout with compact mobile hierarchy:
+
+Top:
+
+* Item title
+* Veg/non-veg indicator
+
+Middle:
+
+* Short description
+
+Bottom:
+
+* Price left
+* Quantity/Add CTA right
+
+Requirements:
+
+* Reduce card height
+* Consistent spacing
+* Image aspect ratio locked
+* Compact touch-friendly controls
+* Prevent oversized cards
+* Proper content alignment
+
+TYPOGRAPHY:
+
+Use responsive sizing:
+
+* Item title: moderate emphasis
+* Description: smaller secondary text
+* Price: strong but compact
+
+Avoid oversized mobile typography.
+
+STICKY CART COMPLETE REDESIGN:
+
+Current sticky cart still feels visually broken.
+
+Requirements:
+
+* Respect safe-area insets:
+  `padding-bottom: env(safe-area-inset-bottom)`
+* Remove overlap with Android navigation
+* Compact height
+* Better spacing
+* Full-width clean layout
+* Strong CTA hierarchy
+* Stable shadow/elevation
+* No floating controls covering CTA
+
+DESIGN TARGET:
+
+Please make the UI closer to:
+
+* Swiggy
+* Zomato
+* modern mobile food ordering UX
+
+Design goals:
+
+* compact
+* premium
+* stable
+* touch-friendly
+* fast
+* visually balanced
+
+Do a true responsive refactor rather than incremental patching.

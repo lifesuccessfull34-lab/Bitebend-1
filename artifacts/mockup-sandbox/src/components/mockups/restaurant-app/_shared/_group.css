@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap');
+
+.restaurant-app-customer {
+  --background: 60 20% 98%; /* #FAFAF8 */
+  --foreground: 0 0% 10%; /* #1A1A1A */
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 28 90% 54%; /* #F4821F */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 40 10% 49%; /* #8A8070 */
+  --secondary-foreground: 0 0% 100%;
+  --muted: 60 10% 90%;
+  --muted-foreground: 40 10% 49%;
+  --accent: 28 90% 95%;
+  --accent-foreground: 28 90% 54%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 60 10% 90%;
+  --input: 60 10% 90%;
+  --ring: 28 90% 54%;
+  --radius: 1rem;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.restaurant-app-admin {
+  --background: 230 15% 9%; /* #13141A */
+  --foreground: 0 0% 100%;
+  --card: 230 15% 12%;
+  --card-foreground: 0 0% 100%;
+  --popover: 230 15% 12%;
+  --popover-foreground: 0 0% 100%;
+  --primary: 28 90% 54%; /* #F4821F */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 230 15% 16%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 230 15% 16%;
+  --muted-foreground: 230 10% 60%;
+  --accent: 230 15% 16%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84.2% 60.2%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 230 15% 20%;
+  --input: 230 15% 20%;
+  --ring: 28 90% 54%;
+  --radius: 0.75rem;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport: user-scalable=yes is intentional — blocking zoom (maximum-scale=1)
+      breaks accessibility for visually impaired users and violates WCAG 1.4.4.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- Android browser chrome colour — matches the primary orange -->
+    <meta name="theme-color" content="#f97316" />
+    <!-- Prevent iOS from auto-linking phone numbers as tappable links -->
+    <meta name="format-detection" content="telephone=no" />
+    <title>Bitebend Menu</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
+      Google Fonts — loaded ASYNC so fonts never block first paint.
+      The preconnect hints start the DNS/TLS handshake early.
+      Using "preload as style + onload" makes this non-render-blocking.
+      Text renders immediately in the system fallback font; Plus Jakarta Sans
+      swaps in once loaded (display=swap).
+      NOTE: Loading "Plus Jakarta Sans" here because that is what the app CSS
+      actually uses (--app-font-sans). Do NOT change to Inter.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      onload="this.rel='stylesheet'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      />
+    </noscript>
+    <style>
+      /* Inline loading screen — shown immediately before JS loads.
+         Uses explicit top/right/bottom/left instead of `inset` shorthand
+         because `inset` is not supported on Android < 10 / Samsung Internet < 12.
+         Uses -webkit- flex prefixes for old Android WebView compatibility. */
+      #app-loading {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: -webkit-box;
+        display: -webkit-flex;
+        display: flex;
+        -webkit-box-align: center;
+        -webkit-align-items: center;
+        align-items: center;
+        -webkit-box-pack: center;
+        -webkit-justify-content: center;
+        justify-content: center;
+        -webkit-box-orient: vertical;
+        -webkit-box-direction: normal;
+        -webkit-flex-direction: column;
+        flex-direction: column;
+        gap: 16px;
+        background: #fff8f5;
+        font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+        z-index: 9999;
+      }
+      #app-loading .spinner {
+        width: 44px;
+        height: 44px;
+        border: 3px solid #ffe5d0;
+        border-top-color: #f97316;
+        border-radius: 50%;
+        -webkit-animation: spin 0.8s linear infinite;
+        animation: spin 0.8s linear infinite;
+      }
+      #app-loading .label {
+        color: #555;
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0;
+      }
+      #app-loading .sublabel {
+        color: #aaa;
+        font-size: 12px;
+        margin: 0;
+      }
+      @-webkit-keyframes spin { to { -webkit-transform: rotate(360deg); transform: rotate(360deg); } }
+      @keyframes spin { to { -webkit-transform: rotate(360deg); transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <!-- Loading screen: hidden by JS once React mounts -->
+    <div id="app-loading">
+      <div class="spinner"></div>
+      <p class="label">Loading menu…</p>
+      <p class="sublabel">Please wait</p>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <noscript>
+      <div style="padding:2rem;font-family:sans-serif;text-align:center">
+        <h2>JavaScript required</h2>
+        <p>Please enable JavaScript in your browser to view this menu.</p>
+      </div>
+    </noscript>
+    <!--
+      Safety-net: if JS never loads or crashes, show a reload prompt after 30s.
+      This prevents the forever-blank screen on slow mobile connections.
+    -->
+    <script>
+      (function () {
+        var TIMEOUT = 30000;
+        var timer = setTimeout(function () {
+          var el = document.getElementById('app-loading');
+          if (!el) return;
+          el.innerHTML =
+            '<div style="text-align:center;padding:2rem;font-family:inherit">' +
+            '<p style="color:#555;font-size:15px;font-weight:600;margin:0 0 6px">Taking longer than expected</p>' +
+            '<p style="color:#aaa;font-size:12px;margin:0 0 20px">Check your internet connection</p>' +
+            '<button onclick="location.reload()" style="background:#f97316;color:#fff;border:none;' +
+            'border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">' +
+            'Reload menu' +
+            '</button></div>';
+        }, TIMEOUT);
+        window.__clearMenuLoadingTimer__ = function () { clearTimeout(timer); };
+      })();
+    </script>
+  </body>
+</html>

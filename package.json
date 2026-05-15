@@ -1,0 +1,29 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "test": "pnpm --filter @workspace/url-utils run test && pnpm --filter @workspace/menu run test",
+    "lint": "eslint artifacts/menu/src artifacts/portal/src",
+    "check:hooks": "eslint artifacts/menu/src artifacts/portal/src",
+    "check:render-safety": "pnpm --filter @workspace/scripts run check:render-safety",
+    "check:freshness": "pnpm --filter @workspace/scripts run check:freshness",
+    "check:css-bundle": "pnpm --filter @workspace/scripts run check:css-bundle",
+    "check:no-http-links": "pnpm --filter @workspace/scripts run check:no-http-links",
+    "check:qr-generation": "pnpm --filter @workspace/scripts run check:qr-generation",
+    "verify-deployment": "pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:hooks && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
+  },
+  "private": true,
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@typescript-eslint/parser": "^8.59.3",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.8.1",
+    "typescript": "~5.9.2"
+  }
+}

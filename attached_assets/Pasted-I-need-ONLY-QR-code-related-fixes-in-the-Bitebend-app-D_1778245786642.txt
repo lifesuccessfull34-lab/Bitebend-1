@@ -1,0 +1,81 @@
+I need ONLY QR code related fixes in the Bitebend app. Do NOT modify any unrelated functionality, routing, authentication, database logic, UI sections, or existing business logic.
+
+Required changes:
+
+1. Remove Domain Extension from QR Label
+   Current example:
+   bitebend.in
+
+Change label display to:
+bitebend
+
+IMPORTANT:
+
+* Only change the visible label text under/near the QR code
+* Do NOT change the actual QR destination URL
+* QR should still open the full production domain URL internally
+
+2. Increase Domain Label Text Size
+
+* Make the QR label/domain text exactly DOUBLE the current size
+* Keep alignment and spacing clean
+* Ensure readability in print/PDF/export
+
+3. Fix QR Code Scanning Issue
+   Current issue:
+
+* QR code is not opening properly through Google Lens/mobile scanners
+
+Please carefully inspect the QR generation logic and fix ONLY the QR functionality.
+
+Check all of these:
+
+* QR content format
+* Missing https:// in encoded URL
+* Incorrect URL encoding
+* Low QR error correction settings
+* QR image resolution too low
+* Insufficient white padding/margin (quiet zone)
+* Overlay/logo blocking scan area
+* SVG/Canvas rendering issues
+* Export compression issue
+* Print scaling issue
+* Broken dynamic URL generation
+
+Requirements:
+
+* QR must scan successfully using:
+
+  * Google Lens
+  * Android camera
+  * iPhone camera
+  * Common QR apps
+
+* QR should directly open the production public domain URL
+
+* QR should work both digitally and after printing
+
+4. IMPORTANT RESTRICTION
+   Do NOT:
+
+* change auth system
+* change routing
+* change database
+* change menu logic
+* change table logic
+* change dashboard
+* change styling outside QR section
+* refactor unrelated files
+
+ONLY modify files/components directly related to:
+
+* QR generation
+* QR display
+* QR label rendering
+
+After fixing:
+
+* Test QR scan using generated production QR
+* Confirm Google Lens compatibility
+* Print the exact files changed
+* Explain the root cause of the scanning issue

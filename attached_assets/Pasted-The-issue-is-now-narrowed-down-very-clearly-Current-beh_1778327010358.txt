@@ -1,0 +1,113 @@
+The issue is now narrowed down very clearly.
+
+Current behavior:
+
+* Copy/pasting full menu URLs manually into browser WORKS
+* QR visual generation looks correct
+* But directly opening bitebend.in/portal or opening via QR/browser navigation behaves inconsistently and often shows blank page
+
+This strongly indicates:
+
+* stale service worker
+* cached old JS bundles
+* broken SPA fallback routing
+* mobile browser cache issue
+* incorrect Vite chunk/base handling during direct navigation
+
+This is now specifically a PRODUCTION CACHING + SPA ROUTING problem.
+
+Please inspect ALL of these carefully:
+
+1. Service Worker / PWA
+   Check whether:
+
+* old service worker is still registered
+* stale cached assets are being served
+* old replit.dev assets still cached
+* service worker references old deployment URLs
+
+If any service worker exists:
+
+* unregister it completely
+* clear caches
+* redeploy cleanly
+
+2. Cache Headers
+   Inspect production headers for:
+
+* HTML cache-control
+* JS chunk cache
+* stale immutable assets
+* CDN/browser caching behavior
+
+3. Direct Navigation Routing
+   Critical issue:
+   Typing:
+   https://bitebend.in/portal
+
+sometimes fails while pasted deep links work.
+
+Check:
+
+* SPA rewrite rules
+* artifact.toml rewrites
+* BrowserRouter basename
+* Vite base config
+* trailing slash handling
+
+Verify BOTH work correctly:
+https://bitebend.in/portal
+https://bitebend.in/portal/
+
+4. Production Build Chunk Paths
+   Check whether built JS chunks use:
+
+* absolute paths
+* wrong base paths
+* old deployment URLs
+* incorrect hashed chunk references
+
+5. Mobile Browser Testing
+   Test on REAL mobile devices:
+
+* Chrome Android
+* Google Lens open flow
+* direct QR navigation
+* fresh incognito mode
+* after clearing browser storage
+
+6. Force Full Cache Invalidation
+   Do ALL of these:
+
+* clean build
+* delete old dist/build artifacts
+* invalidate deployment cache
+* clear service workers
+* rebuild from scratch
+* republish fully
+
+7. IMPORTANT
+   The issue is now intermittent/cached behavior.
+   The app itself partially works.
+
+The remaining problem is:
+
+* stale production assets
+* routing fallback
+* or cached deployment artifacts
+
+8. Final verification required:
+
+* QR scan opens instantly
+* bitebend.in/portal loads consistently
+* no blank white page
+* works in fresh mobile browser
+* works in incognito mode
+* works after direct typing
+
+Please provide:
+
+* root cause found
+* exact caching/routing issue identified
+* files/configs changed
+* confirmation tested on real mobile browser

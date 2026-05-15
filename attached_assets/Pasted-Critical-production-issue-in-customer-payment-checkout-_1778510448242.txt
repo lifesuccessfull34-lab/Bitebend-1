@@ -1,0 +1,57 @@
+Critical production issue in customer payment checkout flow.
+
+When customers select UPI payment during ordering from the menu app, the app is NOT opening/redirecting properly to UPI apps (Google Pay, PhonePe, Paytm, BHIM, etc.). Also verify that payment requests are correctly linked to the respective restaurant’s payment account.
+
+The complete checkout + restaurant payment mapping flow needs to be investigated and corrected.
+
+Required checks:
+
+1. Verify UPI deep-link generation
+2. Check whether generated UPI URI is valid and properly encoded
+3. Confirm mobile browser compatibility
+4. Test on Android Chrome, Samsung Internet, Firefox Mobile, QR scanner browsers
+5. Verify payment redirect triggers correctly on button click
+6. Check if React/router/navigation handling is blocking redirects
+7. Verify amount/order details are passed correctly
+8. Confirm payment payload includes:
+
+   * amount
+   * merchant/payee name
+   * UPI ID
+   * transaction/order reference
+9. Test fallback handling if no UPI app installed
+10. Verify HTTPS/custom domain compatibility
+11. Check payment success/failure callback handling
+12. Ensure checkout works correctly from QR scan flow also
+13. Verify duplicate order prevention and pending payment handling
+
+IMPORTANT — Restaurant Payment Mapping Validation:
+
+14. Verify each restaurant’s configured UPI/payment details are correctly fetched from database
+15. Ensure customer payments always route to the correct restaurant account
+16. Confirm no hardcoded/shared/default UPI ID exists anywhere
+17. Verify restaurant ID ↔ order ↔ payment payload mapping
+18. Ensure QR/menu links load the correct restaurant payment configuration
+19. Test multiple restaurants to confirm payments never cross-route
+20. Confirm payment amount matches actual cart/order total
+21. Verify transaction references remain unique
+22. Check persistence after page refresh/reload
+23. Test both dine-in and takeaway flows
+
+Expected behavior:
+
+* Customer opens Restaurant A menu → payment goes ONLY to Restaurant A account
+* Customer opens Restaurant B menu → payment goes ONLY to Restaurant B account
+* Clicking “Pay via UPI” should immediately open supported UPI apps
+* Customer should return properly to order flow after payment
+
+Please provide:
+
+1. Root cause
+2. Files changed
+3. Exact UPI link format used
+4. How restaurant-payment mapping was validated
+5. How incorrect/cross-payment routing was prevented
+6. Devices/browsers tested
+7. Screenshots/video of working flow
+8. Confirmation that production checkout is now fully working

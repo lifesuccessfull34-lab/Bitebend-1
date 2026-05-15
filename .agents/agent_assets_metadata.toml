@@ -1,0 +1,8 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "rxw1yXIfWyai42OVTydN0"
+uri = "file://artifacts/portal/public/restaurant-hero.png"
+type = "image"
+title = "phone scanning qr code restaurant menu"

@@ -1,0 +1,100 @@
+I want to update the order and payment logic to allow restaurants to process and serve orders even if payment is pending.
+
+IMPORTANT:
+Do NOT block order confirmation or preparation due to unpaid status.
+
+--------------------------------------------------
+
+PART 1: ORDER & PAYMENT STATUS (SEPARATE)
+
+Keep two fields:
+
+1. orderStatus:
+   - PENDING
+   - CONFIRMED
+   - PREPARING
+   - READY
+   - COMPLETED
+   - CANCELLED
+
+2. paymentStatus:
+   - PENDING
+   - PAID
+   - FAILED
+
+--------------------------------------------------
+
+PART 2: UPDATED BUSINESS LOGIC
+
+1. Allow order flow even if payment is pending:
+
+- Orders can move:
+  PENDING → CONFIRMED → PREPARING → READY
+
+- Do NOT block these actions if paymentStatus = PENDING
+
+--------------------------------------------------
+
+PART 3: COMPLETION RULE (IMPORTANT)
+
+Before marking order as COMPLETED:
+
+IF paymentStatus != "PAID":
+  - Block action
+  - Show error:
+    "Please complete payment before closing the order"
+
+--------------------------------------------------
+
+PART 4: CASH PAYMENT SUPPORT
+
+Add button:
+
+- "Mark as Paid (Cash)"
+
+On click:
+- paymentStatus = PAID
+
+--------------------------------------------------
+
+PART 5: UI BUTTON LOGIC
+
+IF paymentStatus = PENDING:
+
+- Show:
+  - "Mark Confirmed"
+  - "Mark Preparing"
+  - "Mark Ready"
+  - "Mark as Paid"
+
+- Disable or block:
+  - "Mark Completed"
+
+--------------------------------------------------
+
+PART 6: UI STATUS DISPLAY
+
+Show clearly:
+
+- Order Status
+- Payment Status
+
+Add badge:
+- "UNPAID" (highlight in red)
+
+--------------------------------------------------
+
+PART 7: OPTIONAL IMPROVEMENT
+
+- Show warning:
+  "Order is unpaid" on active orders
+
+--------------------------------------------------
+
+RULES:
+
+- Do NOT block service due to unpaid status
+- Allow full order processing before payment
+- Only restrict final completion
+- Keep orderStatus and paymentStatus separate
+- Do not break existing dashboard

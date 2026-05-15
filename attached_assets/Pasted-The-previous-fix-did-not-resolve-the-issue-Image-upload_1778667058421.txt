@@ -1,0 +1,182 @@
+The previous fix did not resolve the issue. Image upload is STILL failing in:
+
+Dashboard → Menu → Menu Management → Upload Photo
+
+This now requires FULL END-TO-END DEBUGGING with actual root cause verification — not assumptions.
+
+==================================================
+CRITICAL REQUIREMENT
+====================
+
+Do NOT give generic fixes.
+
+Actually test:
+
+* selecting image
+* uploading image
+* saving image
+* loading image back in menu item
+
+The upload flow must work completely after fix.
+
+==================================================
+STEP-BY-STEP DEBUG REQUIRED
+===========================
+
+1. FRONTEND DEBUG
+   ==================================================
+
+Check:
+
+* Is file input working?
+* Is image selected correctly?
+* Is FormData populated correctly?
+* Is API request sent?
+* Is correct field name used?
+* Is auth token included?
+* Is request blocked by frontend validation?
+
+Log:
+
+* selected file
+* file size
+* MIME type
+* FormData entries
+* upload API response
+
+==================================================
+2. NETWORK/API DEBUG
+====================
+
+Inspect actual upload request:
+
+* endpoint URL
+* request payload
+* response status
+* response body
+* timeout issues
+* CORS issues
+
+Verify:
+
+* upload request actually reaches backend
+
+==================================================
+3. BACKEND DEBUG
+================
+
+Check:
+
+* Route exists
+* Route method correct
+* Multer middleware executing
+* req.file exists
+* Upload path valid
+* File write successful
+* Error thrown location
+
+Add logs for:
+
+* upload request received
+* file metadata
+* destination path
+* write success/failure
+* actual exception stack
+
+==================================================
+4. REPLIT STORAGE DEBUG
+=======================
+
+IMPORTANT:
+Replit deployment environments sometimes block local filesystem persistence.
+
+Check:
+
+* Are uploads writing to temporary filesystem?
+* Is directory writable?
+* Is deployment environment clearing files?
+* Is static serving configured correctly?
+
+If local storage unreliable:
+Implement safer persistent storage approach.
+
+==================================================
+5. VERIFY IMAGE ACCESS
+======================
+
+After upload:
+Verify:
+
+* image file exists physically
+* public URL works
+* image renders in dashboard
+* image renders in menu app
+
+==================================================
+6. FALLBACK IMPLEMENTATION (IF LOCAL STORAGE FAILS)
+===================================================
+
+If Replit local storage is causing issue:
+
+Implement:
+
+* base64 image storage temporarily
+  OR
+* object storage compatible solution
+  OR
+* database-backed image storage
+
+ONLY if required.
+
+==================================================
+7. UI IMPROVEMENTS
+==================
+
+Show:
+
+* uploading spinner
+* upload percentage
+* success toast
+* detailed failure reason
+
+NOT generic:
+"Storage write failed"
+
+==================================================
+8. TEST WITH THESE FILE TYPES
+=============================
+
+Must successfully upload:
+
+* JPG
+* JPEG
+* PNG
+* WEBP
+
+Size:
+
+* Under 5 MB
+
+==================================================
+9. FINAL VERIFICATION REQUIRED
+==============================
+
+Actually test:
+✓ Upload image
+✓ Save menu item
+✓ Refresh page
+✓ Image still visible
+✓ Open customer menu
+✓ Image visible there too
+
+==================================================
+AFTER FIX PROVIDE
+=================
+
+1. Exact root cause
+2. Exact failing file/code
+3. Files changed
+4. Storage method now used
+5. Why previous fix failed
+6. Proof upload flow now works
+7. Persistence confirmation after refresh/redeploy
