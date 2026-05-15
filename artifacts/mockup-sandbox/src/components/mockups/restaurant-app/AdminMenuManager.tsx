@@ -44,7 +44,7 @@ function AddEditModal({ item, onSave, onClose }: {
   const [form, setForm] = useState({
     name: item?.name ?? "",
     category: item?.category ?? "Starters",
-    price: item?.price ?? "",
+    price: item?.price ?? 0,
     description: item?.description ?? "",
     veg: item?.veg ?? true,
     bestseller: item?.bestseller ?? false,

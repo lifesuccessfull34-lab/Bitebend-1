@@ -149,7 +149,7 @@ export function SuperAdminDashboard() {
                   <svg viewBox="0 0 100 100" className="w-full h-full transform -rotate-90">
                     <circle cx="50" cy="50" r="40" fill="none" stroke="hsl(var(--border))" strokeWidth="20" />
                     <circle cx="50" cy="50" r="40" fill="none" stroke="hsl(var(--primary))" strokeWidth="20" strokeDasharray="251.2" strokeDashoffset="150" /> {/* 40% Growth */}
-                    <circle cx="50" cy="50" r="40" fill="none" stroke="#F59E0B" strokeWidth="20" strokeDasharray="251.2" strokeDashoffset="200" strokeDashoffset="201" transform="rotate(144 50 50)" /> {/* 20% Pro */}
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#F59E0B" strokeWidth="20" strokeDasharray="251.2" strokeDashoffset="201" transform="rotate(144 50 50)" /> {/* 20% Pro */}
                     <circle cx="50" cy="50" r="40" fill="none" stroke="hsl(var(--muted-foreground))" strokeOpacity="0.5" strokeWidth="20" strokeDasharray="251.2" strokeDashoffset="145" transform="rotate(216 50 50)" /> {/* 42% Starter */}
                   </svg>
                 </div>

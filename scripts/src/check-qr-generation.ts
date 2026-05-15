@@ -131,7 +131,7 @@ async function encodeQR(url: string): Promise<Buffer> {
     QRCode.toBuffer(
       url,
       { type: "png", width: 300, margin: 4, errorCorrectionLevel: "H" },
-      (err, buf) => {
+      (err: Error | null | undefined, buf: Buffer) => {
         if (err) reject(err);
         else resolve(buf);
       },
