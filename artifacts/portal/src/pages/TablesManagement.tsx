@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Plus, Trash2, Loader2, Download, QrCode, Copy, Check,
-  ExternalLink, UtensilsCrossed, Store, Save,
+  ExternalLink, UtensilsCrossed, Store, Save, Printer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QRCodeCanvas } from "qrcode.react";
@@ -21,9 +21,19 @@ declare const __SITE_URL__: string;
 declare const __REPLIT_DOMAINS__: string;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   QR label builder — always includes static "Table No: ______" placeholder.
-   One QR per restaurant; owners write/stick the table number after printing.
+   QR label builder
+   Physical size: 20 cm × 9.5 cm, rendered at 300 DPI for print-ready output.
+   Layout: landscape — QR on left, content (header + table placeholder + brand)
+   on the right.
+
+   "Bitebend" brand text is rendered at exactly 16 pt (300 DPI → 67 px).
 ───────────────────────────────────────────────────────────────────────────── */
+
+/** Convert centimetres → pixels at 300 DPI */
+function cm(v: number) { return Math.round(v * 300 / 2.54); }
+/** Convert points → pixels at 300 DPI */
+function pt(v: number) { return Math.round(v * 300 / 72); }
+
 async function buildQRLabelPNG(opts: {
   url: string;
   restaurantName: string;
@@ -31,124 +41,323 @@ async function buildQRLabelPNG(opts: {
 }): Promise<string> {
   const { url, restaurantName, domain } = opts;
 
-  // Render at 2× physical pixels for print-crisp output
-  const SCALE = 2;
+  // ── Physical canvas: 20 cm × 9.5 cm at 300 DPI ──────────────────────────
+  const W = cm(20);   // 2362 px
+  const H = cm(9.5);  // 1122 px
 
-  const W = 500;
-  const HEADER_H = 160;
-  const QR_SIZE = 300;
-  const QR_PAD = 30;
-  const QR_ZONE_H = QR_PAD + QR_SIZE + QR_PAD;
-  const TABLE_H = 130;
-  const FOOTER_H = 80;
-  const H = HEADER_H + QR_ZONE_H + TABLE_H + FOOTER_H;
+  // Left column: QR section (8.8 cm wide)
+  const QR_COL_W  = cm(8.8);
+  const QR_PAD    = cm(0.55);
+  const QR_SIZE   = H - QR_PAD * 2;          // QR fills column height with equal top/bottom margin
+  const QR_LEFT   = Math.round((QR_COL_W - QR_SIZE) / 2);
+  const QR_TOP    = QR_PAD;
 
-  // 1. Generate QR onto an offscreen canvas via qrcode lib.
-  //    margin: 4 = ISO-standard quiet zone (4 modules). Without this many
-  //    scanners (Google Lens, iPhone camera) refuse to read the code.
-  //    errorCorrectionLevel "H" = 30% data recovery — best for printed codes.
+  // Right column: content section
+  const CONT_X    = QR_COL_W;
+  const CONT_W    = W - QR_COL_W;
+  const CONT_PAD  = cm(0.5);               // horizontal text padding
+
+  // Header height: 3.3 cm
+  const HDR_H     = cm(3.3);
+
+  // Footer height: 1.15 cm
+  const FTR_H     = cm(1.15);
+
+  // ── 1. Generate high-resolution QR ───────────────────────────────────────
+  //    margin:4 = ISO quiet zone; level H = 30% data recovery.
   const qrCanvas = document.createElement("canvas");
   await QRCodeLib.toCanvas(qrCanvas, url, {
-    width: QR_SIZE * SCALE,
+    width: QR_SIZE,
     margin: 4,
     color: { dark: "#1a1a1a", light: "#ffffff" },
     errorCorrectionLevel: "H",
   });
 
-  // 2. Build label canvas at 2× physical resolution for print sharpness
+  // ── 2. Compose label canvas ───────────────────────────────────────────────
   const canvas = document.createElement("canvas");
-  canvas.width = W * SCALE;
-  canvas.height = H * SCALE;
+  canvas.width  = W;
+  canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-  ctx.scale(SCALE, SCALE);
 
-  // ── Background ──────────────────────────────────────────────────────────
+  // Background
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, W, H);
 
-  // ── Orange gradient header ──────────────────────────────────────────────
-  const grad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
-  grad.addColorStop(0, "#ea580c");
-  grad.addColorStop(1, "#c2410c");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, HEADER_H);
+  // QR column background (very light grey)
+  ctx.fillStyle = "#f9fafb";
+  ctx.fillRect(0, 0, QR_COL_W, H);
 
-  // Header bottom accent stripe
-  ctx.fillStyle = "rgba(255,255,255,0.18)";
-  ctx.fillRect(0, HEADER_H - 4, W, 4);
+  // Column divider
+  ctx.fillStyle = "#e5e7eb";
+  ctx.fillRect(QR_COL_W - 1, 0, 2, H);
 
-  // Restaurant name
-  ctx.fillStyle = "#ffffff";
-  ctx.font = "800 26px system-ui, -apple-system, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillText(restaurantName, W / 2, 78, W - 40);
-
-  // Subtitle
-  ctx.fillStyle = "rgba(255,255,255,0.88)";
-  ctx.font = "500 16px system-ui, -apple-system, sans-serif";
-  ctx.fillText("Scan to View Menu & Order", W / 2, 114);
-
-  // ── QR zone ─────────────────────────────────────────────────────────────
-  const qrTop = HEADER_H + QR_PAD;   // y where QR starts
-  const qrLeft = (W - QR_SIZE) / 2;  // x centre
-
-  // White card behind QR
-  ctx.fillStyle = "#ffffff";
+  // QR card (white bg, subtle rounded border)
+  const cardPad = cm(0.22);
+  const cx = QR_LEFT - cardPad;
+  const cy = QR_TOP  - cardPad;
+  const cw = QR_SIZE + cardPad * 2;
+  const ch = QR_SIZE + cardPad * 2;
+  const cr = cm(0.2);
+  ctx.fillStyle   = "#ffffff";
   ctx.strokeStyle = "#e5e7eb";
-  ctx.lineWidth = 1.5;
-  const cardPad = 8;
+  ctx.lineWidth   = 2;
   ctx.beginPath();
-  const rx = qrLeft - cardPad;
-  const ry = qrTop - cardPad;
-  const rw = QR_SIZE + cardPad * 2;
-  const rh = QR_SIZE + cardPad * 2;
-  const radius = 10;
-  ctx.moveTo(rx + radius, ry);
-  ctx.lineTo(rx + rw - radius, ry);
-  ctx.arcTo(rx + rw, ry, rx + rw, ry + radius, radius);
-  ctx.lineTo(rx + rw, ry + rh - radius);
-  ctx.arcTo(rx + rw, ry + rh, rx + rw - radius, ry + rh, radius);
-  ctx.lineTo(rx + radius, ry + rh);
-  ctx.arcTo(rx, ry + rh, rx, ry + rh - radius, radius);
-  ctx.lineTo(rx, ry + radius);
-  ctx.arcTo(rx, ry, rx + radius, ry, radius);
+  ctx.moveTo(cx + cr, cy);
+  ctx.lineTo(cx + cw - cr, cy);
+  ctx.arcTo(cx + cw, cy,       cx + cw, cy + cr,       cr);
+  ctx.lineTo(cx + cw, cy + ch - cr);
+  ctx.arcTo(cx + cw, cy + ch,  cx + cw - cr, cy + ch,  cr);
+  ctx.lineTo(cx + cr, cy + ch);
+  ctx.arcTo(cx,       cy + ch, cx,        cy + ch - cr, cr);
+  ctx.lineTo(cx, cy + cr);
+  ctx.arcTo(cx,       cy,      cx + cr,   cy,           cr);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
   // Draw QR
-  ctx.drawImage(qrCanvas, qrLeft, qrTop, QR_SIZE, QR_SIZE);
+  ctx.drawImage(qrCanvas, QR_LEFT, QR_TOP, QR_SIZE, QR_SIZE);
 
-  // ── Static "Table No: ______" placeholder ───────────────────────────────
-  const tblTop = HEADER_H + QR_ZONE_H;
+  // ── Content: orange gradient header ──────────────────────────────────────
+  const grad = ctx.createLinearGradient(CONT_X, 0, CONT_X, HDR_H);
+  grad.addColorStop(0, "#ea580c");
+  grad.addColorStop(1, "#c2410c");
+  ctx.fillStyle = grad;
+  ctx.fillRect(CONT_X, 0, CONT_W, HDR_H);
 
-  // Separator
-  ctx.fillStyle = "#e5e7eb";
-  ctx.fillRect(40, tblTop + 14, W - 80, 1.5);
+  // Accent stripe at header bottom
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fillRect(CONT_X, HDR_H - 4, CONT_W, 4);
 
-  // Static placeholder — bold, large, always printed
-  ctx.fillStyle = "#111827";
-  ctx.font = "900 46px system-ui, -apple-system, sans-serif";
-  ctx.textAlign = "center";
+  // Restaurant name — 14 pt
+  const textX   = CONT_X + CONT_PAD;
+  const maxTxtW = CONT_W - CONT_PAD * 2;
+  ctx.fillStyle    = "#ffffff";
+  ctx.font         = `900 ${pt(14)}px system-ui,-apple-system,sans-serif`;
+  ctx.textAlign    = "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText("Table No: ______", W / 2, tblTop + 100, W - 40);
+  ctx.fillText(restaurantName, textX, Math.round(HDR_H * 0.46), maxTxtW);
 
-  // ── Footer ───────────────────────────────────────────────────────────────
-  const footerTop = HEADER_H + QR_ZONE_H + TABLE_H;
+  // Subtitle — 9 pt
+  ctx.fillStyle = "rgba(255,255,255,0.88)";
+  ctx.font      = `500 ${pt(9)}px system-ui,-apple-system,sans-serif`;
+  ctx.fillText("Scan to View Menu & Order", textX, Math.round(HDR_H * 0.74));
 
-  // Separator
+  // ── Content: body (between header and footer) ─────────────────────────────
+  const BODY_Y = HDR_H;
+  const BODY_H = H - HDR_H - FTR_H;
+  const BODY_MID = BODY_Y + BODY_H / 2;
+
+  // Top divider
   ctx.fillStyle = "#e5e7eb";
-  ctx.fillRect(40, footerTop + 12, W - 80, 1.5);
+  ctx.fillRect(textX, BODY_Y + cm(0.35), maxTxtW, 2);
 
-  // Domain label — strip TLD, show only the brand name (e.g. "bitebend")
-  ctx.fillStyle = "#6b7280";
-  ctx.font = "500 30px system-ui, -apple-system, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  ctx.fillText(domain, W / 2, footerTop + 58);
+  // "Table No: ______" — 20 pt, vertically centred
+  ctx.fillStyle    = "#111827";
+  ctx.font         = `900 ${pt(20)}px system-ui,-apple-system,sans-serif`;
+  ctx.textAlign    = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("Table No: ______", textX, BODY_MID, maxTxtW);
+
+  // Bottom divider
+  ctx.fillStyle = "#e5e7eb";
+  ctx.fillRect(textX, H - FTR_H - cm(0.05), maxTxtW, 2);
+
+  // ── Content: footer — brand name at exactly 16 pt ─────────────────────────
+  // 16 pt × (300 DPI / 72) = 66.7 → 67 px
+  ctx.fillStyle    = "#ea580c";
+  ctx.font         = `700 ${pt(16)}px system-ui,-apple-system,sans-serif`;
+  ctx.textAlign    = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(domain, textX, H - FTR_H / 2);
 
   return canvas.toDataURL("image/png");
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Print / PDF path — opens a new browser window with @page { size: 20cm 9.5cm }
+   so physical dimensions are exact regardless of screen DPI or browser zoom.
+   Users can "Save as PDF" from the browser print dialog for digital distribution.
+───────────────────────────────────────────────────────────────────────────── */
+async function printQRLabel(opts: {
+  url: string;
+  restaurantName: string;
+  domain: string;
+}): Promise<boolean> {
+  const { url, restaurantName, domain } = opts;
+
+  // Generate QR as a data-URI for embedding in the print page
+  const qrDataUrl = await QRCodeLib.toDataURL(url, {
+    width: 600,
+    margin: 4,
+    color: { dark: "#1a1a1a", light: "#ffffff" },
+    errorCorrectionLevel: "H",
+  });
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>QR Label — ${restaurantName}</title>
+<style>
+  @page {
+    size: 20cm 9.5cm;
+    margin: 0;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 20cm;
+    height: 9.5cm;
+    overflow: hidden;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Outer label ─────────────────────────────────────── */
+  .label {
+    display: flex;
+    width: 20cm;
+    height: 9.5cm;
+    font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+  }
+
+  /* ── Left: QR code column ────────────────────────────── */
+  .qr-col {
+    width: 8.8cm;
+    height: 9.5cm;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f9fafb;
+    border-right: 1px solid #e5e7eb;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .qr-wrap {
+    background: #fff;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 0.2cm;
+    padding: 0.18cm;
+    display: inline-flex;
+  }
+  .qr-wrap img {
+    display: block;
+    width: 7.8cm;
+    height: 7.8cm;
+    image-rendering: crisp-edges;
+    image-rendering: pixelated;
+  }
+
+  /* ── Right: content column ───────────────────────────── */
+  .content-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 9.5cm;
+    overflow: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(160deg, #ea580c 0%, #c2410c 100%);
+    padding: 0.5cm 0.5cm 0.42cm;
+    color: #fff;
+    flex-shrink: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .rest-name {
+    font-size: 14pt;
+    font-weight: 900;
+    line-height: 1.1;
+    margin-bottom: 0.1cm;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .scan-text {
+    font-size: 9pt;
+    font-weight: 500;
+    opacity: 0.88;
+  }
+
+  /* Body */
+  .body {
+    flex: 1;
+    padding: 0 0.5cm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.22cm;
+    overflow: hidden;
+  }
+  .divider {
+    height: 1px;
+    background: #e5e7eb;
+    flex-shrink: 0;
+  }
+  .table-label {
+    font-size: 20pt;
+    font-weight: 900;
+    color: #111827;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  /* Footer — brand at exactly 16 pt */
+  .footer {
+    flex-shrink: 0;
+    padding: 0 0.5cm;
+    height: 1.1cm;
+    border-top: 1px solid #e5e7eb;
+    display: flex;
+    align-items: center;
+  }
+  .brand {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #ea580c;
+    letter-spacing: -0.02em;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+</style>
+</head>
+<body>
+<div class="label">
+  <div class="qr-col">
+    <div class="qr-wrap">
+      <img src="${qrDataUrl}" alt="QR Code" />
+    </div>
+  </div>
+  <div class="content-col">
+    <div class="header">
+      <div class="rest-name">${restaurantName}</div>
+      <div class="scan-text">Scan to View Menu &amp; Order</div>
+    </div>
+    <div class="body">
+      <div class="divider"></div>
+      <div class="table-label">Table No: ______</div>
+      <div class="divider"></div>
+    </div>
+    <div class="footer">
+      <span class="brand">${domain}</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>`;
+
+  const win = window.open("", "_blank", "width=900,height=500");
+  if (!win) return false;
+  win.document.write(html);
+  win.document.close();
+  // Give the browser a moment to render before opening the print dialog
+  setTimeout(() => win.print(), 350);
+  return true;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -162,6 +371,7 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
 }) {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [printing, setPrinting] = useState(false);
 
   // Resolve the correct public-facing origin at build time.
   // Priority: SITE_URL (custom domain) → REPLIT_DOMAINS (.replit.app) → current origin.
@@ -175,6 +385,9 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
   // Use slug for clean URLs; fall back to numeric ID for backward compat.
   const menuUrl = `${_publicOrigin}/menu/${restaurantSlug ?? restaurantId}`;
 
+  // Strip TLD — e.g. "bitebend.replit.app" → "bitebend"
+  const brandLabel = window.location.hostname.split(".")[0];
+
   const handleCopy = async () => {
     await navigator.clipboard.writeText(menuUrl);
     setCopied(true);
@@ -184,8 +397,6 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      // Strip TLD — e.g. "bitebend.replit.app" → "bitebend"
-      const brandLabel = window.location.hostname.split(".")[0];
       const dataUrl = await buildQRLabelPNG({
         url: menuUrl,
         restaurantName,
@@ -197,6 +408,22 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
       link.click();
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handlePrint = async () => {
+    setPrinting(true);
+    try {
+      const opened = await printQRLabel({
+        url: menuUrl,
+        restaurantName,
+        domain: brandLabel,
+      });
+      if (!opened) {
+        alert("Pop-up blocked. Please allow pop-ups for this site, then try again.");
+      }
+    } finally {
+      setPrinting(false);
     }
   };
 
@@ -257,12 +484,24 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
               size="sm"
               className="bg-orange-500 hover:bg-orange-600 text-white h-9"
               onClick={handleDownload}
-              disabled={downloading}
+              disabled={downloading || printing}
             >
               {downloading
                 ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                 : <Download className="w-3.5 h-3.5 mr-1.5" />}
-              Download QR Label
+              Download PNG
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9"
+              onClick={handlePrint}
+              disabled={printing || downloading}
+            >
+              {printing
+                ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                : <Printer className="w-3.5 h-3.5 mr-1.5" />}
+              Print / Save PDF
             </Button>
             <Button size="sm" variant="outline" className="h-9" onClick={() => window.open(menuUrl, "_blank")}>
               <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Preview Menu
