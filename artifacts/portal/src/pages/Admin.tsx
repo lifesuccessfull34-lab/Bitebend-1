@@ -362,7 +362,7 @@ export default function Admin() {
     const body = {
       name: planForm.name,
       price: Math.round(parseFloat(planForm.price) * 100),
-      customerLimit: planForm.customerLimit === "unlimited" ? 999999 : parseInt(planForm.customerLimit),
+      customerLimit: planForm.customerLimit.trim().toLowerCase() === "unlimited" ? 999999 : parseInt(planForm.customerLimit),
       description: planForm.description || null,
       displayOrder: parseInt(planForm.displayOrder) || 0,
       isActive: true,

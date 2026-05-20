@@ -158,6 +158,12 @@ const createPlan: RequestHandler = async (req, res) => {
     name: string; price: number; customerLimit: number; description?: string; displayOrder?: number;
     validityType?: "days" | "months"; validityValue?: number;
   };
+  if (!name || typeof price !== "number" || isNaN(price)) {
+    res.status(400).json({ error: "name and numeric price are required" }); return;
+  }
+  if (typeof customerLimit !== "number" || isNaN(customerLimit) || !Number.isFinite(customerLimit)) {
+    res.status(400).json({ error: "customerLimit must be a valid integer (use 999999 for unlimited)" }); return;
+  }
   const [plan] = await db.insert(subscriptionPlans).values({
     name, price, customerLimit, description: description ?? null,
     displayOrder: displayOrder ?? 0, isActive: true,
