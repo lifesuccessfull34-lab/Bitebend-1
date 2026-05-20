@@ -17,6 +17,17 @@ export const pool = new Pool({
   min: 2,
   max: 10,
 });
+
+// CRITICAL: Without this handler, PostgreSQL terminating an idle minimum
+// connection (e.g. administrator command, DB restart, or maintenance window)
+// emits an unhandled 'error' event that crashes the Node.js process.
+// With the handler, pg simply discards the dead client and opens a fresh one.
+pool.on("error", (err) => {
+  // Log to stderr so it shows up in production logs without importing pino here.
+  // The pool automatically replaces the terminated connection.
+  console.error("[db] idle client error (connection will be replaced):", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
