@@ -49,11 +49,11 @@ function StatCard({ label, value, icon: Icon, color, sub, accent }: {
 }
 
 interface PlanForm {
-  name: string; price: string; customerLimit: string;
+  name: string; price: string; customerLimit: string; isUnlimited: boolean;
   description: string; displayOrder: string;
   validityType: "days" | "months"; validityValue: string;
 }
-const emptyPlanForm = (): PlanForm => ({ name: "", price: "", customerLimit: "", description: "", displayOrder: "0", validityType: "days", validityValue: "30" });
+const emptyPlanForm = (): PlanForm => ({ name: "", price: "", customerLimit: "", isUnlimited: false, description: "", displayOrder: "0", validityType: "days", validityValue: "30" });
 
 interface PlanFormPanelProps {
   editingPlan: SubscriptionPlan | null;
@@ -78,8 +78,42 @@ function PlanFormPanel({ editingPlan, planForm, planSaving, onChangePlanForm, on
           <Input type="number" placeholder="199" value={planForm.price} onChange={(e) => onChangePlanForm((f) => ({ ...f, price: e.target.value }))} />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Customer Limit (or "unlimited")</Label>
-          <Input placeholder="2000" value={planForm.customerLimit} onChange={(e) => onChangePlanForm((f) => ({ ...f, customerLimit: e.target.value }))} />
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">Customer Limit</Label>
+            <button
+              type="button"
+              onClick={() => onChangePlanForm((f) => ({ ...f, isUnlimited: !f.isUnlimited, customerLimit: "" }))}
+              className={cn(
+                "flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors",
+                planForm.isUnlimited
+                  ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                  : "bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300"
+              )}
+            >
+              <span className={cn(
+                "w-7 h-4 rounded-full relative transition-colors",
+                planForm.isUnlimited ? "bg-indigo-500" : "bg-slate-300"
+              )}>
+                <span className={cn(
+                  "absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",
+                  planForm.isUnlimited ? "translate-x-3.5" : "translate-x-0.5"
+                )} />
+              </span>
+              Unlimited
+            </button>
+          </div>
+          <Input
+            type="number"
+            min="1"
+            placeholder="e.g. 2000"
+            value={planForm.isUnlimited ? "" : planForm.customerLimit}
+            disabled={planForm.isUnlimited}
+            onChange={(e) => onChangePlanForm((f) => ({ ...f, customerLimit: e.target.value }))}
+            className={planForm.isUnlimited ? "bg-slate-50 text-slate-400 cursor-not-allowed" : ""}
+          />
+          {planForm.isUnlimited && (
+            <p className="text-xs text-indigo-600 font-medium">∞ Unlimited customers</p>
+          )}
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Validity Type</Label>
@@ -346,10 +380,12 @@ export default function Admin() {
 
   const openEditPlan = (plan: SubscriptionPlan) => {
     setEditingPlan(plan);
+    const unlimited = plan.customerLimit >= 999999;
     setPlanForm({
       name: plan.name,
       price: String(plan.price / 100),
-      customerLimit: plan.customerLimit === 999999 ? "unlimited" : String(plan.customerLimit),
+      customerLimit: unlimited ? "" : String(plan.customerLimit),
+      isUnlimited: unlimited,
       description: plan.description ?? "",
       displayOrder: String(plan.displayOrder),
       validityType: plan.validityType ?? "days",
@@ -362,7 +398,7 @@ export default function Admin() {
     const body = {
       name: planForm.name,
       price: Math.round(parseFloat(planForm.price) * 100),
-      customerLimit: planForm.customerLimit.trim().toLowerCase() === "unlimited" ? 999999 : parseInt(planForm.customerLimit),
+      customerLimit: planForm.isUnlimited ? 999999 : parseInt(planForm.customerLimit),
       description: planForm.description || null,
       displayOrder: parseInt(planForm.displayOrder) || 0,
       isActive: true,
