@@ -5,16 +5,28 @@ import { eq } from "drizzle-orm";
 async function main() {
   const hash = await bcrypt.hash("admin123", 10);
 
-  const result = await db
-    .update(users)
-    .set({ email: "admin@bitebend.in", passwordHash: hash })
+  // Use upsert so this works on a fresh production DB that has never had a
+  // super_admin row (UPDATE-only silently skips when no row exists).
+  const existing = await db
+    .select({ id: users.id })
+    .from(users)
     .where(eq(users.role, "super_admin"))
-    .returning({ id: users.id, email: users.email });
+    .limit(1);
 
-  if (result.length > 0) {
-    console.log(`[seed-admin] updated admin → admin@bitebend.in (rows: ${result.length})`);
+  if (existing.length > 0) {
+    await db
+      .update(users)
+      .set({ email: "admin@bitebend.in", passwordHash: hash })
+      .where(eq(users.role, "super_admin"));
+    console.log(`[seed-admin] updated existing super_admin → admin@bitebend.in`);
   } else {
-    console.log("[seed-admin] no super_admin row found — skipped");
+    await db.insert(users).values({
+      email: "admin@bitebend.in",
+      passwordHash: hash,
+      name: "Platform Admin",
+      role: "super_admin",
+    });
+    console.log("[seed-admin] inserted super_admin → admin@bitebend.in");
   }
 
   process.exit(0);
