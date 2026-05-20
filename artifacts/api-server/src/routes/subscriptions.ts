@@ -40,13 +40,25 @@ function computeExpiry(validityType: string, validityValue: number): Date {
 const router = Router();
 
 // ── Public: list plans ─────────────────────────────────────────────────────
+// Plans almost never change between deploys.  Cache the DB result in memory
+// for 5 minutes so every portal page-load doesn't pay the cold-pool round-trip
+// (measured at 300–400 ms on first request in production).
+
+let plansCache: { data: unknown; expiresAt: number } | null = null;
+const PLANS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 const listPlans: RequestHandler = async (_req, res) => {
+  const now = Date.now();
+  if (plansCache && now < plansCache.expiresAt) {
+    res.json(plansCache.data);
+    return;
+  }
   const plans = await db
     .select()
     .from(subscriptionPlans)
     .where(eq(subscriptionPlans.isActive, true))
     .orderBy(subscriptionPlans.displayOrder);
+  plansCache = { data: plans, expiresAt: now + PLANS_TTL_MS };
   res.json(plans);
 };
 

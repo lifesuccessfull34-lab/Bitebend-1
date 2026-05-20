@@ -146,4 +146,20 @@ for (const prefix of PORTAL_PREFIXES) {
 // Root redirect → portal
 app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
 
+// ── Static helpers ────────────────────────────────────────────────────────────
+// Browsers and crawlers always probe these at the root domain.
+// Without handlers they hit the API, cost a DB connection, and return 404 —
+// adding ~1 extra round-trip to every mobile page load.
+
+// Redirect browser favicon requests to the portal's built favicon.
+app.get("/favicon.svg", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
+app.get("/favicon.ico", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
+
+// Minimal robots.txt so crawlers don't retry 404 on every visit.
+app.get("/robots.txt", (_req, res) => {
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.end("User-agent: *\nAllow: /\n");
+});
+
 export default app;

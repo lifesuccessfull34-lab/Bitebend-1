@@ -106,14 +106,14 @@
     <!--
       Safety-net: if JS never executes or crashes before AuthContext can call
       window.__hideAppLoader__(), show a "Tap to reload" prompt.
-      12 s covers slow 3G (auth check = 6 s + bundle parse time on low-end phones).
-      In practice AuthContext fires __hideAppLoader__ within ~2-6 s.
-      On very slow connections the user sees a helpful reload button quickly
-      rather than a blank spinner for 30+ seconds.
+      20 s — generous enough for slow Indian 4G connections where bundle
+      download + parse can take 10–15 s before the auth check even starts.
+      In practice AuthContext fires __hideAppLoader__ within ~2–6 s on a
+      normal connection.
     -->
     <script>
       (function () {
-        var TIMEOUT = 12000;
+        var TIMEOUT = 20000;
         var timer = setTimeout(function () {
           var el = document.getElementById('app-loading');
           if (!el) return;
