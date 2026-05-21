@@ -102,6 +102,8 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (qrImageData !== undefined) updates.qrImageData = qrImageData;
   if (qrDecodedPayload !== undefined) updates.qrDecodedPayload = qrDecodedPayload;
   if (qrMerchantName !== undefined) updates.qrMerchantName = qrMerchantName;
+  const { paymentQrEnabled } = req.body as Record<string, unknown>;
+  if (paymentQrEnabled !== undefined) updates.paymentQrEnabled = paymentQrEnabled;
   if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber;
   if (taxPercent !== undefined) updates.taxPercent = taxPercent;
   if (seatingLabel !== undefined) updates.seatingLabel = seatingLabel;

@@ -57,6 +57,7 @@ export const restaurants = pgTable("restaurants", {
   qrImageData: text("qr_image_data"),
   qrDecodedPayload: text("qr_decoded_payload"),
   qrMerchantName: text("qr_merchant_name"),
+  paymentQrEnabled: boolean("payment_qr_enabled").notNull().default(false),
   whatsappNumber: text("whatsapp_number"),
   taxPercent: integer("tax_percent").notNull().default(5),
   seatingLabel: text("seating_label"),

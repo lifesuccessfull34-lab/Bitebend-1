@@ -68,6 +68,7 @@ export interface Restaurant {
   qrImageData: string | null;
   qrDecodedPayload: string | null;
   qrMerchantName: string | null;
+  paymentQrEnabled: boolean;
   whatsappNumber: string | null;
   razorpayKeyId: string | null;
   taxPercent: number;

@@ -239,6 +239,7 @@ export default function Profile() {
     qrImageData: null as string | null,
     qrDecodedPayload: null as string | null,
     qrMerchantName: "",
+    paymentQrEnabled: false,
     whatsappNumber: "",
     taxPercent: "5",
     razorpayKeyId: "",
@@ -285,6 +286,7 @@ export default function Profile() {
           qrImageData: r.qrImageData ?? null,
           qrDecodedPayload: r.qrDecodedPayload ?? null,
           qrMerchantName: r.qrMerchantName ?? "",
+          paymentQrEnabled: r.paymentQrEnabled ?? false,
           whatsappNumber: r.whatsappNumber ?? "",
           taxPercent: String(r.taxPercent ?? 5),
           razorpayKeyId: (r as any).razorpayKeyId ?? "",
@@ -300,7 +302,7 @@ export default function Profile() {
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
 
-  // ── QR upload handler (multi-pass) ────────────────────────────────────────
+  // ── QR upload handler (FileReader → persistent base64 + optional decode) ──
   const handleQrUpload = (file: File) => {
     if (!file.type.startsWith("image/")) {
       setQrStatus("error");
@@ -312,50 +314,60 @@ export default function Profile() {
     setQrStatus("scanning");
     setQrMessage("");
     setQrExtracted(null);
+    setQrVerifyState("idle");
 
-    const img = new Image();
-    img.onload = () => {
-      // Try 12 preprocessing variants (scale × rotation × crop).
-      const raw = attemptQrDecode(img);
-      URL.revokeObjectURL(img.src);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUri = ev.target?.result as string;
+      // Store the image immediately — persists even if QR decode fails
+      setForm((f) => ({ ...f, qrImageData: dataUri }));
 
-      if (!raw) {
+      const img = new Image();
+      img.onload = () => {
+        const raw = attemptQrDecode(img);
+
+        if (!raw) {
+          setQrStatus("success");
+          setQrMessage("QR image saved. UPI details couldn't be auto-extracted — enter them in Advanced settings if needed.");
+          return;
+        }
+
+        console.log("[QR DECODED]", raw);
+
+        try {
+          const extracted = parseUpiQr(raw);
+          setForm((f) => ({
+            ...f,
+            qrDecodedPayload: raw,
+            qrMerchantName: extracted.pn || f.qrMerchantName,
+            upiId: extracted.pa,
+            upiName: extracted.pn || f.upiName,
+            upiVerified: false,
+            verifiedAt: null,
+          }));
+          setQrExtracted(extracted);
+          setQrStatus("success");
+          setQrMessage("");
+        } catch {
+          setQrStatus("success");
+          setQrMessage("QR image saved. Could not extract UPI details — enter them in Advanced settings if needed.");
+        }
+      };
+
+      img.onerror = () => {
         setQrStatus("error");
-        setQrMessage(
-          "No QR code found after trying multiple angles and scales. " +
-          "Use a full screenshot (not a photo of a screen) for best results.",
-        );
-        return;
-      }
+        setQrMessage("Could not load the image. Please try a different file.");
+      };
 
-      console.log("[QR DECODED]", raw);
-
-      try {
-        const extracted = parseUpiQr(raw);
-        setForm((f) => ({
-          ...f,
-          upiId: extracted.pa,
-          upiName: extracted.pn || f.upiName,
-        }));
-        setQrExtracted(extracted);
-        setQrStatus("success");
-        setQrMessage("");
-      } catch (err) {
-        setQrStatus("error");
-        setQrMessage(
-          err instanceof Error
-            ? err.message
-            : "QR decoded but could not extract a valid UPI ID.",
-        );
-      }
+      img.src = dataUri;
     };
 
-    img.onerror = () => {
+    reader.onerror = () => {
       setQrStatus("error");
-      setQrMessage("Could not load image. Please try a different file.");
+      setQrMessage("Could not read file. Please try a different file.");
     };
 
-    img.src = URL.createObjectURL(file);
+    reader.readAsDataURL(file);
   };
 
   const setCred = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -374,6 +386,8 @@ export default function Profile() {
           upiId: form.upiId || null,
           upiName: form.upiName || null,
           personalUpiEnabled: form.personalUpiEnabled,
+          paymentQrEnabled: form.paymentQrEnabled,
+          qrMerchantName: form.qrMerchantName || null,
           whatsappNumber: form.whatsappNumber || null,
           taxPercent: parseInt(form.taxPercent),
           razorpayKeyId: form.razorpayKeyId || null,
@@ -546,31 +560,90 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Personal UPI */}
+            {/* Payment QR */}
             <div className="border-t border-border pt-4 space-y-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <Smartphone className="w-4 h-4 text-amber-500" />
-                    <p className="text-sm font-semibold">Personal UPI Payments</p>
-                    {form.personalUpiEnabled && form.upiId && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                    <ScanLine className="w-4 h-4 text-amber-500" />
+                    <p className="text-sm font-semibold">Payment QR</p>
+                    {form.paymentQrEnabled && form.qrImageData && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
                         ACTIVE
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Customers pay via UPI deep link (GPay, PhonePe, Paytm) — you verify manually
+                    Upload your PhonePe / GPay / Paytm / BharatPe QR — customers scan it directly at checkout
                   </p>
                 </div>
                 <Switch
-                  checked={form.personalUpiEnabled}
-                  onCheckedChange={(v) => setForm((f) => ({ ...f, personalUpiEnabled: v }))}
+                  checked={form.paymentQrEnabled}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, paymentQrEnabled: v }))}
                   className="shrink-0 mt-0.5"
                 />
               </div>
 
-              {/* ── Upload UPI QR ─────────────────────────────────────────── */}
+              {/* Persistent QR image preview */}
+              {form.qrImageData && (
+                <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-lg p-3">
+                  <img
+                    src={form.qrImageData}
+                    alt="Payment QR"
+                    className="w-28 h-28 object-contain rounded border border-green-200 bg-white shrink-0"
+                  />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
+                      <p className="text-xs font-semibold text-green-700">QR Preview</p>
+                    </div>
+                    {(form.qrMerchantName || form.upiName || form.name) && (
+                      <p className="text-xs text-green-700">
+                        Merchant: <span className="font-medium">{form.qrMerchantName || form.upiName || form.name}</span>
+                      </p>
+                    )}
+                    <p className="text-xs text-green-600 font-medium">Status: Ready ✓</p>
+                    <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+                      <button
+                        type="button"
+                        className="text-[11px] text-amber-600 hover:text-amber-800 underline"
+                        onClick={() => qrFileInputRef.current?.click()}
+                      >
+                        Replace QR
+                      </button>
+                      <span className="text-muted-foreground text-[10px]">·</span>
+                      <button
+                        type="button"
+                        className="text-[11px] text-red-500 hover:text-red-700 underline"
+                        onClick={() => {
+                          setForm((f) => ({ ...f, qrImageData: null, qrDecodedPayload: null, qrMerchantName: "" }));
+                          setQrStatus("idle");
+                          setQrExtracted(null);
+                        }}
+                      >
+                        Remove QR
+                      </button>
+                      {form.upiId && form.upiId.includes("@") && (
+                        <>
+                          <span className="text-muted-foreground text-[10px]">·</span>
+                          <button
+                            type="button"
+                            className="text-[11px] text-blue-600 hover:text-blue-800 underline"
+                            onClick={() => {
+                              const name = form.qrMerchantName || form.upiName || form.name || "Test";
+                              window.location.href = buildTestUpiLink(form.upiId, name);
+                            }}
+                          >
+                            Test ₹1
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Upload zone */}
               <div
                 className="border border-dashed border-amber-300 rounded-lg p-3 space-y-2 cursor-pointer hover:bg-amber-50/60 transition-colors"
                 onClick={() => qrFileInputRef.current?.click()}
@@ -584,9 +657,11 @@ export default function Profile() {
                 <div className="flex items-center gap-2">
                   <ScanLine className="w-4 h-4 text-amber-500 shrink-0" />
                   <div>
-                    <p className="text-xs font-semibold text-amber-800">Upload UPI QR to auto-fill</p>
+                    <p className="text-xs font-semibold text-amber-800">
+                      {form.qrImageData ? "Replace QR image" : "Upload Payment QR"}
+                    </p>
                     <p className="text-[11px] text-amber-600">
-                      Drag & drop or click — the UPI ID and merchant name are extracted automatically
+                      Drag & drop or click — PhonePe, GPay, Paytm, BharatPe all supported
                     </p>
                   </div>
                   <button
@@ -595,111 +670,23 @@ export default function Profile() {
                     onClick={(e) => { e.stopPropagation(); qrFileInputRef.current?.click(); }}
                   >
                     <Upload className="w-3 h-3" />
-                    Choose image
+                    {form.qrImageData ? "Replace" : "Choose image"}
                   </button>
                 </div>
 
-                {/* ── Status feedback ──────────────────────────────── */}
                 {qrStatus === "scanning" && (
                   <div className="flex items-center gap-1.5 text-xs text-amber-700 py-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    Trying 12 preprocessing variants…
+                    Processing QR image…
                   </div>
                 )}
-
-                {qrStatus === "success" && qrExtracted && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-2.5">
-                    {/* Header row */}
-                    <div className="flex items-center gap-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
-                      <p className="text-xs font-semibold text-green-700">QR scanned — fields auto-filled below</p>
-                    </div>
-
-                    {/* Extracted fields preview */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600">UPI ID</p>
-                        <p className="text-xs font-mono text-green-900 break-all">{qrExtracted.pa}</p>
-                      </div>
-                      {qrExtracted.pn && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600">Merchant</p>
-                          <p className="text-xs text-green-900">{qrExtracted.pn}</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Verification row */}
-                    {qrVerifyState === "verified" ? (
-                      <div className="flex items-center gap-1.5 bg-green-100 border border-green-300 rounded px-2.5 py-1.5">
-                        <ShieldCheck className="w-3.5 h-3.5 text-green-700 shrink-0" />
-                        <p className="text-xs font-semibold text-green-700">UPI verified — save to persist</p>
-                      </div>
-                    ) : qrVerifyState === "launched" ? (
-                      <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
-                        <p className="text-[11px] text-amber-700">Did the UPI app open successfully?</p>
-                        <button
-                          type="button"
-                          className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
-                          onClick={() => {
-                            setQrVerifyState("verified");
-                            setForm((f) => ({
-                              ...f,
-                              upiVerified: true,
-                              verifiedAt: new Date().toISOString(),
-                            }));
-                          }}
-                        >
-                          <ShieldCheck className="w-3 h-3" />
-                          Mark verified
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[10px] text-green-600">Verify the UPI ID works before saving.</p>
-                        <button
-                          type="button"
-                          className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
-                          onClick={() => {
-                            const pa = encodeURIComponent(qrExtracted.pa);
-                            const pn = encodeURIComponent(qrExtracted.pn || form.name || "Merchant");
-                            window.location.href = `upi://pay?pa=${pa}&pn=${pn}&am=1.00&cu=INR`;
-                            setQrVerifyState("launched");
-                          }}
-                        >
-                          <Zap className="w-3 h-3" />
-                          Test ₹1
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                {qrStatus === "success" && qrMessage && (
+                  <p className="text-xs text-amber-700">{qrMessage}</p>
                 )}
-
                 {qrStatus === "error" && (
-                  <div className="space-y-1.5">
-                    <p className="text-xs text-red-600">{qrMessage}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Couldn&apos;t decode the QR?{" "}
-                      <button
-                        type="button"
-                        className="underline text-amber-700 hover:text-amber-900 font-medium"
-                        onClick={() => {
-                          setQrStatus("idle");
-                          setQrMessage("");
-                          setTimeout(() => {
-                            document.querySelector<HTMLInputElement>(
-                              'input[placeholder="restaurant@okaxis"]',
-                            )?.focus();
-                          }, 50);
-                        }}
-                      >
-                        Enter your UPI ID manually ↓
-                      </button>
-                    </p>
-                  </div>
+                  <p className="text-xs text-red-600">{qrMessage}</p>
                 )}
 
-                {/* Hidden file input — reset value so re-uploading same file triggers onChange */}
                 <input
                   ref={qrFileInputRef}
                   type="file"
@@ -713,71 +700,78 @@ export default function Profile() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>UPI ID</Label>
-                  <Input
-                    value={form.upiId}
-                    onChange={set("upiId")}
-                    placeholder="restaurant@okaxis"
-                  />
-                  <p className="text-xs text-muted-foreground">e.g. name@okaxis, number@paytm</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Merchant Name <span className="text-muted-foreground font-normal text-xs">(shown in UPI app)</span></Label>
-                  <Input
-                    value={form.upiName}
-                    onChange={set("upiName")}
-                    placeholder={form.name || "Your Restaurant Name"}
-                  />
-                  <p className="text-xs text-muted-foreground">Defaults to restaurant name if blank</p>
-                </div>
-              </div>
+              {/* Advanced settings: UPI ID for deep-link fallback */}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setShowAdvancedUpi((v) => !v)}
+              >
+                <span style={{ fontSize: "10px" }}>{showAdvancedUpi ? "▾" : "▸"}</span>
+                Advanced settings (UPI ID, deep-link fallback)
+              </button>
 
-              {/* Test UPI — shown whenever a UPI ID with @ is present, even if
-                  the toggle is off, so owners can diagnose invalid VPAs quickly */}
-              {form.upiId && form.upiId.includes("@") && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold text-blue-700">Test your UPI ID</p>
-                      <p className="text-xs text-blue-600 mt-0.5">
-                        Opens a ₹1 payment in your UPI app — if the app shows a "technical glitch" or fails, your UPI ID is invalid or inactive.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const name = form.upiName || form.name || "Test";
-                        const link = buildTestUpiLink(form.upiId, name);
-                        console.log("[UPI TEST]", link);
-                        window.location.href = link;
-                      }}
-                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
-                    >
-                      <Zap className="w-3.5 h-3.5" />
-                      Test UPI (₹1)
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-blue-500">
-                    UPI ID being tested: <span className="font-mono font-semibold">{form.upiId.trim()}</span>
+              {showAdvancedUpi && (
+                <div className="space-y-3 pl-3 border-l-2 border-border">
+                  <p className="text-[11px] text-muted-foreground">
+                    Auto-filled when QR is scanned. The UPI ID enables the "Can't scan? Open in payment app" fallback.
                   </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-xs font-medium">Deep-link fallback</p>
+                      <p className="text-[11px] text-muted-foreground">Show "Open in payment app" alongside QR</p>
+                    </div>
+                    <Switch
+                      checked={form.personalUpiEnabled}
+                      onCheckedChange={(v) => setForm((f) => ({ ...f, personalUpiEnabled: v }))}
+                      className="shrink-0"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>UPI ID</Label>
+                      <Input
+                        value={form.upiId}
+                        onChange={set("upiId")}
+                        placeholder="restaurant@okaxis"
+                      />
+                      <p className="text-xs text-muted-foreground">e.g. name@okaxis, number@paytm</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Merchant Name <span className="text-muted-foreground font-normal text-xs">(shown in UPI app)</span></Label>
+                      <Input
+                        value={form.upiName}
+                        onChange={set("upiName")}
+                        placeholder={form.name || "Your Restaurant Name"}
+                      />
+                      <p className="text-xs text-muted-foreground">Defaults to restaurant name if blank</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {form.personalUpiEnabled && !form.upiId && (
+              {/* Status cards */}
+              {form.paymentQrEnabled && !form.qrImageData && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
                   <p className="text-xs text-amber-700">
-                    Add your UPI ID above to activate Personal UPI payments for customers.
+                    Upload a payment QR above — customers will scan it at checkout.
                   </p>
                 </div>
               )}
 
-              {form.personalUpiEnabled && form.upiId && (
+              {form.paymentQrEnabled && form.qrImageData && (
                 <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-1">
-                  <p className="text-xs font-semibold text-green-700">Personal UPI is active</p>
+                  <p className="text-xs font-semibold text-green-700">QR Payment is active</p>
                   <p className="text-xs text-green-600">
-                    Customers will see a "Pay via UPI" button at checkout that opens their installed UPI app directly. No Razorpay needed.
+                    Customers will see a "Pay via QR" option at checkout and scan your uploaded QR directly.
+                  </p>
+                </div>
+              )}
+
+              {!form.paymentQrEnabled && form.personalUpiEnabled && form.upiId && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 space-y-1">
+                  <p className="text-xs text-amber-700 font-semibold">UPI deep-link active (no QR)</p>
+                  <p className="text-xs text-amber-600">
+                    Enable and upload a QR above for a more reliable payment experience.
                   </p>
                 </div>
               )}

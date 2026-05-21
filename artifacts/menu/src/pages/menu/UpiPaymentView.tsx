@@ -316,7 +316,7 @@ export function UpiPaymentView({
             Total: ₹{orderTotal.toFixed(2)}
           </p>
 
-          {/* Step 1 */}
+          {/* Step 1 — scan QR or open in app */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "10px" }}>
             <span style={{
               width: "20px", height: "20px", borderRadius: "9999px",
@@ -326,113 +326,148 @@ export function UpiPaymentView({
               flexShrink: 0, marginTop: "1px",
             }}>1</span>
             <p style={{ fontSize: "12px", color: C.amber800, margin: 0 }}>
-              {showChooser
-                ? "Choose your UPI app to complete payment"
-                : "Tap the button below to open your UPI app and complete payment"}
+              {restaurant.hasPaymentQr
+                ? "Scan the QR below with GPay, PhonePe, Paytm or any UPI app"
+                : showChooser
+                  ? "Choose your UPI app to complete payment"
+                  : "Tap the button below to open your UPI app and complete payment"}
             </p>
           </div>
 
-          {/* ── Pay button / App chooser ─────────────────────────────────── */}
-          {!showChooser ? (
-            <>
-              <button
-                onClick={openUpiApp}
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  gap: "8px", width: "100%", padding: "14px 0",
-                  backgroundColor: C.amber500, color: C.white,
-                  borderRadius: "12px", fontWeight: 700, fontSize: "14px",
-                  border: "none", cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(245,158,11,0.35)",
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-                  <line x1="12" y1="18" x2="12.01" y2="18"/>
-                </svg>
-                Pay ₹{orderTotal.toFixed(2)} via UPI
-              </button>
-              <p style={{ fontSize: "11px", color: C.amber600, textAlign: "center", margin: "6px 0 12px" }}>
-                Opens GPay, PhonePe, Paytm or any UPI app
-              </p>
-            </>
-          ) : (
+          {/* ── QR image (primary) or UPI deep-link ─────────────────────── */}
+          {restaurant.hasPaymentQr ? (
             <div style={{ marginBottom: "12px" }}>
-
-              {/* In-app browser warning */}
-              {isInAppBrowser && (
-                <div style={{
-                  backgroundColor: C.blue50,
-                  border: "1px solid #bfdbfe",
-                  borderRadius: "10px",
-                  padding: "10px 12px",
-                  marginBottom: "10px",
-                  fontSize: "11px",
-                  color: C.blue600,
-                  lineHeight: "1.5",
-                }}>
-                  <strong>Tip:</strong> You're using an in-app browser (WhatsApp/Instagram).
-                  For best results, open this page in <strong>Chrome</strong> or your default browser,
-                  or scan the QR code below.
+              {qrDataLoading ? (
+                <div style={{ textAlign: "center", padding: "24px 0" }}>
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.amber500} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite", margin: "0 auto", display: "block" }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                  <p style={{ fontSize: "11px", color: C.amber600, marginTop: "8px" }}>Loading QR…</p>
+                </div>
+              ) : qrImageData ? (
+                <div style={{ textAlign: "center", margin: "0 0 12px" }}>
+                  <div style={{ display: "inline-block", padding: "12px", backgroundColor: C.white, borderRadius: "12px", border: `1px solid ${C.amber200}` }}>
+                    <img
+                      src={qrImageData}
+                      alt="Payment QR"
+                      style={{ width: "200px", height: "200px", objectFit: "contain", display: "block" }}
+                    />
+                  </div>
+                  {restaurant.qrMerchantName && (
+                    <p style={{ fontSize: "11px", color: C.amber600, marginTop: "6px" }}>
+                      Pay to: {restaurant.qrMerchantName}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
+                  <p style={{ fontSize: "12px", color: "#b91c1c", margin: 0 }}>
+                    Could not load QR — ask staff for payment assistance.
+                  </p>
                 </div>
               )}
 
-              {/* Per-app intent buttons */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
-                {UPI_APPS.map((app) => {
-                  // Paytm rejects package-routed intent:// URLs ("technical
-                  // glitch"). Send it the plain upi:// scheme and let Android
-                  // route it normally. GPay and PhonePe tolerate intent:// fine.
-                  const href = isAndroid && app.id !== "paytm"
-                    ? makeIntentUrl(upiLink, app.pkg)
-                    : upiLink;
-                  return (
-                    <button
-                      key={app.id}
-                      onClick={() => openApp(href, app.label)}
-                      style={{
-                        display: "flex", alignItems: "center",
-                        gap: "10px", width: "100%", padding: "11px 14px",
-                        backgroundColor: C.white,
-                        border: `1.5px solid ${C.amber200}`,
-                        borderRadius: "10px", cursor: "pointer",
-                        fontSize: "13px", fontWeight: 700, color: C.gray900,
-                      }}
-                    >
-                      {app.icon}
-                      {app.label}
-                    </button>
-                  );
-                })}
-
-                {/* Generic fallback — opens system app chooser on Android */}
+              {/* Fallback: open in payment app (only if UPI ID is also configured) */}
+              {upiIdValid && (
+                <>
+                  {!showChooser ? (
+                    <>
+                      <button
+                        onClick={openUpiApp}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          gap: "8px", width: "100%", padding: "11px 0",
+                          backgroundColor: "transparent",
+                          border: `1.5px solid ${C.amber200}`,
+                          borderRadius: "10px", color: C.amber700,
+                          fontWeight: 600, fontSize: "12px", cursor: "pointer",
+                        }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                          <line x1="12" y1="18" x2="12.01" y2="18"/>
+                        </svg>
+                        Can&apos;t scan? Open in payment app
+                      </button>
+                      <p style={{ fontSize: "10px", color: C.amber500, textAlign: "center", margin: "4px 0 0" }}>
+                        Opens GPay, PhonePe, Paytm
+                      </p>
+                    </>
+                  ) : (
+                    <div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+                        {UPI_APPS.map((app) => {
+                          const href = isAndroid && app.id !== "paytm" ? makeIntentUrl(upiLink, app.pkg) : upiLink;
+                          return (
+                            <button key={app.id} onClick={() => openApp(href, app.label)} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 14px", backgroundColor: C.white, border: `1.5px solid ${C.amber200}`, borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: 700, color: C.gray900 }}>
+                              {app.icon}
+                              {app.label}
+                            </button>
+                          );
+                        })}
+                        <button onClick={() => openApp(upiLink, "any UPI app")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", padding: "10px 14px", backgroundColor: "transparent", border: `1px dashed ${C.amber400}`, borderRadius: "10px", cursor: "pointer", fontSize: "12px", fontWeight: 600, color: C.amber700 }}>
+                          Any other UPI app
+                        </button>
+                      </div>
+                      <button onClick={() => setShowChooser(false)} style={{ background: "none", border: "none", padding: 0, fontSize: "11px", color: C.gray500, cursor: "pointer", textDecoration: "underline", display: "block", margin: "0 auto" }}>
+                        ← Back to QR
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : (
+            /* ── Original UPI deep-link mode ─────────────────────────────── */
+            !showChooser ? (
+              <>
                 <button
-                  onClick={() => openApp(upiLink, "any UPI app")}
+                  onClick={openUpiApp}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    gap: "8px", width: "100%", padding: "10px 14px",
-                    backgroundColor: "transparent",
-                    border: `1px dashed ${C.amber400}`,
-                    borderRadius: "10px", cursor: "pointer",
-                    fontSize: "12px", fontWeight: 600, color: C.amber700,
+                    gap: "8px", width: "100%", padding: "14px 0",
+                    backgroundColor: C.amber500, color: C.white,
+                    borderRadius: "12px", fontWeight: 700, fontSize: "14px",
+                    border: "none", cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(245,158,11,0.35)",
                   }}
                 >
-                  Any other UPI app
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                    <line x1="12" y1="18" x2="12.01" y2="18"/>
+                  </svg>
+                  Pay ₹{orderTotal.toFixed(2)} via UPI
+                </button>
+                <p style={{ fontSize: "11px", color: C.amber600, textAlign: "center", margin: "6px 0 12px" }}>
+                  Opens GPay, PhonePe, Paytm or any UPI app
+                </p>
+              </>
+            ) : (
+              <div style={{ marginBottom: "12px" }}>
+                {isInAppBrowser && (
+                  <div style={{ backgroundColor: C.blue50, border: "1px solid #bfdbfe", borderRadius: "10px", padding: "10px 12px", marginBottom: "10px", fontSize: "11px", color: C.blue600, lineHeight: "1.5" }}>
+                    <strong>Tip:</strong> You&apos;re using an in-app browser (WhatsApp/Instagram). For best results, open this page in <strong>Chrome</strong> or your default browser, or scan the QR code below.
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+                  {UPI_APPS.map((app) => {
+                    const href = isAndroid && app.id !== "paytm" ? makeIntentUrl(upiLink, app.pkg) : upiLink;
+                    return (
+                      <button key={app.id} onClick={() => openApp(href, app.label)} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "11px 14px", backgroundColor: C.white, border: `1.5px solid ${C.amber200}`, borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: 700, color: C.gray900 }}>
+                        {app.icon}
+                        {app.label}
+                      </button>
+                    );
+                  })}
+                  <button onClick={() => openApp(upiLink, "any UPI app")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", padding: "10px 14px", backgroundColor: "transparent", border: `1px dashed ${C.amber400}`, borderRadius: "10px", cursor: "pointer", fontSize: "12px", fontWeight: 600, color: C.amber700 }}>
+                    Any other UPI app
+                  </button>
+                </div>
+                <button onClick={() => setShowChooser(false)} style={{ background: "none", border: "none", padding: 0, fontSize: "11px", color: C.gray500, cursor: "pointer", textDecoration: "underline", display: "block", margin: "0 auto" }}>
+                  ← Try the single tap button again
                 </button>
               </div>
-
-              {/* Reset — let user retry the one-tap button */}
-              <button
-                onClick={() => setShowChooser(false)}
-                style={{
-                  background: "none", border: "none", padding: 0,
-                  fontSize: "11px", color: C.gray500, cursor: "pointer",
-                  textDecoration: "underline", display: "block", margin: "0 auto",
-                }}
-              >
-                ← Try the single tap button again
-              </button>
-            </div>
+            )
           )}
 
           {/* Step 2 */}
@@ -492,49 +527,53 @@ export function UpiPaymentView({
             )}
           </div>
 
-          {/* QR fallback toggle */}
-          <button
-            onClick={() => setShowQr((v) => !v)}
-            style={{
-              width: "100%",
-              padding: "9px 0",
-              borderRadius: "10px",
-              border: `1px dashed ${C.amber400}`,
-              backgroundColor: "transparent",
-              color: C.amber700,
-              fontSize: "12px",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {showQr ? "Hide QR Code" : "Having trouble? Show QR instead"}
-          </button>
+          {/* QR fallback toggle — only in UPI deep-link mode; not needed when QR image is shown */}
+          {!restaurant.hasPaymentQr && (
+            <>
+              <button
+                onClick={() => setShowQr((v) => !v)}
+                style={{
+                  width: "100%",
+                  padding: "9px 0",
+                  borderRadius: "10px",
+                  border: `1px dashed ${C.amber400}`,
+                  backgroundColor: "transparent",
+                  color: C.amber700,
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                {showQr ? "Hide QR Code" : "Having trouble? Show QR instead"}
+              </button>
 
-          {showQr && (
-            <div style={{
-              marginTop: "12px",
-              padding: "14px",
-              backgroundColor: C.white,
-              borderRadius: "12px",
-              textAlign: "center",
-              border: `1px solid ${C.amber200}`,
-            }}>
-              <p style={{ fontSize: "11px", color: C.amber800, fontWeight: 600, margin: "0 0 10px" }}>
-                Scan using another device
-              </p>
-              <div style={{ display: "inline-block", padding: "8px", backgroundColor: C.white, borderRadius: "8px", border: `1px solid ${C.amber200}` }}>
-                <QRCodeSVG
-                  value={upiLink}
-                  size={140}
-                  fgColor={C.gray900}
-                  bgColor={C.white}
-                  level="M"
-                />
-              </div>
-              <p style={{ fontSize: "10px", color: C.gray500, margin: "8px 0 0" }}>
-                Ask a friend or family member to scan this with their phone
-              </p>
-            </div>
+              {showQr && (
+                <div style={{
+                  marginTop: "12px",
+                  padding: "14px",
+                  backgroundColor: C.white,
+                  borderRadius: "12px",
+                  textAlign: "center",
+                  border: `1px solid ${C.amber200}`,
+                }}>
+                  <p style={{ fontSize: "11px", color: C.amber800, fontWeight: 600, margin: "0 0 10px" }}>
+                    Scan using another device
+                  </p>
+                  <div style={{ display: "inline-block", padding: "8px", backgroundColor: C.white, borderRadius: "8px", border: `1px solid ${C.amber200}` }}>
+                    <QRCodeSVG
+                      value={upiLink}
+                      size={140}
+                      fgColor={C.gray900}
+                      bgColor={C.white}
+                      level="M"
+                    />
+                  </div>
+                  <p style={{ fontSize: "10px", color: C.gray500, margin: "8px 0 0" }}>
+                    Ask a friend or family member to scan this with their phone
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
 

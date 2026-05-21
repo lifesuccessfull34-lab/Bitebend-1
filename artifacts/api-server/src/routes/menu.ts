@@ -90,7 +90,7 @@ const getPublicMenu: RequestHandler = async (req, res) => {
   // hasPaymentQr is a boolean flag; the actual image is fetched lazily via /payment-qr.
   const { razorpayKeySecret: _secret, qrImageData: _qrImg, qrDecodedPayload: _qrPayload, ...safeRestaurant } = restaurant;
   res.json({
-    restaurant: { ...safeRestaurant, hasPaymentQr: !!restaurant.qrImageData },
+    restaurant: { ...safeRestaurant, hasPaymentQr: restaurant.paymentQrEnabled && !!restaurant.qrImageData },
     categories: categoriesWithItems,
     tables,
   });
@@ -129,7 +129,7 @@ const placeOrder: RequestHandler = async (req, res) => {
   }
 
   // ── Payment method validation ───────────────────────────────────────────────
-  if (paymentMethod === "upi" && !restaurant.qrImageData && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
+  if (paymentMethod === "upi" && !(restaurant.paymentQrEnabled && restaurant.qrImageData) && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
     res.status(400).json({ error: "UPI payment is not configured for this restaurant." });
     return;
   }
