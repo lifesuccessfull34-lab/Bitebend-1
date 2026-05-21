@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { generateUPILink } from "./utils";
 import type { RestaurantData, OrderType } from "./types";
@@ -124,26 +124,17 @@ export function UpiPaymentView({
   const [showChooser, setShowChooser] = useState(false);
   const [utrTouched, setUtrTouched] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [qrImageData, setQrImageData] = useState<string | null>(null);
-  const [qrDataLoading, setQrDataLoading] = useState(false);
+  // QR mode: use UPI ID extracted from merchant QR at setup time — no manual entry needed.
+  // Legacy mode: use manually entered UPI ID.
+  const activeUpiId = restaurant.hasPaymentQr
+    ? (restaurant.extractedUpiId ?? "").trim()
+    : (restaurant.upiId ?? "").trim();
+  const activeName = restaurant.hasPaymentQr
+    ? (restaurant.extractedMerchantName || restaurant.upiName || restaurant.name)
+    : (restaurant.upiName || restaurant.name);
 
-  useEffect(() => {
-    if (!restaurant.hasPaymentQr) return;
-    setQrDataLoading(true);
-    fetch(`/api/menu/${restaurant.id}/payment-qr`)
-      .then((r) => r.json())
-      .then((data: { qrImageData: string }) => setQrImageData(data.qrImageData))
-      .catch(() => {})
-      .finally(() => setQrDataLoading(false));
-  }, [restaurant.id, restaurant.hasPaymentQr]);
-
-  const payeeName = restaurant.upiName || restaurant.name;
-  const upiLink = generateUPILink(restaurant.upiId!, payeeName, orderTotal, orderId);
-
-  // Validate the UPI ID before attempting to launch any app.
-  // A valid VPA must be non-empty, contain exactly one @, and have no spaces.
-  const upiIdRaw = (restaurant.upiId ?? "").trim();
-  const upiIdValid = upiIdRaw.length > 0 && upiIdRaw.includes("@") && !upiIdRaw.includes(" ");
+  const upiLink = generateUPILink(activeUpiId, activeName, orderTotal, orderId);
+  const upiIdValid = activeUpiId.length > 0 && activeUpiId.includes("@") && !activeUpiId.includes(" ");
 
   const isTakeAway = orderType === "take_away";
   const mins = Math.floor(countdown / 60);
@@ -151,15 +142,13 @@ export function UpiPaymentView({
   const timedOut = countdown === 0;
 
   const openUpiApp = () => {
-    // Log every individual UPI field + the full generated URL so the exact
-    // payload is visible in DevTools when diagnosing payment-app rejections.
-    console.log("[UPI FIELD] pa (UPI ID)  :", JSON.stringify(upiIdRaw), "| valid:", upiIdValid);
-    console.log("[UPI FIELD] pn (name)    :", JSON.stringify(payeeName));
+    if (restaurant.hasPaymentQr) {
+      console.log("[QR PAYMENT] initiating — UPI extracted from merchant QR");
+    }
+    console.log("[GENERATED UPI LINK]", upiLink);
+    console.log("[UPI FIELD] pa (UPI ID)  :", JSON.stringify(activeUpiId), "| valid:", upiIdValid);
+    console.log("[UPI FIELD] pn (name)    :", JSON.stringify(activeName));
     console.log("[UPI FIELD] am (amount)  :", Number(orderTotal).toFixed(2));
-    console.log("[UPI FIELD] tr           : (omitted — minimal payload)");
-    console.log("[UPI FIELD] tn           : (omitted — minimal payload)");
-    console.log("[UPI FULL URL]", upiLink);
-    console.log("[UPI FULL URL length]", upiLink.length);
 
     // Abort early — a malformed UPI ID will always cause a "technical glitch"
     // in every payment app. Show the chooser so the user sees the error banner.
@@ -295,9 +284,9 @@ export function UpiPaymentView({
                 Restaurant UPI not configured
               </p>
               <p style={{ fontSize: "11px", color: "#b91c1c", margin: 0, lineHeight: "1.5" }}>
-                {upiIdRaw.length === 0
-                  ? "This restaurant hasn't added a UPI ID yet."
-                  : `UPI ID "${upiIdRaw}" looks invalid (must contain @). Please ask staff to pay by cash or card.`}
+                {activeUpiId.length === 0
+                  ? "This restaurant hasn't configured UPI payment yet."
+                  : `UPI ID "${activeUpiId}" looks invalid (must contain @). Please ask staff to pay by cash or card.`}
               </p>
             </div>
           </div>
@@ -326,95 +315,85 @@ export function UpiPaymentView({
               flexShrink: 0, marginTop: "1px",
             }}>1</span>
             <p style={{ fontSize: "12px", color: C.amber800, margin: 0 }}>
-              {restaurant.hasPaymentQr
-                ? "Scan the QR below with GPay, PhonePe, Paytm or any UPI app"
-                : showChooser
-                  ? "Choose your UPI app to complete payment"
-                  : "Tap the button below to open your UPI app and complete payment"}
+              {showChooser
+                ? "Choose your UPI app to complete payment"
+                : "Tap the button below to open your payment app and complete the payment"}
             </p>
           </div>
 
-          {/* ── QR image (primary) or UPI deep-link ─────────────────────── */}
+          {/* ── QR-verified: direct UPI deep-link | Legacy: manual UPI deep-link ─── */}
           {restaurant.hasPaymentQr ? (
             <div style={{ marginBottom: "12px" }}>
-              {qrDataLoading ? (
-                <div style={{ textAlign: "center", padding: "24px 0" }}>
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={C.amber500} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite", margin: "0 auto", display: "block" }}>
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                  </svg>
-                  <p style={{ fontSize: "11px", color: C.amber600, marginTop: "8px" }}>Loading QR…</p>
-                </div>
-              ) : qrImageData ? (
-                <div style={{ textAlign: "center", margin: "0 0 12px" }}>
-                  <div style={{ display: "inline-block", padding: "12px", backgroundColor: C.white, borderRadius: "12px", border: `1px solid ${C.amber200}` }}>
-                    <img
-                      src={qrImageData}
-                      alt="Payment QR"
-                      style={{ width: "200px", height: "200px", objectFit: "contain", display: "block" }}
-                    />
-                  </div>
-                  {restaurant.qrMerchantName && (
-                    <p style={{ fontSize: "11px", color: C.amber600, marginTop: "6px" }}>
-                      Pay to: {restaurant.qrMerchantName}
+              {/* QR verified badge */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                backgroundColor: C.green50, border: "1px solid #bbf7d0",
+                borderRadius: "10px", padding: "10px 12px", marginBottom: "12px",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={C.green700} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                  <polyline points="9 12 11 14 15 10"/>
+                </svg>
+                <div>
+                  <p style={{ fontSize: "12px", fontWeight: 700, color: C.green700, margin: 0 }}>
+                    Payment source: QR verified
+                  </p>
+                  {restaurant.extractedMerchantName && (
+                    <p style={{ fontSize: "10px", color: "#16a34a", margin: "2px 0 0" }}>
+                      Paying to: {restaurant.extractedMerchantName}
                     </p>
                   )}
                 </div>
-              ) : (
-                <div style={{ backgroundColor: "#fef2f2", border: "1px solid #fecaca", borderRadius: "10px", padding: "10px 12px", marginBottom: "10px" }}>
-                  <p style={{ fontSize: "12px", color: "#b91c1c", margin: 0 }}>
-                    Could not load QR — ask staff for payment assistance.
-                  </p>
-                </div>
-              )}
+              </div>
 
-              {/* Fallback: open in payment app (only if UPI ID is also configured) */}
-              {upiIdValid && (
+              {!showChooser ? (
                 <>
-                  {!showChooser ? (
-                    <>
-                      <button
-                        onClick={openUpiApp}
-                        style={{
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          gap: "8px", width: "100%", padding: "11px 0",
-                          backgroundColor: "transparent",
-                          border: `1.5px solid ${C.amber200}`,
-                          borderRadius: "10px", color: C.amber700,
-                          fontWeight: 600, fontSize: "12px", cursor: "pointer",
-                        }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-                          <line x1="12" y1="18" x2="12.01" y2="18"/>
-                        </svg>
-                        Can&apos;t scan? Open in payment app
-                      </button>
-                      <p style={{ fontSize: "10px", color: C.amber500, textAlign: "center", margin: "4px 0 0" }}>
-                        Opens GPay, PhonePe, Paytm
-                      </p>
-                    </>
-                  ) : (
-                    <div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
-                        {UPI_APPS.map((app) => {
-                          const href = isAndroid && app.id !== "paytm" ? makeIntentUrl(upiLink, app.pkg) : upiLink;
-                          return (
-                            <button key={app.id} onClick={() => openApp(href, app.label)} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 14px", backgroundColor: C.white, border: `1.5px solid ${C.amber200}`, borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: 700, color: C.gray900 }}>
-                              {app.icon}
-                              {app.label}
-                            </button>
-                          );
-                        })}
-                        <button onClick={() => openApp(upiLink, "any UPI app")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", padding: "10px 14px", backgroundColor: "transparent", border: `1px dashed ${C.amber400}`, borderRadius: "10px", cursor: "pointer", fontSize: "12px", fontWeight: 600, color: C.amber700 }}>
-                          Any other UPI app
-                        </button>
-                      </div>
-                      <button onClick={() => setShowChooser(false)} style={{ background: "none", border: "none", padding: 0, fontSize: "11px", color: C.gray500, cursor: "pointer", textDecoration: "underline", display: "block", margin: "0 auto" }}>
-                        ← Back to QR
-                      </button>
+                  <button
+                    onClick={openUpiApp}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      gap: "8px", width: "100%", padding: "14px 0",
+                      backgroundColor: C.amber500, color: C.white,
+                      borderRadius: "12px", fontWeight: 700, fontSize: "14px",
+                      border: "none", cursor: "pointer",
+                      boxShadow: "0 2px 8px rgba(245,158,11,0.35)",
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                      <line x1="12" y1="18" x2="12.01" y2="18"/>
+                    </svg>
+                    Pay ₹{orderTotal.toFixed(2)} via UPI
+                  </button>
+                  <p style={{ fontSize: "11px", color: C.amber600, textAlign: "center", margin: "6px 0 0" }}>
+                    Opens GPay, PhonePe, Paytm or any UPI app
+                  </p>
+                </>
+              ) : (
+                <div style={{ marginBottom: "12px" }}>
+                  {isInAppBrowser && (
+                    <div style={{ backgroundColor: C.blue50, border: "1px solid #bfdbfe", borderRadius: "10px", padding: "10px 12px", marginBottom: "10px", fontSize: "11px", color: C.blue600, lineHeight: "1.5" }}>
+                      <strong>Tip:</strong> You&apos;re using an in-app browser (WhatsApp/Instagram). For best results, open this page in <strong>Chrome</strong> or your default browser.
                     </div>
                   )}
-                </>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+                    {UPI_APPS.map((app) => {
+                      const href = isAndroid && app.id !== "paytm" ? makeIntentUrl(upiLink, app.pkg) : upiLink;
+                      return (
+                        <button key={app.id} onClick={() => openApp(href, app.label)} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "11px 14px", backgroundColor: C.white, border: `1.5px solid ${C.amber200}`, borderRadius: "10px", cursor: "pointer", fontSize: "13px", fontWeight: 700, color: C.gray900 }}>
+                          {app.icon}
+                          {app.label}
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => openApp(upiLink, "any UPI app")} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px", width: "100%", padding: "10px 14px", backgroundColor: "transparent", border: `1px dashed ${C.amber400}`, borderRadius: "10px", cursor: "pointer", fontSize: "12px", fontWeight: 600, color: C.amber700 }}>
+                      Any other UPI app
+                    </button>
+                  </div>
+                  <button onClick={() => setShowChooser(false)} style={{ background: "none", border: "none", padding: 0, fontSize: "11px", color: C.gray500, cursor: "pointer", textDecoration: "underline", display: "block", margin: "0 auto" }}>
+                    ← Try the single tap button again
+                  </button>
+                </div>
               )}
             </div>
           ) : (

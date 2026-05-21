@@ -82,7 +82,7 @@ const updateRestaurant: RequestHandler = async (req, res) => {
     name, description, cuisineType, logoUrl, address, city, phone, email,
     upiId, upiName, personalUpiEnabled, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret,
     upiVerified, verifiedAt,
-    qrImageData, qrDecodedPayload, qrMerchantName,
+    qrImageData, qrDecodedPayload, qrMerchantName, qrExtractedUpiId, paymentQrEnabled,
   } = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {};
@@ -102,8 +102,14 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (qrImageData !== undefined) updates.qrImageData = qrImageData;
   if (qrDecodedPayload !== undefined) updates.qrDecodedPayload = qrDecodedPayload;
   if (qrMerchantName !== undefined) updates.qrMerchantName = qrMerchantName;
-  const { paymentQrEnabled } = req.body as Record<string, unknown>;
+  if (qrExtractedUpiId !== undefined) updates.qrExtractedUpiId = qrExtractedUpiId;
   if (paymentQrEnabled !== undefined) updates.paymentQrEnabled = paymentQrEnabled;
+  if (qrExtractedUpiId) {
+    req.log.info(
+      { "[EXTRACTED PA]": qrExtractedUpiId, "[EXTRACTED PN]": qrMerchantName ?? null },
+      "QR payment UPI extracted and saved",
+    );
+  }
   if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber;
   if (taxPercent !== undefined) updates.taxPercent = taxPercent;
   if (seatingLabel !== undefined) updates.seatingLabel = seatingLabel;

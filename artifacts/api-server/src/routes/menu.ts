@@ -86,11 +86,27 @@ const getPublicMenu: RequestHandler = async (req, res) => {
     items: items.filter((item) => item.categoryId === cat.id),
   }));
 
-  // Never expose secret key or raw QR image data to the customer client.
-  // hasPaymentQr is a boolean flag; the actual image is fetched lazily via /payment-qr.
-  const { razorpayKeySecret: _secret, qrImageData: _qrImg, qrDecodedPayload: _qrPayload, ...safeRestaurant } = restaurant;
+  // Never expose secret key, raw QR image, or raw QR payload to the customer client.
+  // extractedUpiId is the UPI address verified from the merchant QR at setup — safe to expose.
+  const {
+    razorpayKeySecret: _secret,
+    qrImageData: _qrImg,
+    qrDecodedPayload: _qrPayload,
+    qrExtractedUpiId: _rawUpi,
+    qrMerchantName: _rawMerchant,
+    ...safeRestaurant
+  } = restaurant;
+  const hasPaymentQr = restaurant.paymentQrEnabled && !!restaurant.qrExtractedUpiId;
+  if (hasPaymentQr) {
+    req.log.info({ restaurantId }, "[QR PAYMENT] menu loaded with QR payment enabled");
+  }
   res.json({
-    restaurant: { ...safeRestaurant, hasPaymentQr: restaurant.paymentQrEnabled && !!restaurant.qrImageData },
+    restaurant: {
+      ...safeRestaurant,
+      hasPaymentQr,
+      extractedUpiId: hasPaymentQr ? (restaurant.qrExtractedUpiId ?? null) : null,
+      extractedMerchantName: restaurant.qrMerchantName ?? null,
+    },
     categories: categoriesWithItems,
     tables,
   });
@@ -129,7 +145,7 @@ const placeOrder: RequestHandler = async (req, res) => {
   }
 
   // ── Payment method validation ───────────────────────────────────────────────
-  if (paymentMethod === "upi" && !(restaurant.paymentQrEnabled && restaurant.qrImageData) && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
+  if (paymentMethod === "upi" && !(restaurant.paymentQrEnabled && restaurant.qrExtractedUpiId) && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
     res.status(400).json({ error: "UPI payment is not configured for this restaurant." });
     return;
   }
