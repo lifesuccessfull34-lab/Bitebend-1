@@ -6,7 +6,7 @@ import type { Restaurant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone, Zap, Upload, ScanLine } from "lucide-react";
+import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone, Zap, Upload, ScanLine, ShieldCheck } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import jsQR from "jsqr";
 
@@ -234,6 +234,8 @@ export default function Profile() {
     upiId: "",
     upiName: "",
     personalUpiEnabled: false,
+    upiVerified: false,
+    verifiedAt: null as string | null,
     whatsappNumber: "",
     taxPercent: "5",
     razorpayKeyId: "",
@@ -256,6 +258,7 @@ export default function Profile() {
   const [qrStatus, setQrStatus] = useState<"idle" | "scanning" | "success" | "error">("idle");
   const [qrMessage, setQrMessage] = useState("");
   const [qrExtracted, setQrExtracted] = useState<UpiQrData | null>(null);
+  const [qrVerifyState, setQrVerifyState] = useState<"idle" | "launched" | "verified">("idle");
   const qrFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -273,6 +276,8 @@ export default function Profile() {
           upiId: r.upiId ?? "",
           upiName: r.upiName ?? "",
           personalUpiEnabled: r.personalUpiEnabled ?? false,
+          upiVerified: r.upiVerified ?? false,
+          verifiedAt: r.verifiedAt ?? null,
           whatsappNumber: r.whatsappNumber ?? "",
           taxPercent: String(r.taxPercent ?? 5),
           razorpayKeyId: (r as any).razorpayKeyId ?? "",
@@ -596,11 +601,14 @@ export default function Profile() {
                 )}
 
                 {qrStatus === "success" && qrExtracted && (
-                  <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-2">
+                  <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-2.5">
+                    {/* Header row */}
                     <div className="flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-green-600 shrink-0" />
                       <p className="text-xs font-semibold text-green-700">QR scanned — fields auto-filled below</p>
                     </div>
+
+                    {/* Extracted fields preview */}
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                       <div>
                         <p className="text-[10px] font-semibold uppercase tracking-wide text-green-600">UPI ID</p>
@@ -613,7 +621,50 @@ export default function Profile() {
                         </div>
                       )}
                     </div>
-                    <p className="text-[10px] text-green-600">Review the fields below, then click Save.</p>
+
+                    {/* Verification row */}
+                    {qrVerifyState === "verified" ? (
+                      <div className="flex items-center gap-1.5 bg-green-100 border border-green-300 rounded px-2.5 py-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-green-700 shrink-0" />
+                        <p className="text-xs font-semibold text-green-700">UPI verified — save to persist</p>
+                      </div>
+                    ) : qrVerifyState === "launched" ? (
+                      <div className="flex items-center justify-between gap-2 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+                        <p className="text-[11px] text-amber-700">Did the UPI app open successfully?</p>
+                        <button
+                          type="button"
+                          className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+                          onClick={() => {
+                            setQrVerifyState("verified");
+                            setForm((f) => ({
+                              ...f,
+                              upiVerified: true,
+                              verifiedAt: new Date().toISOString(),
+                            }));
+                          }}
+                        >
+                          <ShieldCheck className="w-3 h-3" />
+                          Mark verified
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10px] text-green-600">Verify the UPI ID works before saving.</p>
+                        <button
+                          type="button"
+                          className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+                          onClick={() => {
+                            const pa = encodeURIComponent(qrExtracted.pa);
+                            const pn = encodeURIComponent(qrExtracted.pn || form.name || "Merchant");
+                            window.location.href = `upi://pay?pa=${pa}&pn=${pn}&am=1.00&cu=INR`;
+                            setQrVerifyState("launched");
+                          }}
+                        >
+                          <Zap className="w-3 h-3" />
+                          Test ₹1
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 

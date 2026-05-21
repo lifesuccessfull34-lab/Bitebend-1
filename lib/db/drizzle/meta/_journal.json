@@ -15,6 +15,13 @@
       "when": 1748000000000,
       "tag": "0001_personal_upi",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1748086400000,
+      "tag": "0002_upi_verified",
+      "breakpoints": true
     }
   ]
 }

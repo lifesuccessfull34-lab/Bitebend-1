@@ -19,6 +19,7 @@ import {
   Banknote,
   AlertTriangle,
   CheckCircle2,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -352,6 +353,24 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+
+        {/* UPI Status badge — shown when restaurant has a UPI ID configured */}
+        {stats && (stats.upiVerified || !stats.verifiedAt) && (() => {
+          // Only render when stats are loaded and has a UPI ID we can comment on
+          if (!stats.upiVerified) return null;
+          return (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-sm w-fit">
+              <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
+              <span className="font-medium text-green-700">UPI Status:</span>
+              <span className="text-green-700">Verified ✓</span>
+              {stats.verifiedAt && (
+                <span className="text-[11px] text-green-500 ml-1">
+                  {new Date(stats.verifiedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                </span>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Orders */}
         <div className="bg-card rounded-xl border border-border">

@@ -81,6 +81,7 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   const {
     name, description, cuisineType, logoUrl, address, city, phone, email,
     upiId, upiName, personalUpiEnabled, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret,
+    upiVerified, verifiedAt,
   } = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {};
@@ -95,6 +96,8 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (upiId !== undefined) updates.upiId = upiId;
   if (upiName !== undefined) updates.upiName = upiName;
   if (personalUpiEnabled !== undefined) updates.personalUpiEnabled = personalUpiEnabled;
+  if (upiVerified !== undefined) updates.upiVerified = upiVerified;
+  if (verifiedAt !== undefined) updates.verifiedAt = verifiedAt ? new Date(verifiedAt as string) : null;
   if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber;
   if (taxPercent !== undefined) updates.taxPercent = taxPercent;
   if (seatingLabel !== undefined) updates.seatingLabel = seatingLabel;
@@ -678,7 +681,7 @@ const getStats: RequestHandler = async (req, res) => {
       todayOrders: 0, todayRevenue: 0, activeOrders: 0, pendingOrders: 0,
       totalMenuItems: 0, totalTables: 0,
       subscriptionStatus: "active", customerLimit: 0, customersUsed: 0,
-      planId: null, hasPendingUpi: false,
+      planId: null, hasPendingUpi: false, upiVerified: false, verifiedAt: null,
     });
     return;
   }
@@ -736,6 +739,8 @@ const getStats: RequestHandler = async (req, res) => {
     subscriptionStartedAt: restaurant?.subscriptionStartedAt?.toISOString() ?? null,
     planId: restaurant?.planId ?? null,
     hasPendingUpi: pendingUpiTxns.length > 0,
+    upiVerified: restaurant?.upiVerified ?? false,
+    verifiedAt: restaurant?.verifiedAt?.toISOString() ?? null,
   });
 };
 

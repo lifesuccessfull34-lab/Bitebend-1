@@ -52,6 +52,8 @@ export const restaurants = pgTable("restaurants", {
   upiId: text("upi_id"),
   upiName: text("upi_name"),
   personalUpiEnabled: boolean("personal_upi_enabled").notNull().default(false),
+  upiVerified: boolean("upi_verified").notNull().default(false),
+  verifiedAt: timestamp("verified_at"),
   whatsappNumber: text("whatsapp_number"),
   taxPercent: integer("tax_percent").notNull().default(5),
   seatingLabel: text("seating_label"),

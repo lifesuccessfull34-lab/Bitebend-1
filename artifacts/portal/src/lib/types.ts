@@ -63,6 +63,8 @@ export interface Restaurant {
   upiId: string | null;
   upiName: string | null;
   personalUpiEnabled: boolean;
+  upiVerified: boolean;
+  verifiedAt: string | null;
   whatsappNumber: string | null;
   razorpayKeyId: string | null;
   taxPercent: number;
@@ -152,6 +154,8 @@ export interface DashboardStats {
   subscriptionStartedAt: string | null;
   planId: number | null;
   hasPendingUpi: boolean;
+  upiVerified: boolean;
+  verifiedAt: string | null;
 }
 
 export interface RestaurantWithOwner extends Restaurant {
