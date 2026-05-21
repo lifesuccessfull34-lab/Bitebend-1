@@ -384,7 +384,7 @@ export function CheckoutView({
                       {placing
                         ? <Loader2 style={{ width: "16px", height: "16px" }} />
                         : <Smartphone style={{ width: "16px", height: "16px" }} />}
-                      {placing ? "Placing Order…" : `Pay ₹${total} via UPI`}
+                      {placing ? "Placing Order…" : `Pay ₹${total.toFixed(2)} via UPI`}
                     </button>
                     <p style={{ fontSize: "11px", color: C.orange, textAlign: "center" }}>
                       Opens GPay, PhonePe, Paytm or any UPI app
@@ -409,7 +409,7 @@ export function CheckoutView({
                       {placing
                         ? <Loader2 style={{ width: "16px", height: "16px" }} />
                         : <CheckCircle2 style={{ width: "16px", height: "16px" }} />}
-                      {placing ? "Placing Order…" : `Place Order · ₹${total}`}
+                      {placing ? "Placing Order…" : `Place Order · ₹${total.toFixed(2)}`}
                     </button>
                   </>
                 )}
@@ -454,7 +454,7 @@ export function CheckoutView({
             )}
             {placing
               ? (paymentMethod === "razorpay" ? "Opening Payment…" : "Placing Order…")
-              : (paymentMethod === "razorpay" ? `Pay ₹${total} Online` : `Place Order · ₹${total}`)}
+              : (paymentMethod === "razorpay" ? `Pay ₹${total.toFixed(2)} Online` : `Place Order · ₹${total.toFixed(2)}`)}
           </button>
         )}
       </form>
