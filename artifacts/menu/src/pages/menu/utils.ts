@@ -18,6 +18,23 @@ export function lsSet(key: string, value: string): void {
   }
 }
 
+// ── UPI Text Sanitizer ────────────────────────────────────────────────────────
+// Different UPI apps parse reserved characters differently. For example, Paytm
+// fails on # (even percent-encoded), and other apps can choke on ? & = % ; : / \.
+// This helper strips all such characters from human-readable fields (pn, tn, tr)
+// before they reach either the upi:// URL or the Android intent:// URL.
+//
+// NOTE: Do NOT apply this to the payee address (pa). The @ separator in a VPA
+// (e.g. merchant@upi) is required and must never be stripped.
+
+export function sanitizeUPIText(value: string, maxLen: number): string {
+  return value
+    .replace(/[#?&=%:;/\\]/g, "")   // remove UPI-reserved / URL-special chars
+    .replace(/\s+/g, " ")            // collapse repeated whitespace
+    .trim()
+    .slice(0, maxLen);
+}
+
 // ── UPI Deep Link Generator ───────────────────────────────────────────────────
 // Uses encodeURIComponent (produces %20 for spaces) rather than URLSearchParams
 // (which produces + for spaces). The BHIM/UPI spec requires %20 encoding; several
@@ -29,23 +46,27 @@ export function generateUPILink(
   amount: number,
   orderId: number,
 ): string {
-  // pa (payee VPA) must NOT be encoded — the @ separator is part of the UPI
-  // address format and must arrive as a literal @. Encoding it to %40 causes
-  // every UPI app (GPay, PhonePe, Paytm) to fail VPA resolution, which is why
-  // the app opens but fields are not prefilled.
+  // pa (payee VPA) must NOT be sanitized or encoded — the @ separator is part
+  // of the UPI address format and must arrive as a literal @. Encoding it to
+  // %40 causes every UPI app to fail VPA resolution.
   const pa = upiId.trim();
-  // pn / tn: use %20 for spaces (UPI spec); URLSearchParams emits + which many
-  // apps misparse, so we build the string manually with encodeURIComponent.
-  const pn = encodeURIComponent(name.trim());
+
+  // pn / tn: sanitize reserved chars first, then %20-encode spaces.
+  // URLSearchParams emits + for spaces which many apps misparse, so we build
+  // the string manually with encodeURIComponent after sanitizing.
+  const pn = encodeURIComponent(sanitizeUPIText(name, 50));
+
   // amount must be a decimal string with exactly two decimal places, no currency
   // symbol (e.g. "250.00" not "₹250" or "250 INR").
   const am = Number(amount).toFixed(2);
-  // tr is the unique transaction reference; alphanumeric, no encoding needed.
-  const tr = `BITEBN${orderId}`;
-  // Avoid # in the transaction note: in Android intent URLs the # character
-  // (even percent-encoded as %23) is used as the Intent extras separator.
-  // Android's URL parser decodes %23 → # and splits the URL there, sending a
-  // truncated / malformed tn to Paytm which causes its "technical glitch" error.
-  const tn = encodeURIComponent(`Order ${orderId}`);
+
+  // tr is the unique transaction reference. It already contains only
+  // alphanumeric characters, but sanitize defensively to keep it clean.
+  const tr = sanitizeUPIText(`BITEBN${orderId}`, 50);
+
+  // tn: sanitize to strip any chars (e.g. #) that Android's intent URL parser
+  // would decode back to a reserved character and split the intent URL.
+  const tn = encodeURIComponent(sanitizeUPIText(`Order ${orderId}`, 50));
+
   return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR&tr=${tr}&tn=${tn}`;
 }
