@@ -35,6 +35,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   ready:                 { label: "Ready",            color: "bg-green-100 text-green-800 border-green-200" },
   completed:             { label: "Completed",        color: "bg-gray-100 text-gray-600 border-gray-200" },
   cancelled:             { label: "Cancelled",        color: "bg-red-100 text-red-600 border-red-200" },
+  payment_failed:        { label: "Payment Failed",   color: "bg-red-100 text-red-700 border-red-300" },
 };
 
 // Strict one-step flow — legacy entry states all map to "preparing" next
@@ -60,6 +61,12 @@ function normaliseStep(status: string): string {
 const ACTIVE_STATUSES = [
   "ordered", "pending_payment", "awaiting_confirmation", "pending", "confirmed", "preparing", "ready",
 ];
+
+function extractUtr(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const m = notes.match(/UTR:\s*([A-Za-z0-9]+)/);
+  return m ? m[1] : null;
+}
 
 // ─── Status tracker component ─────────────────────────────────────────────────
 
@@ -119,6 +126,8 @@ export default function Dashboard() {
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [payingId, setPayingId] = useState<number | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState<number | null>(null);
+  const [verifyingId, setVerifyingId] = useState<number | null>(null);
+  const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [filter, setFilter] = useState<string>("active");
   const [orderErrors, setOrderErrors] = useState<Record<number, string>>({});
 
@@ -170,6 +179,34 @@ export default function Dashboard() {
     }
   };
 
+  const handleVerifyUpi = async (orderId: number) => {
+    clearError(orderId);
+    setVerifyingId(orderId);
+    try {
+      await apiFetch(`/owner/orders/${orderId}/verify-upi`, { method: "POST" });
+      await fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to verify payment";
+      setOrderErrors((prev) => ({ ...prev, [orderId]: msg }));
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
+  const handleRejectUpi = async (orderId: number) => {
+    clearError(orderId);
+    setRejectingId(orderId);
+    try {
+      await apiFetch(`/owner/orders/${orderId}/reject-upi`, { method: "POST" });
+      await fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to reject payment";
+      setOrderErrors((prev) => ({ ...prev, [orderId]: msg }));
+    } finally {
+      setRejectingId(null);
+    }
+  };
+
   const handleMarkPaid = async (orderId: number) => {
     clearError(orderId);
     setPayingId(orderId);
@@ -205,7 +242,7 @@ export default function Dashboard() {
   const filteredOrders = orders.filter((o) => {
     if (filter === "active") return ACTIVE_STATUSES.includes(o.status);
     if (filter === "completed") return o.status === "completed";
-    if (filter === "cancelled") return o.status === "cancelled";
+    if (filter === "cancelled") return o.status === "cancelled" || o.status === "payment_failed";
     return true;
   });
 
@@ -360,6 +397,13 @@ export default function Dashboard() {
                 const isActive = ACTIVE_STATUSES.includes(order.status);
                 const isUnpaid = order.paymentStatus !== "paid";
                 const orderError = orderErrors[order.id];
+                const isPendingUpiVerification =
+                  order.status === "awaiting_confirmation" &&
+                  order.paymentMethod === "upi" &&
+                  order.paymentStatus !== "paid";
+                const utr = isPendingUpiVerification ? extractUtr(order.notes) : null;
+                const isVerifying = verifyingId === order.id;
+                const isRejecting = rejectingId === order.id;
 
                 return (
                   <div key={order.id} className={cn("p-4 transition-colors", i % 2 === 0 ? "bg-[#F9FAFB] hover:bg-[#F1F3F5]" : "bg-[#EEF2FF] hover:bg-[#E5EAFC]")}>
@@ -436,14 +480,78 @@ export default function Dashboard() {
                         {order.notes && (
                           <p className="mt-1 text-xs text-muted-foreground italic">Note: {order.notes}</p>
                         )}
+
+                        {/* UPI payment pending verification panel */}
+                        {isPendingUpiVerification && (
+                          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                            <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
+                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                              Payment Pending Verification
+                            </p>
+                            <div className="space-y-1 text-xs text-amber-700">
+                              <div className="flex justify-between">
+                                <span className="text-amber-600">Order</span>
+                                <span className="font-mono font-bold text-amber-900">#{order.id}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-amber-600">Customer</span>
+                                <span className="font-semibold text-amber-900">{order.customerName}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-amber-600">Amount</span>
+                                <span className="font-bold text-amber-900">₹{order.total}</span>
+                              </div>
+                              {utr && (
+                                <div className="flex justify-between items-center mt-1 pt-1 border-t border-amber-200">
+                                  <span className="text-amber-600">UTR</span>
+                                  <span className="font-mono font-bold tracking-wider text-amber-900 text-sm">{utr}</span>
+                                </div>
+                              )}
+                              {!utr && (
+                                <div className="mt-1 pt-1 border-t border-amber-200 text-amber-600 italic">
+                                  No UTR provided by customer
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: action buttons.
                           Mobile: full-width row that wraps (buttons sit below order info).
                           sm+: fixed-width vertical column beside the order info. */}
                       <div className="flex flex-row flex-wrap gap-2 sm:flex-col sm:shrink-0 sm:min-w-[140px]">
-                        {/* Single advance button — driven purely by orderStatus */}
-                        {nextStatus && (
+                        {/* UPI verification buttons — shown instead of advance/paid when awaiting confirmation */}
+                        {isPendingUpiVerification && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => handleVerifyUpi(order.id)}
+                              disabled={isVerifying || isRejecting}
+                            >
+                              {isVerifying
+                                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                              Verify Payment
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
+                              onClick={() => handleRejectUpi(order.id)}
+                              disabled={isVerifying || isRejecting}
+                            >
+                              {isRejecting
+                                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                : <XCircle className="w-3 h-3 mr-1" />}
+                              Reject Payment
+                            </Button>
+                          </>
+                        )}
+
+                        {/* Single advance button — driven purely by orderStatus; hidden while UPI is unverified */}
+                        {nextStatus && !isPendingUpiVerification && (
                           <Button
                             size="sm"
                             className="w-full text-xs h-8 bg-orange-500 hover:bg-orange-600 text-white"
@@ -459,8 +567,8 @@ export default function Dashboard() {
                           </Button>
                         )}
 
-                        {/* Mark as Paid (Cash) — active + unpaid orders only */}
-                        {isActive && isUnpaid && (
+                        {/* Mark as Paid (Cash) — active + unpaid + not a pending UPI order */}
+                        {isActive && isUnpaid && !isPendingUpiVerification && (
                           <Button
                             size="sm"
                             variant="outline"

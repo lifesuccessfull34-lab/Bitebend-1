@@ -154,6 +154,7 @@ export const orders = pgTable("orders", {
       "ready",
       "completed",
       "cancelled",
+      "payment_failed",
     ],
   })
     .notNull()

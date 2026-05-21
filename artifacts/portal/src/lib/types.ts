@@ -126,7 +126,7 @@ export interface Order {
   tableNumber: string | null;
   customerName: string;
   customerPhone: string;
-  status: "ordered" | "pending_payment" | "awaiting_confirmation" | "pending" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
+  status: "ordered" | "pending_payment" | "awaiting_confirmation" | "pending" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled" | "payment_failed";
   subtotal: number;
   tax: number;
   total: number;

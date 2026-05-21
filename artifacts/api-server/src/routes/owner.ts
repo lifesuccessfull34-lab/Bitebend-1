@@ -434,6 +434,60 @@ const updateOrder: RequestHandler = async (req, res) => {
   res.json({ ...order, items });
 };
 
+const verifyUpiPayment: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+
+  const [existing] = await db
+    .select({ id: orders.id, status: orders.status, paymentMethod: orders.paymentMethod, tableId: orders.tableId })
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+
+  if (!existing) { res.status(404).json({ error: "Order not found" }); return; }
+  if (existing.status !== "awaiting_confirmation" || existing.paymentMethod !== "upi") {
+    res.status(400).json({ error: "Order is not pending UPI payment verification" }); return;
+  }
+
+  const [order] = await db
+    .update(orders)
+    .set({ paymentStatus: "paid", updatedAt: new Date() })
+    .where(eq(orders.id, orderId))
+    .returning();
+
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  res.json({ ...order, items });
+};
+
+const rejectUpiPayment: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+
+  const [existing] = await db
+    .select({ id: orders.id, status: orders.status, paymentMethod: orders.paymentMethod, tableId: orders.tableId })
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+
+  if (!existing) { res.status(404).json({ error: "Order not found" }); return; }
+  if (existing.status !== "awaiting_confirmation" || existing.paymentMethod !== "upi") {
+    res.status(400).json({ error: "Order is not pending UPI payment verification" }); return;
+  }
+
+  const [order] = await db
+    .update(orders)
+    .set({ status: "payment_failed", updatedAt: new Date() })
+    .where(eq(orders.id, orderId))
+    .returning();
+
+  if (existing.tableId) {
+    await db.update(restaurantTables).set({ isOccupied: false }).where(eq(restaurantTables.id, existing.tableId));
+  }
+
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+  res.json({ ...order, items });
+};
+
 const getWhatsappBill: RequestHandler = async (req, res) => {
   const user = req.user!;
   const orderId = parseInt(String(req.params.orderId));
@@ -799,6 +853,8 @@ router.get("/owner/orders/stream", requireOwner, streamOrders);
 router.get("/owner/orders", requireOwner, listOrders);
 router.get("/owner/orders/:orderId", requireOwner, getOwnerOrder);
 router.put("/owner/orders/:orderId", requireOwner, updateOrder);
+router.post("/owner/orders/:orderId/verify-upi", requireOwner, verifyUpiPayment);
+router.post("/owner/orders/:orderId/reject-upi", requireOwner, rejectUpiPayment);
 router.get("/owner/orders/:orderId/whatsapp", requireOwner, getWhatsappBill);
 
 router.get("/owner/stats", requireOwner, getStats);

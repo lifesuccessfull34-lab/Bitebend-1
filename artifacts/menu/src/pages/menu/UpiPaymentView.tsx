@@ -40,6 +40,10 @@ const C = {
   bg: "#f9fafb",
 };
 
+function isUtrValid(utr: string): boolean {
+  return /^[A-Za-z0-9]{8,}$/.test(utr.trim());
+}
+
 export function UpiPaymentView({
   orderId,
   orderTotal,
@@ -54,6 +58,7 @@ export function UpiPaymentView({
   onPlaceAnother,
 }: Props) {
   const [showQr, setShowQr] = useState(false);
+  const [utrTouched, setUtrTouched] = useState(false);
 
   const payeeName = restaurant.upiName || restaurant.name;
   const upiLink = generateUPILink(restaurant.upiId!, payeeName, orderTotal, orderId);
@@ -178,19 +183,24 @@ export function UpiPaymentView({
           {/* UTR field */}
           <div style={{ marginBottom: "10px" }}>
             <label style={{ fontSize: "11px", fontWeight: 600, color: C.amber700, display: "block", marginBottom: "4px" }}>
-              UTR / Reference Number <span style={{ fontWeight: 400, color: C.amber600 }}>(optional)</span>
+              Enter UPI Reference / UTR Number{" "}
+              <span style={{ color: "#ef4444" }}>*</span>
             </label>
             <input
               type="text"
               value={utrNumber}
-              onChange={(e) => onUtrChange(e.target.value)}
+              onChange={(e) => {
+                onUtrChange(e.target.value.replace(/\s/g, ""));
+                setUtrTouched(true);
+              }}
+              onBlur={() => setUtrTouched(true)}
               placeholder="e.g. 427123456789"
               style={{
                 width: "100%",
                 height: "40px",
                 padding: "0 12px",
                 borderRadius: "10px",
-                border: `1.5px solid ${C.amber200}`,
+                border: `1.5px solid ${utrTouched && !isUtrValid(utrNumber) ? "#ef4444" : C.amber200}`,
                 backgroundColor: C.white,
                 fontSize: "13px",
                 color: C.gray900,
@@ -198,9 +208,19 @@ export function UpiPaymentView({
                 boxSizing: "border-box",
               }}
             />
-            <p style={{ fontSize: "10px", color: C.amber600, margin: "4px 0 0" }}>
-              Found in your UPI app payment history — helps restaurant verify faster
-            </p>
+            {utrTouched && !isUtrValid(utrNumber) ? (
+              <p style={{ fontSize: "10px", color: "#ef4444", margin: "4px 0 0" }}>
+                {utrNumber.trim().length === 0
+                  ? "UTR number is required to confirm your payment"
+                  : utrNumber.trim().length < 8
+                  ? "UTR number must be at least 8 characters"
+                  : "UTR number must contain only letters and numbers"}
+              </p>
+            ) : (
+              <p style={{ fontSize: "10px", color: C.amber600, margin: "4px 0 0" }}>
+                You can find this in your payment app transaction details
+              </p>
+            )}
           </div>
 
           {/* QR fallback toggle */}
@@ -267,12 +287,16 @@ export function UpiPaymentView({
         {/* Confirm button */}
         {!timedOut && (
           <button
-            onClick={onConfirmPayment}
+            onClick={() => {
+              setUtrTouched(true);
+              if (!isUtrValid(utrNumber)) return;
+              onConfirmPayment();
+            }}
             disabled={confirmingPayment}
             style={{
               width: "100%", padding: "14px 0",
               borderRadius: "12px",
-              backgroundColor: C.orangeDark,
+              backgroundColor: isUtrValid(utrNumber) ? C.orangeDark : "#9ca3af",
               color: C.white,
               fontWeight: 700, fontSize: "14px",
               marginBottom: "10px",
@@ -280,7 +304,7 @@ export function UpiPaymentView({
               opacity: confirmingPayment ? 0.6 : 1,
               cursor: confirmingPayment ? "not-allowed" : "pointer",
               border: "none",
-              boxShadow: "0 2px 8px rgba(194,65,12,0.30)",
+              boxShadow: isUtrValid(utrNumber) ? "0 2px 8px rgba(194,65,12,0.30)" : "none",
             }}
           >
             {confirmingPayment ? (
