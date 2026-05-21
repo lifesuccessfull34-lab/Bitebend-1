@@ -83,6 +83,7 @@
     "@uppy/dashboard": "^5.1.1",
     "@uppy/react": "^5.2.0",
     "@workspace/object-storage-web": "workspace:*",
+    "jsqr": "^1.4.0",
     "qrcode": "^1.5.4",
     "qrcode.react": "^4.2.0",
     "xlsx": "^0.18.5"

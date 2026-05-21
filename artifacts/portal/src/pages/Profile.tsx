@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -6,9 +6,41 @@ import type { Restaurant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone, Zap } from "lucide-react";
+import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone, Zap, Upload, ScanLine } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import jsQR from "jsqr";
 
+// ── UPI QR parser ─────────────────────────────────────────────────────────────
+// UPI QR codes encode a URL in the form:
+//   upi://pay?pa=merchant@okaxis&pn=Merchant%20Name&mc=0000&am=0.00&cu=INR&...
+// We extract only pa (VPA) and pn (merchant name); everything else is ignored.
+
+interface UpiQrData {
+  pa: string;   // payee VPA  e.g. "merchant@okaxis"
+  pn: string;   // payee name e.g. "Olive Garden"
+}
+
+function parseUpiQr(raw: string): UpiQrData {
+  const lower = raw.trim().toLowerCase();
+  if (!lower.startsWith("upi://pay")) {
+    throw new Error(`Not a UPI QR — content starts with: "${raw.slice(0, 40)}"`);
+  }
+  // Strip the scheme prefix so URL can be parsed as a relative URL
+  const queryStr = raw.includes("?") ? raw.slice(raw.indexOf("?")) : "";
+  const params = new URLSearchParams(queryStr);
+
+  const pa = (params.get("pa") ?? "").trim();
+  if (!pa || !pa.includes("@")) {
+    throw new Error("QR decoded but no valid UPI ID (pa) found. Make sure you scanned a UPI payment QR.");
+  }
+
+  // pn is optional in the spec; fall back to empty string
+  const pn = decodeURIComponent(params.get("pn") ?? "").trim();
+
+  return { pa, pn };
+}
+
+// ── ₹1 test link ─────────────────────────────────────────────────────────────
 // Builds a minimal ₹1 UPI test link — same format as the customer checkout.
 // Only mandatory fields (pa, pn, am, cu) so no optional field can be the cause
 // of a payment-app rejection during diagnosis.
@@ -71,6 +103,12 @@ export default function Profile() {
   const [credSaved, setCredSaved] = useState(false);
   const [credError, setCredError] = useState("");
 
+  // QR upload / decode state
+  const [qrStatus, setQrStatus] = useState<"idle" | "scanning" | "success" | "error">("idle");
+  const [qrMessage, setQrMessage] = useState("");
+  const qrFileInputRef = useRef<HTMLInputElement>(null);
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
   useEffect(() => {
     apiFetch<Restaurant>("/owner/restaurant")
       .then((r) => {
@@ -100,6 +138,66 @@ export default function Profile() {
 
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  // ── QR upload handler ──────────────────────────────────────────────────────
+  const handleQrUpload = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setQrStatus("error");
+      setQrMessage("Please upload an image file (PNG, JPG, or JPEG).");
+      return;
+    }
+
+    setQrStatus("scanning");
+    setQrMessage("");
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = qrCanvasRef.current;
+      if (!canvas) return;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      const result = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+
+      if (!result) {
+        setQrStatus("error");
+        setQrMessage("No QR code found in the image. Try a clearer photo with good lighting and no tilt.");
+        URL.revokeObjectURL(img.src);
+        return;
+      }
+
+      console.log("[QR DECODED]", result.data);
+
+      try {
+        const { pa, pn } = parseUpiQr(result.data);
+        setForm((f) => ({
+          ...f,
+          upiId: pa,
+          upiName: pn || f.upiName,   // keep existing name if QR has no pn
+        }));
+        setQrStatus("success");
+        setQrMessage(`Extracted UPI ID: ${pa}${pn ? ` · Name: ${pn}` : ""}`);
+      } catch (err) {
+        setQrStatus("error");
+        setQrMessage(err instanceof Error ? err.message : "QR decoded but could not extract UPI details.");
+      }
+
+      URL.revokeObjectURL(img.src);
+    };
+
+    img.onerror = () => {
+      setQrStatus("error");
+      setQrMessage("Could not load image. Please try a different file.");
+    };
+
+    img.src = URL.createObjectURL(file);
+  };
 
   const setCred = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setCredForm((f) => ({ ...f, [field]: e.target.value }));
@@ -312,6 +410,69 @@ export default function Profile() {
                   className="shrink-0 mt-0.5"
                 />
               </div>
+
+              {/* ── Upload UPI QR ─────────────────────────────────────────── */}
+              <div
+                className="border border-dashed border-amber-300 rounded-lg p-3 space-y-2 cursor-pointer hover:bg-amber-50/60 transition-colors"
+                onClick={() => qrFileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files[0];
+                  if (file) handleQrUpload(file);
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <ScanLine className="w-4 h-4 text-amber-500 shrink-0" />
+                  <div>
+                    <p className="text-xs font-semibold text-amber-800">Upload UPI QR to auto-fill</p>
+                    <p className="text-[11px] text-amber-600">
+                      Drag & drop or click — the UPI ID and merchant name are extracted automatically
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ml-auto shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors"
+                    onClick={(e) => { e.stopPropagation(); qrFileInputRef.current?.click(); }}
+                  >
+                    <Upload className="w-3 h-3" />
+                    Choose image
+                  </button>
+                </div>
+
+                {/* Status feedback */}
+                {qrStatus === "scanning" && (
+                  <div className="flex items-center gap-1.5 text-xs text-amber-700">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Scanning QR code…
+                  </div>
+                )}
+                {qrStatus === "success" && (
+                  <div className="flex items-center gap-1.5 text-xs text-green-700 font-medium">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {qrMessage}
+                  </div>
+                )}
+                {qrStatus === "error" && (
+                  <p className="text-xs text-red-600">{qrMessage}</p>
+                )}
+
+                {/* Hidden file input */}
+                <input
+                  ref={qrFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleQrUpload(file);
+                    e.target.value = "";   // allow re-upload of same file
+                  }}
+                />
+              </div>
+
+              {/* Hidden canvas used only for QR pixel decoding — never shown */}
+              <canvas ref={qrCanvasRef} className="hidden" aria-hidden />
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
