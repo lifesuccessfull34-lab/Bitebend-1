@@ -49,6 +49,8 @@ const MOCK_RESTAURANT = {
   phone: "9999999999",
   taxPercent: 5,
   upiId: null,
+  upiName: null,
+  personalUpiEnabled: false,
   seatingLabel: "Table",
   razorpayKeyId: null,
 };

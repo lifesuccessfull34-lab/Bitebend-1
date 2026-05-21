@@ -50,6 +50,8 @@ export const restaurants = pgTable("restaurants", {
   ownerId: integer("owner_id"),
   isActive: boolean("is_active").notNull().default(true),
   upiId: text("upi_id"),
+  upiName: text("upi_name"),
+  personalUpiEnabled: boolean("personal_upi_enabled").notNull().default(false),
   whatsappNumber: text("whatsapp_number"),
   taxPercent: integer("tax_percent").notNull().default(5),
   seatingLabel: text("seating_label"),

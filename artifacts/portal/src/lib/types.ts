@@ -61,6 +61,8 @@ export interface Restaurant {
   ownerId: number | null;
   isActive: boolean;
   upiId: string | null;
+  upiName: string | null;
+  personalUpiEnabled: boolean;
   whatsappNumber: string | null;
   razorpayKeyId: string | null;
   taxPercent: number;

@@ -124,7 +124,7 @@ const placeOrder: RequestHandler = async (req, res) => {
   }
 
   // ── Payment method validation ───────────────────────────────────────────────
-  if (paymentMethod === "upi" && !restaurant.upiId) {
+  if (paymentMethod === "upi" && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
     res.status(400).json({ error: "UPI payment is not configured for this restaurant." });
     return;
   }
@@ -326,6 +326,7 @@ const createRazorpayOrder: RequestHandler = async (req, res) => {
 
 // PATCH /menu/:restaurantId/orders/:orderId/confirm-payment
 // Customer taps "I have completed payment" — moves order from pending_payment → awaiting_confirmation
+// Accepts optional { utrNumber } in body to record the UPI transaction reference
 const confirmPayment: RequestHandler = async (req, res) => {
   const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
   if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
@@ -336,6 +337,8 @@ const confirmPayment: RequestHandler = async (req, res) => {
     res.status(400).json({ error: "Invalid order ID" });
     return;
   }
+
+  const { utrNumber } = req.body as { utrNumber?: string };
 
   const [order] = await db
     .select()
@@ -353,9 +356,12 @@ const confirmPayment: RequestHandler = async (req, res) => {
     return;
   }
 
+  const utrSuffix = utrNumber?.trim() ? ` · UTR: ${utrNumber.trim()}` : "";
+  const updatedNotes = order.notes ? `${order.notes}${utrSuffix}` : utrSuffix || null;
+
   const [updated] = await db
     .update(orders)
-    .set({ status: "awaiting_confirmation", updatedAt: new Date() })
+    .set({ status: "awaiting_confirmation", notes: updatedNotes, updatedAt: new Date() })
     .where(eq(orders.id, orderId))
     .returning();
 

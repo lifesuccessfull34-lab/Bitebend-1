@@ -68,6 +68,7 @@ export default function MenuPage() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [orderTotal, setOrderTotal] = useState(0);
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+  const [utrNumber, setUtrNumber] = useState("");
   const [countdown, setCountdown] = useState(300);
 
   // Load Razorpay checkout.js only when this restaurant has it configured.
@@ -184,7 +185,7 @@ export default function MenuPage() {
 
   // Count of available payment methods to set grid columns dynamically.
   const paymentMethodCount = restaurant
-    ? 1 + (restaurant.upiId ? 1 : 0) + (restaurant.razorpayKeyId ? 1 : 0)
+    ? 1 + (restaurant.upiId && restaurant.personalUpiEnabled ? 1 : 0) + (restaurant.razorpayKeyId ? 1 : 0)
     : 1;
   const paymentGridCols =
     paymentMethodCount === 3
@@ -267,7 +268,11 @@ export default function MenuPage() {
     try {
       const res = await fetch(
         `${BASE}/api/menu/${restaurant!.id}/orders/${orderId}/confirm-payment`,
-        { method: "PATCH" },
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ utrNumber: utrNumber.trim() || undefined }),
+        },
       );
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -396,7 +401,7 @@ export default function MenuPage() {
       setOrderId(data.id);
       setOrderTotal(total);
       setCart([]);
-      if (paymentMethod === "upi" && restaurant?.upiId) {
+      if (paymentMethod === "upi" && restaurant?.upiId && restaurant?.personalUpiEnabled) {
         // Show the payment screen first; the <a href> button there handles the
         // UPI intent dispatch. Auto-redirecting via window.location.href is
         // unreliable across Android browsers and fires before the view renders.
@@ -440,7 +445,7 @@ export default function MenuPage() {
     );
   }
 
-  if (view === "pending_upi_payment" && orderId && restaurant.upiId) {
+  if (view === "pending_upi_payment" && orderId && restaurant.upiId && restaurant.personalUpiEnabled) {
     return (
       <UpiPaymentView
         orderId={orderId}
@@ -450,12 +455,15 @@ export default function MenuPage() {
         manualTableNumber={manualTableNumber}
         countdown={countdown}
         confirmingPayment={confirmingPayment}
+        utrNumber={utrNumber}
+        onUtrChange={setUtrNumber}
         onConfirmPayment={confirmPaymentDone}
         onPlaceAnother={() => {
           setView("menu");
           setOrderId(null);
           setPaymentMethod(null);
           setNotes("");
+          setUtrNumber("");
         }}
       />
     );

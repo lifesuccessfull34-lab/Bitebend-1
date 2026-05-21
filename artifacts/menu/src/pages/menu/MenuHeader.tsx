@@ -27,6 +27,7 @@ export function MenuHeader({
 
   return (
     <div
+      className="text-white"
       style={{
         paddingTop: "calc(env(safe-area-inset-top, 0px) + 18px)",
         paddingBottom: "18px",

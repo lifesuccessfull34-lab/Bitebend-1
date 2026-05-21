@@ -80,7 +80,7 @@ const updateRestaurant: RequestHandler = async (req, res) => {
 
   const {
     name, description, cuisineType, logoUrl, address, city, phone, email,
-    upiId, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret,
+    upiId, upiName, personalUpiEnabled, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret,
   } = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {};
@@ -93,6 +93,8 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (phone !== undefined) updates.phone = phone;
   if (email !== undefined) updates.email = email;
   if (upiId !== undefined) updates.upiId = upiId;
+  if (upiName !== undefined) updates.upiName = upiName;
+  if (personalUpiEnabled !== undefined) updates.personalUpiEnabled = personalUpiEnabled;
   if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber;
   if (taxPercent !== undefined) updates.taxPercent = taxPercent;
   if (seatingLabel !== undefined) updates.seatingLabel = seatingLabel;

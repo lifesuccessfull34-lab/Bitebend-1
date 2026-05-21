@@ -6,7 +6,8 @@ import type { Restaurant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound } from "lucide-react";
+import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 const CUISINE_TYPES = [
   { value: "north_indian", label: "North Indian" },
@@ -39,6 +40,8 @@ export default function Profile() {
     phone: "",
     email: "",
     upiId: "",
+    upiName: "",
+    personalUpiEnabled: false,
     whatsappNumber: "",
     taxPercent: "5",
     razorpayKeyId: "",
@@ -70,6 +73,8 @@ export default function Profile() {
           phone: r.phone ?? "",
           email: r.email ?? "",
           upiId: r.upiId ?? "",
+          upiName: r.upiName ?? "",
+          personalUpiEnabled: r.personalUpiEnabled ?? false,
           whatsappNumber: r.whatsappNumber ?? "",
           taxPercent: String(r.taxPercent ?? 5),
           razorpayKeyId: (r as any).razorpayKeyId ?? "",
@@ -99,6 +104,8 @@ export default function Profile() {
           ...form,
           description: form.description || null,
           upiId: form.upiId || null,
+          upiName: form.upiName || null,
+          personalUpiEnabled: form.personalUpiEnabled,
           whatsappNumber: form.whatsappNumber || null,
           taxPercent: parseInt(form.taxPercent),
           razorpayKeyId: form.razorpayKeyId || null,
@@ -253,11 +260,6 @@ export default function Profile() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>UPI ID</Label>
-                <Input value={form.upiId} onChange={set("upiId")} placeholder="restaurant@upi" />
-                <p className="text-xs text-muted-foreground">Added to WhatsApp bills for easy payment</p>
-              </div>
-              <div className="space-y-1.5">
                 <Label>WhatsApp Number</Label>
                 <Input value={form.whatsappNumber} onChange={set("whatsappNumber")} placeholder="919876543210" />
                 <p className="text-xs text-muted-foreground">Bills sent to customer or this number</p>
@@ -274,6 +276,69 @@ export default function Profile() {
                 />
                 <p className="text-xs text-muted-foreground">Applied to all orders (GST etc.)</p>
               </div>
+            </div>
+
+            {/* Personal UPI */}
+            <div className="border-t border-border pt-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-amber-500" />
+                    <p className="text-sm font-semibold">Personal UPI Payments</p>
+                    {form.personalUpiEnabled && form.upiId && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                        ACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Customers pay via UPI deep link (GPay, PhonePe, Paytm) — you verify manually
+                  </p>
+                </div>
+                <Switch
+                  checked={form.personalUpiEnabled}
+                  onCheckedChange={(v) => setForm((f) => ({ ...f, personalUpiEnabled: v }))}
+                  className="shrink-0 mt-0.5"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>UPI ID</Label>
+                  <Input
+                    value={form.upiId}
+                    onChange={set("upiId")}
+                    placeholder="restaurant@okaxis"
+                  />
+                  <p className="text-xs text-muted-foreground">e.g. name@okaxis, number@paytm</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Merchant Name <span className="text-muted-foreground font-normal text-xs">(shown in UPI app)</span></Label>
+                  <Input
+                    value={form.upiName}
+                    onChange={set("upiName")}
+                    placeholder={form.name || "Your Restaurant Name"}
+                  />
+                  <p className="text-xs text-muted-foreground">Defaults to restaurant name if blank</p>
+                </div>
+              </div>
+
+              {form.personalUpiEnabled && !form.upiId && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+                  <p className="text-xs text-amber-700">
+                    Add your UPI ID above to activate Personal UPI payments for customers.
+                  </p>
+                </div>
+              )}
+
+              {form.personalUpiEnabled && form.upiId && (
+                <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2.5 space-y-1">
+                  <p className="text-xs font-semibold text-green-700">Personal UPI is active</p>
+                  <p className="text-xs text-green-600">
+                    Customers will see a "Pay via UPI" button at checkout that opens their installed UPI app directly. No Razorpay needed.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Razorpay */}

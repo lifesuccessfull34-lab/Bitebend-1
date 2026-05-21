@@ -320,8 +320,8 @@ export function CheckoutView({
                 <span style={{ fontSize: "12px", fontWeight: 600 }}>Cash</span>
               </button>
 
-              {/* UPI */}
-              {restaurant.upiId && (
+              {/* UPI — only shown when personal UPI is enabled and a UPI ID is configured */}
+              {restaurant.upiId && restaurant.personalUpiEnabled && (
                 <button
                   type="button"
                   onClick={() => onPaymentMethodChange("upi")}

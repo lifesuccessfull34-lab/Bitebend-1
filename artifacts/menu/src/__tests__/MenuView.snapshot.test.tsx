@@ -63,6 +63,8 @@ const MOCK_RESTAURANT = {
   phone: "9999999999",
   taxPercent: 5,
   upiId: null,
+  upiName: null,
+  personalUpiEnabled: false,
   seatingLabel: null, // take-away only — skips landing, renders menu directly
   razorpayKeyId: null,
 };
@@ -249,7 +251,7 @@ describe("MenuView – mobile layout regression snapshots", () => {
     const container = await renderMenuAt(360);
 
     const input = container.querySelector(
-      'input[placeholder="Search for dishes..."]',
+      'input[placeholder="Search for dishes\u2026"]',
     );
     expect(input).not.toBeNull();
     expect(input!.className).toMatch(/\brounded-full\b/);

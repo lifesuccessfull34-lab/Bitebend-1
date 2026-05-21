@@ -27,6 +27,8 @@ export interface RestaurantData {
   phone: string;
   taxPercent: number;
   upiId: string | null;
+  upiName: string | null;
+  personalUpiEnabled: boolean;
   seatingLabel: string | null;
   razorpayKeyId: string | null;
 }
