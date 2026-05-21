@@ -63,6 +63,29 @@ export function UpiPaymentView({
   const payeeName = restaurant.upiName || restaurant.name;
   const upiLink = generateUPILink(restaurant.upiId!, payeeName, orderTotal, orderId);
 
+  // Debug: log exact generated link + all inputs so we can confirm parameters
+  // are correct in production. Remove once UPI prefilling is verified.
+  console.log("[UPI] inputs:", {
+    upiId: restaurant.upiId,
+    payeeName,
+    orderTotal,
+    orderId,
+  });
+  console.log("[UPI] generated link:", upiLink);
+
+  const openUpiApp = () => {
+    // Use window.location.href, NOT an <a href> anchor.
+    //
+    // On Android, clicking an anchor tag with a custom scheme (upi://) routes
+    // through the browser's link-click pipeline, which re-encodes the query
+    // string before handing off the intent to the OS. This strips or corrupts
+    // pa/pn/am/tn so the UPI app opens but shows no prefilled data.
+    //
+    // window.location.href dispatches the intent directly — the raw URL string
+    // reaches the OS and then the UPI app without any intermediate re-encoding.
+    window.location.href = upiLink;
+  };
+
   const isTakeAway = orderType === "take_away";
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
@@ -145,14 +168,14 @@ export function UpiPaymentView({
             </p>
           </div>
 
-          <a
-            href={upiLink}
+          <button
+            onClick={openUpiApp}
             style={{
               display: "flex", alignItems: "center", justifyContent: "center",
               gap: "8px", width: "100%", padding: "14px 0",
               backgroundColor: C.amber500, color: C.white,
               borderRadius: "12px", fontWeight: 700, fontSize: "14px",
-              textDecoration: "none",
+              border: "none", cursor: "pointer",
               boxShadow: "0 2px 8px rgba(245,158,11,0.35)",
             }}
           >
@@ -161,7 +184,7 @@ export function UpiPaymentView({
               <line x1="12" y1="18" x2="12.01" y2="18"/>
             </svg>
             Pay ₹{orderTotal.toFixed(2)} via UPI
-          </a>
+          </button>
           <p style={{ fontSize: "11px", color: C.amber600, textAlign: "center", margin: "6px 0 12px" }}>
             Opens GPay, PhonePe, Paytm or any UPI app
           </p>
