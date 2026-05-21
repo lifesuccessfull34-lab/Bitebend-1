@@ -9,6 +9,7 @@ import {
   X,
   CreditCard,
   Users,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -24,12 +25,13 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { name: "Dashboard", href: "/restaurant/dashboard", icon: LayoutDashboard },
-  { name: "Menu", href: "/restaurant/menu", icon: UtensilsCrossed },
-  { name: "Tables & QR", href: "/restaurant/tables", icon: Table2 },
-  { name: "Customers", href: "/restaurant/customers/analytics", icon: Users },
-  { name: "Subscription", href: "/restaurant/subscription", icon: CreditCard, ownerOnly: true },
-  { name: "Profile", href: "/restaurant/profile", icon: Settings },
+  { name: "Dashboard",   href: "/restaurant/dashboard",             icon: LayoutDashboard },
+  { name: "Menu",        href: "/restaurant/menu",                  icon: UtensilsCrossed },
+  { name: "Tables & QR", href: "/restaurant/tables",               icon: Table2 },
+  { name: "Customers",   href: "/restaurant/customers/analytics",   icon: Users },
+  { name: "Subscription", href: "/restaurant/subscription",        icon: CreditCard, ownerOnly: true },
+  { name: "Resources",   href: "/restaurant/resources",            icon: BookOpen },
+  { name: "Profile",     href: "/restaurant/profile",              icon: Settings },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
