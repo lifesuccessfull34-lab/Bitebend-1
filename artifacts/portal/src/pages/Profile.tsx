@@ -379,22 +379,29 @@ export default function Profile() {
     setSaving(true);
     setError("");
     try {
+      const payload = {
+        ...form,
+        description: form.description || null,
+        upiId: form.upiId || null,
+        upiName: form.upiName || null,
+        personalUpiEnabled: form.personalUpiEnabled,
+        paymentQrEnabled: form.paymentQrEnabled,
+        qrMerchantName: form.qrMerchantName || null,
+        qrExtractedUpiId: form.qrExtractedUpiId || null,
+        whatsappNumber: form.whatsappNumber || null,
+        taxPercent: parseInt(form.taxPercent),
+        razorpayKeyId: form.razorpayKeyId || null,
+        razorpayKeySecret: form.razorpayKeySecret || null,
+      };
+      console.log("[SAVE PAYMENT QR]", {
+        paymentQrEnabled: payload.paymentQrEnabled,
+        qrImageDataLength: payload.qrImageData ? payload.qrImageData.length : null,
+        qrExtractedUpiId: payload.qrExtractedUpiId,
+        qrMerchantName: payload.qrMerchantName,
+      });
       await apiFetch<Restaurant>("/owner/restaurant", {
         method: "PUT",
-        body: JSON.stringify({
-          ...form,
-          description: form.description || null,
-          upiId: form.upiId || null,
-          upiName: form.upiName || null,
-          personalUpiEnabled: form.personalUpiEnabled,
-          paymentQrEnabled: form.paymentQrEnabled,
-          qrMerchantName: form.qrMerchantName || null,
-          qrExtractedUpiId: form.qrExtractedUpiId || null,
-          whatsappNumber: form.whatsappNumber || null,
-          taxPercent: parseInt(form.taxPercent),
-          razorpayKeyId: form.razorpayKeyId || null,
-          razorpayKeySecret: form.razorpayKeySecret || null,
-        }),
+        body: JSON.stringify(payload),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);

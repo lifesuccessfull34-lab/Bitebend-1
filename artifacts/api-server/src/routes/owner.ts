@@ -85,6 +85,15 @@ const updateRestaurant: RequestHandler = async (req, res) => {
     qrImageData, qrDecodedPayload, qrMerchantName, qrExtractedUpiId, paymentQrEnabled,
   } = req.body as Record<string, unknown>;
 
+  req.log.info(
+    {
+      "[PROFILE SAVE RECEIVED]": true,
+      "[QR IMAGE LENGTH]": typeof qrImageData === "string" ? qrImageData.length : null,
+      "[PAYMENT QR ENABLED]": paymentQrEnabled ?? null,
+    },
+    "updateRestaurant called",
+  );
+
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (description !== undefined) updates.description = description;
@@ -126,10 +135,12 @@ const updateRestaurant: RequestHandler = async (req, res) => {
       res.status(404).json({ error: "Restaurant not found" });
       return;
     }
+    req.log.info({ "[DB UPDATE SUCCESS]": true, restaurantId: updated.id }, "restaurant saved");
     res.json(updated);
   } catch (err) {
     req.log.error(err, "updateRestaurant failed");
-    res.status(500).json({ error: "Failed to save restaurant" });
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: `Failed to save restaurant: ${message}` });
   }
 };
 
