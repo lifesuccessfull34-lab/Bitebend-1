@@ -128,16 +128,33 @@ export function UpiPaymentView({
   const payeeName = restaurant.upiName || restaurant.name;
   const upiLink = generateUPILink(restaurant.upiId!, payeeName, orderTotal, orderId);
 
+  // Validate the UPI ID before attempting to launch any app.
+  // A valid VPA must be non-empty, contain exactly one @, and have no spaces.
+  const upiIdRaw = (restaurant.upiId ?? "").trim();
+  const upiIdValid = upiIdRaw.length > 0 && upiIdRaw.includes("@") && !upiIdRaw.includes(" ");
+
   const isTakeAway = orderType === "take_away";
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
   const timedOut = countdown === 0;
 
   const openUpiApp = () => {
-    // Debug: log all inputs and generated link on every tap.
-    // Remove once UPI prefilling is confirmed in production.
-    console.log("[UPI] inputs:", { upiId: restaurant.upiId, payeeName, orderTotal, orderId });
-    console.log("[UPI] generated link:", upiLink);
+    // Log every individual UPI field + the full generated URL so the exact
+    // payload is visible in DevTools when diagnosing payment-app rejections.
+    console.log("[UPI FIELD] pa (UPI ID)  :", JSON.stringify(upiIdRaw), "valid:", upiIdValid);
+    console.log("[UPI FIELD] pn (name)    :", JSON.stringify(payeeName));
+    console.log("[UPI FIELD] am (amount)  :", Number(orderTotal).toFixed(2));
+    console.log("[UPI FIELD] tr           :", `BITEBN${orderId}`);
+    console.log("[UPI FIELD] tn           :", `Order ${orderId}`);
+    console.log("[UPI FULL URL]", upiLink);
+
+    // Abort early — a malformed UPI ID will always cause a "technical glitch"
+    // in every payment app. Show the chooser so the user sees the error banner.
+    if (!upiIdValid) {
+      console.warn("[UPI] invalid UPI ID, aborting launch");
+      setShowChooser(true);
+      return;
+    }
 
     const { isAndroid, isInAppBrowser } = detectEnv();
     console.log("[UPI] env:", { isAndroid, isInAppBrowser });
@@ -241,6 +258,38 @@ export function UpiPaymentView({
             : `${restaurant.seatingLabel ?? "Table"} ${manualTableNumber} · ${restaurant.name}`}
         </div>
 
+        {/* Invalid UPI ID warning — shown when the restaurant hasn't configured
+            a valid UPI VPA. Catches "technical glitch" before the app opens. */}
+        {!upiIdValid && (
+          <div style={{
+            backgroundColor: "#fef2f2",
+            border: "1px solid #fecaca",
+            borderRadius: "12px",
+            padding: "12px 14px",
+            marginBottom: "14px",
+            textAlign: "left",
+            display: "flex",
+            gap: "10px",
+            alignItems: "flex-start",
+          }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.red500} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: "1px" }}>
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <div>
+              <p style={{ fontSize: "13px", fontWeight: 700, color: C.red500, margin: "0 0 2px" }}>
+                Restaurant UPI not configured
+              </p>
+              <p style={{ fontSize: "11px", color: "#b91c1c", margin: 0, lineHeight: "1.5" }}>
+                {upiIdRaw.length === 0
+                  ? "This restaurant hasn't added a UPI ID yet."
+                  : `UPI ID "${upiIdRaw}" looks invalid (must contain @). Please ask staff to pay by cash or card.`}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* UPI card */}
         <div style={{
           backgroundColor: C.amber50,
@@ -318,7 +367,10 @@ export function UpiPaymentView({
               {/* Per-app intent buttons */}
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
                 {UPI_APPS.map((app) => {
-                  const href = isAndroid
+                  // Paytm rejects package-routed intent:// URLs ("technical
+                  // glitch"). Send it the plain upi:// scheme and let Android
+                  // route it normally. GPay and PhonePe tolerate intent:// fine.
+                  const href = isAndroid && app.id !== "paytm"
                     ? makeIntentUrl(upiLink, app.pkg)
                     : upiLink;
                   return (
