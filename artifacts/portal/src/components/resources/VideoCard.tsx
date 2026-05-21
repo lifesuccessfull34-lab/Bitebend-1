@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { Play, Clock, ExternalLink, X } from "lucide-react";
+import { Play, Clock, ExternalLink, X, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VideoResource } from "@/data/resources";
+import { trackVideoPlay, trackResourceOpen } from "@/services/resourceService";
 
 interface Props {
   video: VideoResource;
+  isFavorited?: boolean;
+  onToggleFavorite?: () => void;
 }
 
 function getYouTubeThumbnail(url: string): string | null {
@@ -13,14 +16,15 @@ function getYouTubeThumbnail(url: string): string | null {
   return null;
 }
 
-export function VideoCard({ video }: Props) {
+export function VideoCard({ video, isFavorited, onToggleFavorite }: Props) {
   const [embedOpen, setEmbedOpen] = useState(false);
 
   const thumbnail = video.thumbnailUrl ?? getYouTubeThumbnail(video.url);
-
   const isEmbed = video.source === "youtube" || video.source === "self-hosted";
 
   const handlePlay = () => {
+    trackVideoPlay(video.id);
+    trackResourceOpen(video.id);
     if (isEmbed) {
       setEmbedOpen(true);
     } else {
@@ -59,6 +63,21 @@ export function VideoCard({ video }: Props) {
               <Clock className="w-2.5 h-2.5" />
               {video.duration}
             </div>
+          )}
+          {/* Favorite */}
+          {onToggleFavorite && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
+              className={cn(
+                "absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center transition-all shadow-md",
+                isFavorited
+                  ? "bg-red-500 text-white"
+                  : "bg-black/40 text-white hover:bg-black/60",
+              )}
+              title={isFavorited ? "Remove from saved" : "Save resource"}
+            >
+              <Heart className={cn("w-3.5 h-3.5", isFavorited && "fill-white")} />
+            </button>
           )}
         </div>
 

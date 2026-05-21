@@ -1,19 +1,38 @@
-import { FileText, Download, ExternalLink } from "lucide-react";
+import { FileText, Download, ExternalLink, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PdfResource } from "@/data/resources";
+import { trackDownload, trackResourceOpen } from "@/services/resourceService";
 
 interface Props {
   pdf: PdfResource;
+  isFavorited?: boolean;
+  onToggleFavorite?: () => void;
 }
 
-export function PdfCard({ pdf }: Props) {
+export function PdfCard({ pdf, isFavorited, onToggleFavorite }: Props) {
   return (
-    <div className="group bg-card border border-border rounded-xl p-4 hover:shadow-md transition-all duration-200 flex flex-col gap-3">
+    <div className="group relative bg-card border border-border rounded-xl p-4 hover:shadow-md transition-all duration-200 flex flex-col gap-3">
+      {/* Favorite button */}
+      {onToggleFavorite && (
+        <button
+          onClick={onToggleFavorite}
+          className={cn(
+            "absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center transition-all",
+            isFavorited
+              ? "bg-red-100 text-red-500"
+              : "bg-muted text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-red-400",
+          )}
+          title={isFavorited ? "Remove from saved" : "Save resource"}
+        >
+          <Heart className={cn("w-3.5 h-3.5", isFavorited && "fill-red-500")} />
+        </button>
+      )}
+
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-lg bg-red-50 border border-red-100 flex items-center justify-center shrink-0">
           <FileText className="w-5 h-5 text-red-500" />
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 pr-6">
           <h3 className="font-semibold text-sm text-foreground line-clamp-1">{pdf.title}</h3>
           {pdf.sizeLabel && (
             <p className="text-[10px] text-muted-foreground mt-0.5">{pdf.sizeLabel}</p>
@@ -27,6 +46,7 @@ export function PdfCard({ pdf }: Props) {
         <a
           href={pdf.url}
           download
+          onClick={() => { trackDownload(pdf.id); trackResourceOpen(pdf.id); }}
           className="flex-1 flex items-center justify-center gap-1.5 text-xs font-medium py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white transition-colors"
         >
           <Download className="w-3 h-3" />
@@ -36,6 +56,7 @@ export function PdfCard({ pdf }: Props) {
           href={pdf.url}
           target="_blank"
           rel="noopener noreferrer"
+          onClick={() => trackResourceOpen(pdf.id)}
           className="flex items-center justify-center w-8 h-8 rounded-lg border border-border hover:bg-accent text-muted-foreground transition-colors"
           title="Open in browser"
         >

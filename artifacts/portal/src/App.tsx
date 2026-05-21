@@ -47,6 +47,7 @@ const Admin             = lazyWithRetry(() => import("@/pages/Admin"));
 const Subscription      = lazyWithRetry(() => import("@/pages/Subscription"));
 const CustomerAnalytics = lazyWithRetry(() => import("@/pages/CustomerAnalytics"));
 const ResourcesCenter   = lazyWithRetry(() => import("@/pages/resources/ResourcesCenter"));
+const ResourcesManage   = lazyWithRetry(() => import("@/pages/resources/ResourcesManage"));
 const Logout            = lazyWithRetry(() => import("@/pages/Logout"));
 const NotFound          = lazyWithRetry(() => import("@/pages/not-found"));
 
@@ -245,6 +246,7 @@ const ProfilePage           = () => <RestaurantRoute component={Profile} />;
 const SubscriptionPage         = () => <RestaurantRoute component={Subscription} />;
 const CustomerAnalyticsPage    = () => <RestaurantRoute component={CustomerAnalytics} />;
 const ResourcesCenterPage      = () => <RestaurantRoute component={ResourcesCenter} />;
+const ResourcesManagePage      = () => <RestaurantRoute component={ResourcesManage} />;
 const RestaurantCatchAll       = () => <RestaurantRoute component={RestaurantToDashboard} />;
 const AdminLoginPage           = () => <AdminPublicRoute component={AdminLogin} />;
 const AdminForgotPasswordPage  = () => <AdminForgotPassword />;
@@ -280,6 +282,7 @@ function Router() {
       <Route path="/restaurant/profile"      component={ProfilePage} />
       <Route path="/restaurant/subscription"           component={SubscriptionPage} />
       <Route path="/restaurant/customers/analytics"    component={CustomerAnalyticsPage} />
+      <Route path="/restaurant/resources/manage"       component={ResourcesManagePage} />
       <Route path="/restaurant/resources"              component={ResourcesCenterPage} />
 
       {/* ── Catch-all for any unknown /restaurant/* path ─────────────── */}
