@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { generateUPILink } from "./utils";
 import type { RestaurantData, OrderType } from "./types";
@@ -36,6 +36,8 @@ const C = {
   red500: "#ef4444",
   green50: "#f0fdf4",
   green700: "#15803d",
+  blue50: "#eff6ff",
+  blue600: "#2563eb",
   white: "#ffffff",
   bg: "#f9fafb",
 };
@@ -43,6 +45,67 @@ const C = {
 function isUtrValid(utr: string): boolean {
   return /^[A-Za-z0-9]{8,}$/.test(utr.trim());
 }
+
+// ── Browser / OS detection ────────────────────────────────────────────────────
+
+function detectEnv(): { isAndroid: boolean; isInAppBrowser: boolean } {
+  const ua = navigator.userAgent;
+  return {
+    isAndroid: /Android/i.test(ua),
+    // WhatsApp, Instagram, Facebook, Line, WeChat in-app browsers all block
+    // custom URL schemes — detect them so we skip the window.location.href
+    // attempt and jump straight to the app chooser.
+    isInAppBrowser: /FBAN|FBAV|Instagram|WhatsApp|Line\/|MicroMessenger/i.test(ua),
+  };
+}
+
+// ── Intent URL builder (Android only) ────────────────────────────────────────
+// intent://pay?{params}#Intent;scheme=upi;package={pkg};end
+// Bypasses Chrome's link-dispatch pipeline and opens a specific app directly.
+
+function makeIntentUrl(upiLink: string, pkg: string): string {
+  const params = upiLink.slice("upi://pay?".length);
+  return `intent://pay?${params}#Intent;scheme=upi;package=${pkg};end`;
+}
+
+const UPI_APPS = [
+  {
+    id: "gpay",
+    label: "Google Pay",
+    pkg: "com.google.android.apps.nbu.paisa.user",
+    color: "#1a73e8",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="12" fill="#1a73e8" />
+        <text x="12" y="16" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="sans-serif">G</text>
+      </svg>
+    ),
+  },
+  {
+    id: "phonepe",
+    label: "PhonePe",
+    pkg: "com.phonepe.app",
+    color: "#5f259f",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="12" fill="#5f259f" />
+        <text x="12" y="16" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="sans-serif">P</text>
+      </svg>
+    ),
+  },
+  {
+    id: "paytm",
+    label: "Paytm",
+    pkg: "net.one97.paytm",
+    color: "#002970",
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="12" fill="#00baf2" />
+        <text x="12" y="16" textAnchor="middle" fill="white" fontSize="8" fontWeight="700" fontFamily="sans-serif">PAY</text>
+      </svg>
+    ),
+  },
+];
 
 export function UpiPaymentView({
   orderId,
@@ -58,38 +121,75 @@ export function UpiPaymentView({
   onPlaceAnother,
 }: Props) {
   const [showQr, setShowQr] = useState(false);
+  const [showChooser, setShowChooser] = useState(false);
   const [utrTouched, setUtrTouched] = useState(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const payeeName = restaurant.upiName || restaurant.name;
   const upiLink = generateUPILink(restaurant.upiId!, payeeName, orderTotal, orderId);
-
-  // Debug: log exact generated link + all inputs so we can confirm parameters
-  // are correct in production. Remove once UPI prefilling is verified.
-  console.log("[UPI] inputs:", {
-    upiId: restaurant.upiId,
-    payeeName,
-    orderTotal,
-    orderId,
-  });
-  console.log("[UPI] generated link:", upiLink);
-
-  const openUpiApp = () => {
-    // Use window.location.href, NOT an <a href> anchor.
-    //
-    // On Android, clicking an anchor tag with a custom scheme (upi://) routes
-    // through the browser's link-click pipeline, which re-encodes the query
-    // string before handing off the intent to the OS. This strips or corrupts
-    // pa/pn/am/tn so the UPI app opens but shows no prefilled data.
-    //
-    // window.location.href dispatches the intent directly — the raw URL string
-    // reaches the OS and then the UPI app without any intermediate re-encoding.
-    window.location.href = upiLink;
-  };
 
   const isTakeAway = orderType === "take_away";
   const mins = Math.floor(countdown / 60);
   const secs = countdown % 60;
   const timedOut = countdown === 0;
+
+  const openUpiApp = () => {
+    // Debug: log all inputs and generated link on every tap.
+    // Remove once UPI prefilling is confirmed in production.
+    console.log("[UPI] inputs:", { upiId: restaurant.upiId, payeeName, orderTotal, orderId });
+    console.log("[UPI] generated link:", upiLink);
+
+    const { isAndroid, isInAppBrowser } = detectEnv();
+    console.log("[UPI] env:", { isAndroid, isInAppBrowser });
+
+    if (isInAppBrowser) {
+      // In-app browsers (WhatsApp, Instagram, Facebook) block custom URL
+      // schemes at the WebView layer — window.location.href won't work.
+      // Skip straight to the chooser which shows intent:// links (Android)
+      // or the generic upi:// link (iOS) and a "open in Chrome" prompt.
+      console.log("[UPI] in-app browser detected → showing chooser");
+      setShowChooser(true);
+      return;
+    }
+
+    // First attempt: window.location.href dispatches the upi:// intent
+    // directly without browser re-encoding. Works on Chrome Android,
+    // Samsung Internet, iOS Safari (GPay/PhonePe register the scheme on iOS).
+    window.location.href = upiLink;
+
+    // If a UPI app opens, the browser goes to the background and the page
+    // becomes hidden. We cancel the fallback timer in that case.
+    // If the page stays visible for 1500ms, the app didn't open → show chooser.
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        console.log("[UPI] page hidden → UPI app opened successfully");
+        cleanup();
+      }
+    };
+
+    const cleanup = () => {
+      if (fallbackTimerRef.current) {
+        clearTimeout(fallbackTimerRef.current);
+        fallbackTimerRef.current = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    fallbackTimerRef.current = setTimeout(() => {
+      console.log("[UPI] 1500ms timeout — app did not open, showing chooser");
+      cleanup();
+      setShowChooser(true);
+    }, 1500);
+  };
+
+  const openApp = (href: string, label: string) => {
+    console.log(`[UPI] opening ${label}:`, href);
+    window.location.href = href;
+  };
+
+  const { isAndroid, isInAppBrowser } = detectEnv();
 
   return (
     <div style={{
@@ -164,30 +264,111 @@ export function UpiPaymentView({
               flexShrink: 0, marginTop: "1px",
             }}>1</span>
             <p style={{ fontSize: "12px", color: C.amber800, margin: 0 }}>
-              Tap the button below to open your UPI app and complete payment
+              {showChooser
+                ? "Choose your UPI app to complete payment"
+                : "Tap the button below to open your UPI app and complete payment"}
             </p>
           </div>
 
-          <button
-            onClick={openUpiApp}
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "center",
-              gap: "8px", width: "100%", padding: "14px 0",
-              backgroundColor: C.amber500, color: C.white,
-              borderRadius: "12px", fontWeight: 700, fontSize: "14px",
-              border: "none", cursor: "pointer",
-              boxShadow: "0 2px 8px rgba(245,158,11,0.35)",
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
-              <line x1="12" y1="18" x2="12.01" y2="18"/>
-            </svg>
-            Pay ₹{orderTotal.toFixed(2)} via UPI
-          </button>
-          <p style={{ fontSize: "11px", color: C.amber600, textAlign: "center", margin: "6px 0 12px" }}>
-            Opens GPay, PhonePe, Paytm or any UPI app
-          </p>
+          {/* ── Pay button / App chooser ─────────────────────────────────── */}
+          {!showChooser ? (
+            <>
+              <button
+                onClick={openUpiApp}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: "8px", width: "100%", padding: "14px 0",
+                  backgroundColor: C.amber500, color: C.white,
+                  borderRadius: "12px", fontWeight: 700, fontSize: "14px",
+                  border: "none", cursor: "pointer",
+                  boxShadow: "0 2px 8px rgba(245,158,11,0.35)",
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/>
+                  <line x1="12" y1="18" x2="12.01" y2="18"/>
+                </svg>
+                Pay ₹{orderTotal.toFixed(2)} via UPI
+              </button>
+              <p style={{ fontSize: "11px", color: C.amber600, textAlign: "center", margin: "6px 0 12px" }}>
+                Opens GPay, PhonePe, Paytm or any UPI app
+              </p>
+            </>
+          ) : (
+            <div style={{ marginBottom: "12px" }}>
+
+              {/* In-app browser warning */}
+              {isInAppBrowser && (
+                <div style={{
+                  backgroundColor: C.blue50,
+                  border: "1px solid #bfdbfe",
+                  borderRadius: "10px",
+                  padding: "10px 12px",
+                  marginBottom: "10px",
+                  fontSize: "11px",
+                  color: C.blue600,
+                  lineHeight: "1.5",
+                }}>
+                  <strong>Tip:</strong> You're using an in-app browser (WhatsApp/Instagram).
+                  For best results, open this page in <strong>Chrome</strong> or your default browser,
+                  or scan the QR code below.
+                </div>
+              )}
+
+              {/* Per-app intent buttons */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
+                {UPI_APPS.map((app) => {
+                  const href = isAndroid
+                    ? makeIntentUrl(upiLink, app.pkg)
+                    : upiLink;
+                  return (
+                    <button
+                      key={app.id}
+                      onClick={() => openApp(href, app.label)}
+                      style={{
+                        display: "flex", alignItems: "center",
+                        gap: "10px", width: "100%", padding: "11px 14px",
+                        backgroundColor: C.white,
+                        border: `1.5px solid ${C.amber200}`,
+                        borderRadius: "10px", cursor: "pointer",
+                        fontSize: "13px", fontWeight: 700, color: C.gray900,
+                      }}
+                    >
+                      {app.icon}
+                      {app.label}
+                    </button>
+                  );
+                })}
+
+                {/* Generic fallback — opens system app chooser on Android */}
+                <button
+                  onClick={() => openApp(upiLink, "any UPI app")}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    gap: "8px", width: "100%", padding: "10px 14px",
+                    backgroundColor: "transparent",
+                    border: `1px dashed ${C.amber400}`,
+                    borderRadius: "10px", cursor: "pointer",
+                    fontSize: "12px", fontWeight: 600, color: C.amber700,
+                  }}
+                >
+                  Any other UPI app
+                </button>
+              </div>
+
+              {/* Reset — let user retry the one-tap button */}
+              <button
+                onClick={() => setShowChooser(false)}
+                style={{
+                  background: "none", border: "none", padding: 0,
+                  fontSize: "11px", color: C.gray500, cursor: "pointer",
+                  textDecoration: "underline", display: "block", margin: "0 auto",
+                }}
+              >
+                ← Try the single tap button again
+              </button>
+            </div>
+          )}
 
           {/* Step 2 */}
           <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "12px" }}>
