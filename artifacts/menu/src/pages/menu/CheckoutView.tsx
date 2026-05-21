@@ -1,6 +1,6 @@
 import { type FormEvent } from "react";
 import {
-  X,
+  ArrowLeft,
   ShoppingBag,
   UtensilsCrossed,
   User,
@@ -155,7 +155,7 @@ export function CheckoutView({
             flexShrink: 0,
           }}
         >
-          <X style={{ width: "16px", height: "16px", color: C.muted }} />
+          <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
         </button>
 
         <h1 style={{ flex: 1, fontWeight: 700, fontSize: "17px", color: C.ink }}>

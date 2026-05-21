@@ -22,10 +22,10 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
       display: "flex",
       alignItems: "stretch",
       backgroundColor: "#fff",
-      borderRadius: "12px",
+      borderRadius: "14px",
       border: "1px solid #ede8e3",
       overflow: "hidden",
-      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
     }}>
 
       {/* Left: veg/non-veg colour stripe — 3px, full card height */}
@@ -35,30 +35,32 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
       <div style={{
         flex: "1 1 0%",
         minWidth: "0px",
-        padding: "10px 8px 10px 10px",
+        padding: "12px 10px 12px 12px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
+        gap: "8px",
       }}>
 
         {/* Top: indicator + name + description */}
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "2px" }}>
-            {/* Veg / non-veg square dot */}
+          {/* Veg / non-veg indicator + name */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "6px", marginBottom: "3px" }}>
             <div style={{
-              width: "12px", height: "12px",
+              marginTop: "2px",
+              width: "13px", height: "13px",
               flexShrink: 0,
-              borderRadius: "2px",
+              borderRadius: "3px",
               border: `2px solid ${dotColor}`,
               display: "flex", alignItems: "center", justifyContent: "center",
             }}>
-              <div style={{ width: "4px", height: "4px", borderRadius: "50%", backgroundColor: dotColor }} />
+              <div style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: dotColor }} />
             </div>
 
             <p style={{
               flex: 1,
-              fontWeight: 700, fontSize: "13.5px", color: "#111827",
-              lineHeight: "1.3",
+              fontWeight: 700, fontSize: "14px", color: "#111827",
+              lineHeight: "1.35",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -69,9 +71,9 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
 
           {item.description && (
             <p style={{
-              fontSize: "11.5px", color: "#6b7280",
-              lineHeight: "1.35",
-              marginLeft: "17px",
+              fontSize: "12px", color: "#6b7280",
+              lineHeight: "1.4",
+              marginLeft: "19px",
               overflow: "hidden",
               display: "-webkit-box",
               WebkitBoxOrient: "vertical" as const,
@@ -87,10 +89,9 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginTop: "6px",
-          gap: "6px",
+          gap: "8px",
         }}>
-          <span style={{ fontWeight: 800, fontSize: "14px", color: "#111827", flexShrink: 0 }}>
+          <span style={{ fontWeight: 800, fontSize: "15px", color: "#1a0a00", flexShrink: 0 }}>
             ₹{item.price}
           </span>
 
@@ -99,13 +100,13 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
               onClick={onAdd}
               style={{
                 flexShrink: 0,
-                padding: "4px 14px",
-                borderRadius: "7px",
-                border: "1.5px solid #8b4513",
-                color: "#8b4513",
+                padding: "5px 18px",
+                borderRadius: "8px",
+                border: "1.5px solid #c2410c",
+                color: "#c2410c",
                 backgroundColor: "transparent",
                 fontWeight: 700, fontSize: "12px",
-                letterSpacing: "0.02em",
+                letterSpacing: "0.04em",
               }}
             >
               ADD
@@ -113,25 +114,25 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
           ) : (
             <div style={{
               display: "flex", alignItems: "center",
-              backgroundColor: "#f5ede6",
-              borderRadius: "7px",
-              padding: "2px",
+              backgroundColor: "#fff3ed",
+              borderRadius: "8px",
+              border: "1.5px solid #fed7aa",
               flexShrink: 0,
             }}>
               <button
                 onClick={onRemove}
                 aria-label="Remove one"
                 style={{
-                  width: "26px", height: "26px",
+                  width: "30px", height: "30px",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#8b4513", borderRadius: "5px",
+                  color: "#c2410c",
                 }}
               >
-                <Minus style={{ width: "12px", height: "12px" }} />
+                <Minus style={{ width: "13px", height: "13px" }} />
               </button>
               <span style={{
-                width: "20px", textAlign: "center",
-                fontWeight: 800, fontSize: "13px", color: "#5c2d0e",
+                width: "22px", textAlign: "center",
+                fontWeight: 800, fontSize: "14px", color: "#7c2d12",
               }}>
                 {qty}
               </span>
@@ -139,33 +140,33 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
                 onClick={onAdd}
                 aria-label="Add one"
                 style={{
-                  width: "26px", height: "26px",
+                  width: "30px", height: "30px",
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  backgroundColor: "#8b4513", color: "#fff",
-                  borderRadius: "5px",
+                  backgroundColor: "#ea580c", color: "#fff",
+                  borderRadius: "0 6px 6px 0",
                 }}
               >
-                <Plus style={{ width: "12px", height: "12px" }} />
+                <Plus style={{ width: "13px", height: "13px" }} />
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Right: fixed 82×82 image, centred vertically, rounded */}
+      {/* Right: 90×90 image, centred vertically */}
       {hasImage ? (
         <div style={{
-          width: "82px", height: "82px",
+          width: "90px", height: "90px",
           flexShrink: 0,
           alignSelf: "center",
-          margin: "0 8px 0 0",
-          borderRadius: "8px",
+          margin: "0 10px 0 0",
+          borderRadius: "10px",
           overflow: "hidden",
         }}>
           <img
             src={item.imageUrl!}
             alt={item.name}
-            style={{ width: "82px", height: "82px", objectFit: "cover", display: "block" }}
+            style={{ width: "90px", height: "90px", objectFit: "cover", display: "block" }}
             loading="lazy"
             decoding="async"
             onError={() => setImgFailed(true)}

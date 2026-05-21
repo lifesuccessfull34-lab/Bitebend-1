@@ -1,4 +1,4 @@
-import { X, ShoppingCart, Minus, Plus, ArrowRight } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Minus, Plus, ArrowRight } from "lucide-react";
 import type { RestaurantData, CartItem, MenuItemData } from "./types";
 
 interface Props {
@@ -62,7 +62,7 @@ export function CartView({
       }}>
         <button
           onClick={onClose}
-          aria-label="Close cart"
+          aria-label="Back to menu"
           style={{
             width: "36px", height: "36px", borderRadius: "50%",
             backgroundColor: C.mutedBg,
@@ -70,7 +70,7 @@ export function CartView({
             flexShrink: 0,
           }}
         >
-          <X style={{ width: "16px", height: "16px", color: C.muted }} />
+          <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
         </button>
 
         <h1 style={{ flex: 1, fontWeight: 700, fontSize: "17px", color: C.ink }}>

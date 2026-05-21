@@ -21,6 +21,7 @@ export function CategoryTabs({
       className="sticky top-0 z-20"
       style={{
         backgroundColor: "#faf9f6",
+        boxShadow: "0 2px 10px rgba(0,0,0,0.07)",
         /*
          * NOTE: Do NOT add transform: translateZ(0) / will-change: transform
          * to this sticky wrapper.
@@ -44,7 +45,7 @@ export function CategoryTabs({
       }}
     >
       {/* Search bar */}
-      <div style={{ padding: "12px 12px 10px" }}>
+      <div style={{ padding: "12px 16px 10px" }}>
         <div style={{ position: "relative" }}>
           <Search
             style={{
@@ -58,17 +59,17 @@ export function CategoryTabs({
           <input
             type="search"
             inputMode="search"
-            placeholder="Search for dishes..."
+            placeholder="Search for dishes…"
             value={searchQuery}
             onChange={(e) => onSearch(e.target.value)}
             className="rounded-full"
             style={{
               width: "100%",
-              height: "44px",
-              paddingLeft: "40px",
-              paddingRight: searchQuery ? "36px" : "14px",
+              height: "42px",
+              paddingLeft: "42px",
+              paddingRight: searchQuery ? "38px" : "16px",
               borderRadius: "9999px",
-              border: "1px solid #e5e7eb",
+              border: "1.5px solid #e5e7eb",
               backgroundColor: "#fff",
               color: "#111827",
               fontSize: "14px",
@@ -81,7 +82,7 @@ export function CategoryTabs({
             <button
               onClick={() => onSearch("")}
               style={{
-                position: "absolute", right: "12px", top: "50%",
+                position: "absolute", right: "13px", top: "50%",
                 transform: "translateY(-50%)",
                 color: "#9ca3af",
                 display: "flex", alignItems: "center",
@@ -98,11 +99,10 @@ export function CategoryTabs({
         <div style={{
           display: "flex",
           gap: "6px",
-          padding: "0 12px 10px",
+          padding: "0 16px 11px",
           overflowX: "auto",
           overscrollBehaviorX: "contain",
           WebkitOverflowScrolling: "touch",
-          /* hide scrollbar cross-browser */
           scrollbarWidth: "none",
           msOverflowStyle: "none",
         } as React.CSSProperties}>
@@ -114,10 +114,12 @@ export function CategoryTabs({
               padding: "6px 16px",
               borderRadius: "9999px",
               fontSize: "13px",
-              whiteSpace: "nowrap",
               fontWeight: activeCategory === null ? 700 : 500,
+              whiteSpace: "nowrap",
               backgroundColor: activeCategory === null ? "#3d2012" : "transparent",
               color: activeCategory === null ? "#fff" : "#374151",
+              border: activeCategory === null ? "none" : "1px solid transparent",
+              transition: "background-color 0.15s",
             }}
           >
             All
@@ -132,10 +134,12 @@ export function CategoryTabs({
                 padding: "6px 14px",
                 borderRadius: "9999px",
                 fontSize: "13px",
-                whiteSpace: "nowrap",
                 fontWeight: activeCategory === cat.id ? 700 : 500,
+                whiteSpace: "nowrap",
                 backgroundColor: activeCategory === cat.id ? "#3d2012" : "transparent",
                 color: activeCategory === cat.id ? "#fff" : "#374151",
+                border: "none",
+                transition: "background-color 0.15s",
               }}
             >
               {cat.name}

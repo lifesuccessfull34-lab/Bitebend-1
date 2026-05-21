@@ -20,57 +20,89 @@ export function MenuItemList({
   onRemove,
 }: Props) {
   return (
-    <div className="px-3 pt-1 max-w-2xl mx-auto space-y-6" style={{ paddingBottom: "calc(88px + env(safe-area-inset-bottom, 0px))" }}>
+    <div
+      style={{
+        padding: "8px 14px 0",
+        paddingBottom: "calc(96px + env(safe-area-inset-bottom, 0px))",
+        maxWidth: "640px",
+        margin: "0 auto",
+      }}
+    >
       {filteredCategories.length === 0 ? (
-        <div className="text-center py-16">
-          <ChefHat className="w-12 h-12 mx-auto mb-3" style={{ color: "#d4b08a" }} />
-          <p className="font-medium" style={{ color: "#9ca3af" }}>
+        <div style={{ textAlign: "center", paddingTop: "64px", paddingBottom: "64px" }}>
+          <ChefHat style={{ width: "48px", height: "48px", margin: "0 auto 12px", color: "#d4b08a" }} />
+          <p style={{ fontWeight: 500, color: "#9ca3af", fontSize: "15px" }}>
             {searchQuery ? `No dishes found for "${searchQuery}"` : "Menu coming soon"}
           </p>
         </div>
       ) : (
-        filteredCategories.map((cat) => {
-          const available = (cat.items ?? []).filter((i) => i.isAvailable);
-          if (available.length === 0) return null;
-          return (
-            <div key={cat.id} id={`cat-${cat.id}`}>
-              <h2
-                className="text-sm font-black tracking-widest uppercase mb-4"
-                style={{ color: "#8b4513" }}
-              >
-                {cat.name}
-              </h2>
-              <div className="space-y-2">
-                {available.map((item) => (
-                  <MenuItemCard
-                    key={item.id}
-                    item={item}
-                    qty={getQty(item.id)}
-                    onAdd={() => onAdd(item)}
-                    onRemove={() => onRemove(item.id)}
-                  />
-                ))}
+        <div style={{ display: "flex", flexDirection: "column", gap: "28px" }}>
+          {filteredCategories.map((cat) => {
+            const available = (cat.items ?? []).filter((i) => i.isAvailable);
+            if (available.length === 0) return null;
+            return (
+              <div key={cat.id} id={`cat-${cat.id}`}>
+                {/* Category heading */}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: "10px",
+                  marginBottom: "12px",
+                }}>
+                  <h2 style={{
+                    fontSize: "11px", fontWeight: 800,
+                    letterSpacing: "0.10em", textTransform: "uppercase",
+                    color: "#c2410c", margin: 0, flexShrink: 0,
+                  }}>
+                    {cat.name}
+                  </h2>
+                  <div style={{ flex: 1, height: "1px", backgroundColor: "#ede8e3" }} />
+                  <span style={{ fontSize: "11px", color: "#9ca3af", flexShrink: 0 }}>
+                    {available.length} item{available.length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+
+                {/* Items */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {available.map((item) => (
+                    <MenuItemCard
+                      key={item.id}
+                      item={item}
+                      qty={getQty(item.id)}
+                      onAdd={() => onAdd(item)}
+                      onRemove={() => onRemove(item.id)}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })
+            );
+          })}
+        </div>
       )}
 
       {/* Veg / non-veg legend */}
       {allItems.length > 0 && (
-        <div
-          className="flex items-center gap-4 text-xs pt-3 border-t"
-          style={{ color: "#9ca3af", borderColor: "#e5e7eb" }}
-        >
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 border-2 border-green-600 rounded-sm flex items-center justify-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-green-600" />
+        <div style={{
+          display: "flex", alignItems: "center", gap: "20px",
+          marginTop: "24px", paddingTop: "16px",
+          borderTop: "1px solid #e5e7eb",
+          fontSize: "12px", color: "#9ca3af",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{
+              width: "13px", height: "13px", borderRadius: "3px",
+              border: "2px solid #16a34a",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <div style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
             </div>
             Vegetarian
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 border-2 border-red-600 rounded-sm flex items-center justify-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-600" />
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <div style={{
+              width: "13px", height: "13px", borderRadius: "3px",
+              border: "2px solid #dc2626",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <div style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#dc2626" }} />
             </div>
             Non-Vegetarian
           </div>
