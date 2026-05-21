@@ -60,13 +60,10 @@ export function generateUPILink(
   // symbol (e.g. "250.00" not "₹250" or "250 INR").
   const am = Number(amount).toFixed(2);
 
-  // tr is the unique transaction reference. It already contains only
-  // alphanumeric characters, but sanitize defensively to keep it clean.
-  const tr = sanitizeUPIText(`BITEBN${orderId}`, 50);
-
-  // tn: sanitize to strip any chars (e.g. #) that Android's intent URL parser
-  // would decode back to a reserved character and split the intent URL.
-  const tn = encodeURIComponent(sanitizeUPIText(`Order ${orderId}`, 50));
-
-  return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR&tr=${tr}&tn=${tn}`;
+  // tr and tn are optional per the UPI spec. Several payment apps (including
+  // Paytm) silently reject requests that include these fields when the values
+  // don't match their internal validation rules. We send a minimal payload —
+  // only the four mandatory fields — to maximise cross-app compatibility.
+  // If a specific app requires tr/tn in the future, add them back here.
+  return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR`;
 }

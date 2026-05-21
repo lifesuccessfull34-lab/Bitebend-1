@@ -141,12 +141,13 @@ export function UpiPaymentView({
   const openUpiApp = () => {
     // Log every individual UPI field + the full generated URL so the exact
     // payload is visible in DevTools when diagnosing payment-app rejections.
-    console.log("[UPI FIELD] pa (UPI ID)  :", JSON.stringify(upiIdRaw), "valid:", upiIdValid);
+    console.log("[UPI FIELD] pa (UPI ID)  :", JSON.stringify(upiIdRaw), "| valid:", upiIdValid);
     console.log("[UPI FIELD] pn (name)    :", JSON.stringify(payeeName));
     console.log("[UPI FIELD] am (amount)  :", Number(orderTotal).toFixed(2));
-    console.log("[UPI FIELD] tr           :", `BITEBN${orderId}`);
-    console.log("[UPI FIELD] tn           :", `Order ${orderId}`);
+    console.log("[UPI FIELD] tr           : (omitted — minimal payload)");
+    console.log("[UPI FIELD] tn           : (omitted — minimal payload)");
     console.log("[UPI FULL URL]", upiLink);
+    console.log("[UPI FULL URL length]", upiLink.length);
 
     // Abort early — a malformed UPI ID will always cause a "technical glitch"
     // in every payment app. Show the chooser so the user sees the error banner.

@@ -6,8 +6,19 @@ import type { Restaurant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone } from "lucide-react";
+import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone, Zap } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+
+// Builds a minimal ₹1 UPI test link — same format as the customer checkout.
+// Only mandatory fields (pa, pn, am, cu) so no optional field can be the cause
+// of a payment-app rejection during diagnosis.
+function buildTestUpiLink(upiId: string, name: string): string {
+  const pa = upiId.trim();
+  const pn = encodeURIComponent(
+    name.replace(/[#?&=%:;/\\]/g, "").replace(/\s+/g, " ").trim().slice(0, 50),
+  );
+  return `upi://pay?pa=${pa}&pn=${pn}&am=1.00&cu=INR`;
+}
 
 const CUISINE_TYPES = [
   { value: "north_indian", label: "North Indian" },
@@ -322,6 +333,37 @@ export default function Profile() {
                   <p className="text-xs text-muted-foreground">Defaults to restaurant name if blank</p>
                 </div>
               </div>
+
+              {/* Test UPI — shown whenever a UPI ID with @ is present, even if
+                  the toggle is off, so owners can diagnose invalid VPAs quickly */}
+              {form.upiId && form.upiId.includes("@") && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-blue-700">Test your UPI ID</p>
+                      <p className="text-xs text-blue-600 mt-0.5">
+                        Opens a ₹1 payment in your UPI app — if the app shows a "technical glitch" or fails, your UPI ID is invalid or inactive.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const name = form.upiName || form.name || "Test";
+                        const link = buildTestUpiLink(form.upiId, name);
+                        console.log("[UPI TEST]", link);
+                        window.location.href = link;
+                      }}
+                      className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Test UPI (₹1)
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-blue-500">
+                    UPI ID being tested: <span className="font-mono font-semibold">{form.upiId.trim()}</span>
+                  </p>
+                </div>
+              )}
 
               {form.personalUpiEnabled && !form.upiId && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
