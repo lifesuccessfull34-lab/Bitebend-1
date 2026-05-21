@@ -42,6 +42,10 @@ export function generateUPILink(
   const am = Number(amount).toFixed(2);
   // tr is the unique transaction reference; alphanumeric, no encoding needed.
   const tr = `BITEBN${orderId}`;
-  const tn = encodeURIComponent(`Order #${orderId}`);
+  // Avoid # in the transaction note: in Android intent URLs the # character
+  // (even percent-encoded as %23) is used as the Intent extras separator.
+  // Android's URL parser decodes %23 → # and splits the URL there, sending a
+  // truncated / malformed tn to Paytm which causes its "technical glitch" error.
+  const tn = encodeURIComponent(`Order ${orderId}`);
   return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR&tr=${tr}&tn=${tn}`;
 }
