@@ -82,6 +82,7 @@ const updateRestaurant: RequestHandler = async (req, res) => {
     name, description, cuisineType, logoUrl, address, city, phone, email,
     upiId, upiName, personalUpiEnabled, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret,
     upiVerified, verifiedAt,
+    qrImageData, qrDecodedPayload, qrMerchantName,
   } = req.body as Record<string, unknown>;
 
   const updates: Record<string, unknown> = {};
@@ -98,6 +99,9 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (personalUpiEnabled !== undefined) updates.personalUpiEnabled = personalUpiEnabled;
   if (upiVerified !== undefined) updates.upiVerified = upiVerified;
   if (verifiedAt !== undefined) updates.verifiedAt = verifiedAt ? new Date(verifiedAt as string) : null;
+  if (qrImageData !== undefined) updates.qrImageData = qrImageData;
+  if (qrDecodedPayload !== undefined) updates.qrDecodedPayload = qrDecodedPayload;
+  if (qrMerchantName !== undefined) updates.qrMerchantName = qrMerchantName;
   if (whatsappNumber !== undefined) updates.whatsappNumber = whatsappNumber;
   if (taxPercent !== undefined) updates.taxPercent = taxPercent;
   if (seatingLabel !== undefined) updates.seatingLabel = seatingLabel;

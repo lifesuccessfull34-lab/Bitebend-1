@@ -65,6 +65,9 @@ export interface Restaurant {
   personalUpiEnabled: boolean;
   upiVerified: boolean;
   verifiedAt: string | null;
+  qrImageData: string | null;
+  qrDecodedPayload: string | null;
+  qrMerchantName: string | null;
   whatsappNumber: string | null;
   razorpayKeyId: string | null;
   taxPercent: number;

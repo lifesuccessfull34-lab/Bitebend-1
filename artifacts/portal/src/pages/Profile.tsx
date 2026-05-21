@@ -236,6 +236,9 @@ export default function Profile() {
     personalUpiEnabled: false,
     upiVerified: false,
     verifiedAt: null as string | null,
+    qrImageData: null as string | null,
+    qrDecodedPayload: null as string | null,
+    qrMerchantName: "",
     whatsappNumber: "",
     taxPercent: "5",
     razorpayKeyId: "",
@@ -259,6 +262,7 @@ export default function Profile() {
   const [qrMessage, setQrMessage] = useState("");
   const [qrExtracted, setQrExtracted] = useState<UpiQrData | null>(null);
   const [qrVerifyState, setQrVerifyState] = useState<"idle" | "launched" | "verified">("idle");
+  const [showAdvancedUpi, setShowAdvancedUpi] = useState(false);
   const qrFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -278,6 +282,9 @@ export default function Profile() {
           personalUpiEnabled: r.personalUpiEnabled ?? false,
           upiVerified: r.upiVerified ?? false,
           verifiedAt: r.verifiedAt ?? null,
+          qrImageData: r.qrImageData ?? null,
+          qrDecodedPayload: r.qrDecodedPayload ?? null,
+          qrMerchantName: r.qrMerchantName ?? "",
           whatsappNumber: r.whatsappNumber ?? "",
           taxPercent: String(r.taxPercent ?? 5),
           razorpayKeyId: (r as any).razorpayKeyId ?? "",

@@ -86,9 +86,14 @@ const getPublicMenu: RequestHandler = async (req, res) => {
     items: items.filter((item) => item.categoryId === cat.id),
   }));
 
-  // Never expose the secret key to the customer client
-  const { razorpayKeySecret: _secret, ...safeRestaurant } = restaurant;
-  res.json({ restaurant: safeRestaurant, categories: categoriesWithItems, tables });
+  // Never expose secret key or raw QR image data to the customer client.
+  // hasPaymentQr is a boolean flag; the actual image is fetched lazily via /payment-qr.
+  const { razorpayKeySecret: _secret, qrImageData: _qrImg, qrDecodedPayload: _qrPayload, ...safeRestaurant } = restaurant;
+  res.json({
+    restaurant: { ...safeRestaurant, hasPaymentQr: !!restaurant.qrImageData },
+    categories: categoriesWithItems,
+    tables,
+  });
 };
 
 // POST /menu/:restaurantId/orders — customer places order (accepts numeric ID or slug)
@@ -124,7 +129,7 @@ const placeOrder: RequestHandler = async (req, res) => {
   }
 
   // ── Payment method validation ───────────────────────────────────────────────
-  if (paymentMethod === "upi" && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
+  if (paymentMethod === "upi" && !restaurant.qrImageData && (!restaurant.upiId || !restaurant.personalUpiEnabled)) {
     res.status(400).json({ error: "UPI payment is not configured for this restaurant." });
     return;
   }
@@ -368,7 +373,16 @@ const confirmPayment: RequestHandler = async (req, res) => {
   res.json(updated);
 };
 
+// GET /menu/:restaurantId/payment-qr — serve the uploaded QR image (public, no auth)
+const getPaymentQr: RequestHandler = async (req, res) => {
+  const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
+  if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
+  if (!restaurant.qrImageData) { res.status(404).json({ error: "No payment QR configured" }); return; }
+  res.json({ qrImageData: restaurant.qrImageData, qrDecodedPayload: restaurant.qrDecodedPayload ?? null });
+};
+
 router.get("/menu/:restaurantId", getPublicMenu);
+router.get("/menu/:restaurantId/payment-qr", getPaymentQr);
 router.post("/menu/:restaurantId/razorpay-order", createRazorpayOrder);
 router.post("/menu/:restaurantId/orders", placeOrder);
 router.get("/menu/:restaurantId/orders/:orderId", getOrderStatus);

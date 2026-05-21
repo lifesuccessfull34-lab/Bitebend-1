@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { generateUPILink } from "./utils";
 import type { RestaurantData, OrderType } from "./types";
@@ -124,6 +124,18 @@ export function UpiPaymentView({
   const [showChooser, setShowChooser] = useState(false);
   const [utrTouched, setUtrTouched] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [qrImageData, setQrImageData] = useState<string | null>(null);
+  const [qrDataLoading, setQrDataLoading] = useState(false);
+
+  useEffect(() => {
+    if (!restaurant.hasPaymentQr) return;
+    setQrDataLoading(true);
+    fetch(`/api/menu/${restaurant.id}/payment-qr`)
+      .then((r) => r.json())
+      .then((data: { qrImageData: string }) => setQrImageData(data.qrImageData))
+      .catch(() => {})
+      .finally(() => setQrDataLoading(false));
+  }, [restaurant.id, restaurant.hasPaymentQr]);
 
   const payeeName = restaurant.upiName || restaurant.name;
   const upiLink = generateUPILink(restaurant.upiId!, payeeName, orderTotal, orderId);

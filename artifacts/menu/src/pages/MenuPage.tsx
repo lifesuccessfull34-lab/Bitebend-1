@@ -185,7 +185,7 @@ export default function MenuPage() {
 
   // Count of available payment methods to set grid columns dynamically.
   const paymentMethodCount = restaurant
-    ? 1 + (restaurant.upiId && restaurant.personalUpiEnabled ? 1 : 0) + (restaurant.razorpayKeyId ? 1 : 0)
+    ? 1 + ((restaurant.hasPaymentQr || (restaurant.upiId && restaurant.personalUpiEnabled)) ? 1 : 0) + (restaurant.razorpayKeyId ? 1 : 0)
     : 1;
   const paymentGridCols =
     paymentMethodCount === 3
@@ -401,7 +401,7 @@ export default function MenuPage() {
       setOrderId(data.id);
       setOrderTotal(total);
       setCart([]);
-      if (paymentMethod === "upi" && restaurant?.upiId && restaurant?.personalUpiEnabled) {
+      if (paymentMethod === "upi" && (restaurant?.hasPaymentQr || (restaurant?.upiId && restaurant?.personalUpiEnabled))) {
         // Show the payment screen first; the <a href> button there handles the
         // UPI intent dispatch. Auto-redirecting via window.location.href is
         // unreliable across Android browsers and fires before the view renders.
@@ -445,7 +445,7 @@ export default function MenuPage() {
     );
   }
 
-  if (view === "pending_upi_payment" && orderId && restaurant.upiId && restaurant.personalUpiEnabled) {
+  if (view === "pending_upi_payment" && orderId && (restaurant.hasPaymentQr || (restaurant.upiId && restaurant.personalUpiEnabled))) {
     return (
       <UpiPaymentView
         orderId={orderId}

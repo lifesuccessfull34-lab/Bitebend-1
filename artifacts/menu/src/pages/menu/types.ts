@@ -29,6 +29,8 @@ export interface RestaurantData {
   upiId: string | null;
   upiName: string | null;
   personalUpiEnabled: boolean;
+  hasPaymentQr: boolean;
+  qrMerchantName: string | null;
   seatingLabel: string | null;
   razorpayKeyId: string | null;
 }

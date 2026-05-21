@@ -320,8 +320,8 @@ export function CheckoutView({
                 <span style={{ fontSize: "12px", fontWeight: 600 }}>Cash</span>
               </button>
 
-              {/* UPI — only shown when personal UPI is enabled and a UPI ID is configured */}
-              {restaurant.upiId && restaurant.personalUpiEnabled && (
+              {/* UPI / QR — shown when QR is uploaded or when personal UPI deep-link is enabled */}
+              {(restaurant.hasPaymentQr || (restaurant.upiId && restaurant.personalUpiEnabled)) && (
                 <button
                   type="button"
                   onClick={() => onPaymentMethodChange("upi")}
@@ -384,10 +384,10 @@ export function CheckoutView({
                       {placing
                         ? <Loader2 style={{ width: "16px", height: "16px" }} />
                         : <Smartphone style={{ width: "16px", height: "16px" }} />}
-                      {placing ? "Placing Order…" : `Pay ₹${total.toFixed(2)} via UPI`}
+                      {placing ? "Placing Order…" : restaurant.hasPaymentQr ? `Scan QR · ₹${total.toFixed(2)}` : `Pay ₹${total.toFixed(2)} via UPI`}
                     </button>
                     <p style={{ fontSize: "11px", color: C.orange, textAlign: "center" }}>
-                      Opens GPay, PhonePe, Paytm or any UPI app
+                      {restaurant.hasPaymentQr ? "Show QR — scan with any UPI app" : "Opens GPay, PhonePe, Paytm or any UPI app"}
                     </p>
                   </>
                 ) : (
