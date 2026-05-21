@@ -66,54 +66,20 @@ interface PlanFormPanelProps {
 
 function PlanFormPanel({ editingPlan, planForm, planSaving, onChangePlanForm, onSave, onCancel }: PlanFormPanelProps) {
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3">
+    <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-4">
       <h3 className="font-semibold text-sm text-slate-700">{editingPlan ? `Edit: ${editingPlan.name}` : "New Plan"}</h3>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 space-y-1">
-          <Label className="text-xs">Plan Name</Label>
-          <Input placeholder="e.g. Starter" value={planForm.name} onChange={(e) => onChangePlanForm((f) => ({ ...f, name: e.target.value }))} />
-        </div>
+
+      {/* Row 1 — Plan Name (full width) */}
+      <div className="space-y-1">
+        <Label className="text-xs">Plan Name</Label>
+        <Input placeholder="e.g. Starter" value={planForm.name} onChange={(e) => onChangePlanForm((f) => ({ ...f, name: e.target.value }))} />
+      </div>
+
+      {/* Row 2 — Price | Validity Type | Duration (3 equal columns) */}
+      <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1">
           <Label className="text-xs">Price (₹)</Label>
           <Input type="number" placeholder="199" value={planForm.price} onChange={(e) => onChangePlanForm((f) => ({ ...f, price: e.target.value }))} />
-        </div>
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs">Customer Limit</Label>
-            <button
-              type="button"
-              onClick={() => onChangePlanForm((f) => ({ ...f, isUnlimited: !f.isUnlimited, customerLimit: "" }))}
-              className={cn(
-                "flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full border transition-colors",
-                planForm.isUnlimited
-                  ? "bg-indigo-50 border-indigo-300 text-indigo-700"
-                  : "bg-slate-50 border-slate-200 text-slate-500 hover:border-slate-300"
-              )}
-            >
-              <span className={cn(
-                "w-7 h-4 rounded-full relative transition-colors",
-                planForm.isUnlimited ? "bg-indigo-500" : "bg-slate-300"
-              )}>
-                <span className={cn(
-                  "absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",
-                  planForm.isUnlimited ? "translate-x-3.5" : "translate-x-0.5"
-                )} />
-              </span>
-              Unlimited
-            </button>
-          </div>
-          <Input
-            type="number"
-            min="1"
-            placeholder="e.g. 2000"
-            value={planForm.isUnlimited ? "" : planForm.customerLimit}
-            disabled={planForm.isUnlimited}
-            onChange={(e) => onChangePlanForm((f) => ({ ...f, customerLimit: e.target.value }))}
-            className={planForm.isUnlimited ? "bg-slate-50 text-slate-400 cursor-not-allowed" : ""}
-          />
-          {planForm.isUnlimited && (
-            <p className="text-xs text-indigo-600 font-medium">∞ Unlimited customers</p>
-          )}
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Validity Type</Label>
@@ -136,7 +102,48 @@ function PlanFormPanel({ editingPlan, planForm, planSaving, onChangePlanForm, on
             onChange={(e) => onChangePlanForm((f) => ({ ...f, validityValue: e.target.value }))}
           />
         </div>
-        <div className="col-span-2 space-y-1">
+      </div>
+
+      {/* Row 3 — Customer Limit (full width) with Unlimited toggle beside input */}
+      <div className="space-y-1">
+        <Label className="text-xs">Customer Limit</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min="1"
+            placeholder="e.g. 2000"
+            value={planForm.isUnlimited ? "" : planForm.customerLimit}
+            disabled={planForm.isUnlimited}
+            onChange={(e) => onChangePlanForm((f) => ({ ...f, customerLimit: e.target.value }))}
+            className={planForm.isUnlimited ? "bg-slate-100 text-slate-400 cursor-not-allowed" : ""}
+          />
+          <button
+            type="button"
+            onClick={() => onChangePlanForm((f) => ({ ...f, isUnlimited: !f.isUnlimited, customerLimit: "" }))}
+            className={cn(
+              "flex-shrink-0 flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg border transition-colors whitespace-nowrap",
+              planForm.isUnlimited
+                ? "bg-indigo-50 border-indigo-300 text-indigo-700"
+                : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"
+            )}
+          >
+            <span className={cn(
+              "w-8 h-4 rounded-full relative flex-shrink-0 transition-colors",
+              planForm.isUnlimited ? "bg-indigo-500" : "bg-slate-300"
+            )}>
+              <span className={cn(
+                "absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform",
+                planForm.isUnlimited ? "translate-x-4" : "translate-x-0.5"
+              )} />
+            </span>
+            {planForm.isUnlimited ? "∞ Unlimited" : "Unlimited"}
+          </button>
+        </div>
+      </div>
+
+      {/* Row 4 — Description | Display Order (3:1 ratio) */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="col-span-3 space-y-1">
           <Label className="text-xs">Description (optional)</Label>
           <Input placeholder="Perfect for small restaurants" value={planForm.description} onChange={(e) => onChangePlanForm((f) => ({ ...f, description: e.target.value }))} />
         </div>
@@ -145,7 +152,8 @@ function PlanFormPanel({ editingPlan, planForm, planSaving, onChangePlanForm, on
           <Input type="number" value={planForm.displayOrder} onChange={(e) => onChangePlanForm((f) => ({ ...f, displayOrder: e.target.value }))} />
         </div>
       </div>
-      <div className="flex gap-2 justify-end">
+
+      <div className="flex gap-2 justify-end pt-1">
         <Button variant="outline" size="sm" onClick={onCancel}>
           <X className="w-3.5 h-3.5 mr-1" /> Cancel
         </Button>
