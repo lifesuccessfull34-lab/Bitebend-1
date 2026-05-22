@@ -573,23 +573,19 @@ const getBill: RequestHandler = async (req, res) => {
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
 
   const qrPayload = `amount=${order.total};merchant=${restaurant?.name ?? ""};reference=Order${order.id}`;
-  const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 280, margin: 2 });
+  const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 400, margin: 2, errorCorrectionLevel: "H" });
 
-  let msg = `🧾 *Bill from ${restaurant?.name ?? "Restaurant"}*\n`;
-  msg += `Order #${order.id} | ${order.tableNumber ? `Table: ${order.tableNumber}` : "Takeaway"}\n`;
-  msg += `━━━━━━━━━━━━━━━━\n`;
-  for (const item of items) {
-    msg += `${item.quantity}x ${item.name} — ₹${item.unitPrice * item.quantity}\n`;
-  }
-  msg += `━━━━━━━━━━━━━━━━\n`;
-  msg += `Subtotal: ₹${order.subtotal}\n`;
-  if (order.tax > 0) msg += `Tax (${restaurant?.taxPercent ?? 5}%): ₹${order.tax}\n`;
-  msg += `*Total: ₹${order.total}*\n`;
-  if (restaurant?.upiId) {
-    msg += `\nPay via UPI: *${restaurant.upiId}*\n`;
-  }
-  msg += `\n📸 After payment, please *reply with your payment screenshot* so we can verify it instantly.\n`;
-  msg += `\nThank you for dining with us! 🙏`;
+  const itemLines = items.map((item) => `  ${item.quantity}x ${item.name} - ₹${item.unitPrice * item.quantity}`).join("\n");
+  let msg = `Hello ${order.customerName},\n\n`;
+  msg += `Your order is ready. 🍽️\n\n`;
+  msg += `*Items Ordered:*\n${itemLines}\n\n`;
+  msg += `Subtotal: ₹${order.subtotal}`;
+  if (order.tax > 0) msg += `\nTax: ₹${order.tax}`;
+  msg += `\n*Total: ₹${order.total}*\n\n`;
+  if (restaurant?.upiId) msg += `UPI: ${restaurant.upiId}\n\n`;
+  msg += `Please scan the QR in the attached bill and complete payment.\n\n`;
+  msg += `After payment share payment screenshot/details.\n\n`;
+  msg += `Reference: Order#${order.id}`;
 
   const rawPhone = order.customerPhone.replace(/\D/g, "");
   const phone = rawPhone.startsWith("91") && rawPhone.length === 12
@@ -599,7 +595,17 @@ const getBill: RequestHandler = async (req, res) => {
       : rawPhone;
   const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
 
-  res.json({ qrDataUrl, qrPayload, whatsappUrl, message: msg, total: order.total });
+  res.json({
+    qrDataUrl,
+    qrPayload,
+    whatsappUrl,
+    message: msg,
+    total: order.total,
+    customerName: order.customerName,
+    restaurantName: restaurant?.name ?? "Restaurant",
+    tableNumber: order.tableNumber ?? null,
+    items: items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, isVeg: i.isVeg })),
+  });
 };
 
 // ─── POST /owner/orders/:orderId/verify-payment ───────────────────────────────
