@@ -307,9 +307,11 @@ export default function Dashboard() {
   const [rejectingPaymentId, setRejectingPaymentId]   = useState<number | null>(null);
 
   // Bill state
-  const [billModal, setBillModal]       = useState<BillModal | null>(null);
-  const [billLoading, setBillLoading]   = useState<number | null>(null);
+  const [billModal, setBillModal]           = useState<BillModal | null>(null);
+  const [billLoading, setBillLoading]       = useState<number | null>(null);
   const [downloadingBill, setDownloadingBill] = useState(false);
+  // true after a download-fallback share — prompts the user to attach the file manually
+  const [billDownloaded, setBillDownloaded] = useState(false);
 
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const uploadOrderIdRef = useRef<number | null>(null);
@@ -425,47 +427,48 @@ export default function Dashboard() {
     }
   };
 
-  // Shares the bill image + WhatsApp message in one tap.
-  // On mobile: uses Web Share API (file sharing) — opens the OS share sheet so the
-  //   owner can pick WhatsApp and the bill PNG is already attached.
-  // On desktop / fallback: downloads the bill image first, then opens WhatsApp Web
-  //   with the pre-filled message (owner manually attaches the downloaded image).
+  // Shares the actual generated bill PNG — never sends a plain-text WhatsApp message.
+  //
+  // Path 1 (preferred — mobile & some desktop browsers):
+  //   Web Share API with file support → opens the OS share sheet with the bill PNG
+  //   already attached. The owner taps WhatsApp and the image goes with a short caption.
+  //
+  // Path 2 (fallback — browsers without file-share support):
+  //   Downloads the bill PNG to the device and sets billDownloaded=true so the modal
+  //   shows a clear instruction: "Saved — now open WhatsApp and attach the file."
+  //   Never opens WhatsApp with a plain text URL.
   const handleShareBill = async (modal: BillModal) => {
+    setBillDownloaded(false);
     setDownloadingBill(true);
     try {
       const imgUrl = await generateBillImage(modal);
 
       // Convert data-URL → Blob → File for the share API
-      const fetchRes = await fetch(imgUrl);
-      const blob = await fetchRes.blob();
+      const res = await fetch(imgUrl);
+      const blob = await res.blob();
       const file = new File([blob], `bill-order-${modal.orderId}.png`, { type: "image/png" });
 
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      // Short caption — the image itself contains all the details
+      const caption =
+        `Payment Bill — Order #${modal.orderId}\n` +
+        `Total: ₹${modal.total}\n` +
+        `Scan the QR code to pay.\n` +
+        `Reference: Order#${modal.orderId}`;
 
-      // Prefer Web Share API with file support (Android Chrome, iOS Safari ≥ 15)
-      if (isMobile && typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({
-          title: `Payment Bill — Order #${modal.orderId}`,
-          text: modal.message,
-          files: [file],
-        });
+      // Web Share API with file support (Android Chrome, iOS Safari ≥ 15, desktop Chrome 86+)
+      if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ title: `Payment Bill — Order #${modal.orderId}`, text: caption, files: [file] });
         return;
       }
 
-      // Fallback: download image, then open WhatsApp
+      // Fallback: save bill to device and prompt the owner to attach it manually
       const a = document.createElement("a");
       a.href = imgUrl;
       a.download = `bill-order-${modal.orderId}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-
-      const waUrl = isMobile
-        ? modal.whatsappUrl
-        : modal.whatsappUrl
-            .replace("https://wa.me/", "https://web.whatsapp.com/send?phone=")
-            .replace("?text=", "&text=");
-      setTimeout(() => window.open(waUrl, "whatsapp_window"), 600);
+      setBillDownloaded(true);
     } finally {
       setDownloadingBill(false);
     }
@@ -666,33 +669,45 @@ export default function Dashboard() {
             </div>
 
             {/* Action buttons */}
-            <div className="px-4 pb-4 pt-2 flex gap-2 shrink-0 border-t">
-              <Button
-                size="sm"
-                className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9"
-                onClick={() => void handleShareBill(billModal)}
-                disabled={downloadingBill}
-              >
-                {downloadingBill
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  : <MessageCircle className="w-3.5 h-3.5 mr-1.5" />}
-                Share Bill
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 text-xs h-9 text-orange-600 border-orange-200 hover:bg-orange-50"
-                onClick={() => void handleDownloadBill()}
-                disabled={downloadingBill}
-              >
-                {downloadingBill
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  : <Download className="w-3.5 h-3.5 mr-1.5" />}
-                Download
-              </Button>
-              <Button size="sm" variant="ghost" className="text-xs h-9 px-3" onClick={() => setBillModal(null)}>
-                <X className="w-3.5 h-3.5" />
-              </Button>
+            <div className="px-4 pb-4 pt-2 shrink-0 border-t space-y-2">
+              {/* Post-download instruction — shown when Web Share API is unavailable */}
+              {billDownloaded && (
+                <div className="flex items-start gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-xs text-green-800">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-600" />
+                  <span>
+                    <span className="font-semibold">Bill saved to your device.</span>
+                    {" "}Open WhatsApp, start a chat with the customer, tap the attachment icon and send the downloaded bill image.
+                  </span>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9"
+                  onClick={() => void handleShareBill(billModal)}
+                  disabled={downloadingBill}
+                >
+                  {downloadingBill
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    : <MessageCircle className="w-3.5 h-3.5 mr-1.5" />}
+                  {billDownloaded ? "Share Again" : "Share Bill"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1 text-xs h-9 text-orange-600 border-orange-200 hover:bg-orange-50"
+                  onClick={() => void handleDownloadBill()}
+                  disabled={downloadingBill}
+                >
+                  {downloadingBill
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    : <Download className="w-3.5 h-3.5 mr-1.5" />}
+                  Download
+                </Button>
+                <Button size="sm" variant="ghost" className="text-xs h-9 px-3" onClick={() => { setBillModal(null); setBillDownloaded(false); }}>
+                  <X className="w-3.5 h-3.5" />
+                </Button>
+              </div>
             </div>
           </div>
         </div>
