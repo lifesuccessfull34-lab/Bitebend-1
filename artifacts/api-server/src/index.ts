@@ -99,6 +99,14 @@ if (existsSync(buildInfoPath)) {
   );
 }
 
+// ── Cleanup jobs ──────────────────────────────────────────────────────────────
+
+import { purgeExpiredBills } from "./lib/billService";
+
+// Run once on startup, then every 24 h — removes expired bill_links + their blobs
+purgeExpiredBills().catch(() => void 0);
+setInterval(() => { purgeExpiredBills().catch(() => void 0); }, 24 * 60 * 60 * 1000).unref();
+
 // ── Server ────────────────────────────────────────────────────────────────────
 
 app.listen(port, (err) => {

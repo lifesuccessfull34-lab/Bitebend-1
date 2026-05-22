@@ -22,7 +22,12 @@ import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { addConnection, removeConnection } from "../lib/orderEvents";
 import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/ocr";
-import { storeBill, getBillByToken } from "../lib/billCache";
+import {
+  storeBill,
+  getBillByToken,
+  sendPaymentBill,
+  BillRateLimitError,
+} from "../lib/billService";
 
 const router = Router();
 
@@ -708,25 +713,68 @@ async function generateBillPng(opts: {
 }
 
 // ─── GET /api/bills/:token ────────────────────────────────────────────────────
-// Public (no auth) — serves a cached bill PNG by short-lived token.
-// Tokens expire after 30 minutes. Restaurant staff share this URL via WhatsApp.
-const serveBillImage: RequestHandler = (req, res) => {
+// Public (no auth) — serves a persistent bill PNG by signed 24-hour token.
+// Returns 200+PNG for valid tokens, 410+HTML for expired, 404+HTML for invalid.
+const serveBillImage: RequestHandler = async (req, res) => {
   const token = String(req.params.token);
-  const png = getBillByToken(token);
-  if (!png) {
-    res.status(404).json({ error: "Bill not found or expired" });
+  const result = await getBillByToken(token);
+
+  if (result.status === "ok") {
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Content-Disposition", `inline; filename="bill-${token.slice(0, 8)}.png"`);
+    res.end(result.png);
     return;
   }
-  res.setHeader("Content-Type", "image/png");
-  res.setHeader("Cache-Control", "public, max-age=1800");
-  res.setHeader("Content-Disposition", `inline; filename="bill-${token.slice(0, 8)}.png"`);
-  res.end(png);
+
+  const isExpired = result.status === "expired";
+  const statusCode = isExpired ? 410 : 404;
+  const title = isExpired ? "Bill Expired" : "Bill Not Found";
+  const restaurantName = isExpired ? result.restaurantName : "the restaurant";
+  const orderRef = isExpired ? `Order #${result.orderId}` : "";
+  const tableText = isExpired && result.tableNumber ? `<p class="meta">Table: ${result.tableNumber}</p>` : "";
+
+  res.status(statusCode).setHeader("Content-Type", "text/html; charset=utf-8").send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${title} — Bitebend</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+           background: #fff8f0; min-height: 100vh; display: flex; align-items: center;
+           justify-content: center; padding: 24px; color: #1a1a1a; }
+    .card { background: #fff; border-radius: 16px; padding: 40px 32px; max-width: 420px;
+            width: 100%; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+    .sub { color: #555; font-size: 15px; line-height: 1.5; margin-bottom: 20px; }
+    .meta { color: #888; font-size: 13px; margin-top: 4px; }
+    .brand { margin-top: 32px; font-size: 12px; color: #ccc; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">${isExpired ? "⏱️" : "🔍"}</div>
+    <h1>${title}</h1>
+    <p class="sub">${
+      isExpired
+        ? `This payment bill from <strong>${restaurantName}</strong> has expired (bills are valid for 24 hours). Please ask the staff to resend it.`
+        : "This bill link is invalid or has already been removed."
+    }</p>
+    ${orderRef ? `<p class="meta">${orderRef}</p>` : ""}
+    ${tableText}
+    <p class="brand">Powered by Bitebend</p>
+  </div>
+</body>
+</html>`);
 };
 
 // ─── GET /owner/orders/:orderId/bill ─────────────────────────────────────────
-// Generates a payment bill PNG on the server, stores it with a short-lived
-// token, and returns a public billUrl + WhatsApp deep-link pre-filled with
-// the bill URL and payment details. No file download on the restaurant device.
+// Generates a payment bill PNG on the server, stores it persistently with a
+// 24-hour signed token, and returns a public billUrl + WhatsApp deep-link.
+// No file download on the restaurant device. Rate-limited to 5 sends/order/day.
 const getBill: RequestHandler = async (req, res) => {
   const user = req.user!;
   const orderId = parseInt(String(req.params.orderId));
@@ -747,10 +795,8 @@ const getBill: RequestHandler = async (req, res) => {
     ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(restaurant?.name ?? "")}&am=${order.total}&tn=${encodeURIComponent(`Order#${order.id}`)}&cu=INR`
     : `Order #${order.id} | Total: Rs.${order.total}`;
 
-  // Generate QR as raw PNG buffer (sharp-compatible)
   const qrPngBuffer = await QRCode.toBuffer(qrPayload, { width: 400, margin: 2, errorCorrectionLevel: "H", type: "png" });
 
-  // Generate full bill image server-side
   const billPng = await generateBillPng({
     restaurantName: restaurant?.name ?? "Restaurant",
     orderId: order.id,
@@ -763,42 +809,42 @@ const getBill: RequestHandler = async (req, res) => {
     qrPngBuffer,
   });
 
-  // Store in memory cache and get a public token URL
-  const token = storeBill(billPng);
+  // Persist PNG + metadata; throws BillRateLimitError if over limit
+  let token: string;
+  try {
+    token = await storeBill(billPng, orderId);
+  } catch (err) {
+    if (err instanceof BillRateLimitError) {
+      res.status(429).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+
   const siteUrl =
     process.env["SITE_URL"]?.trim() ||
     (() => { const d = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim(); return d ? `https://${d}` : null; })() ||
     (process.env["REPLIT_DEV_DOMAIN"] ? `https://${process.env["REPLIT_DEV_DOMAIN"]}` : `http://localhost:${process.env["PORT"] ?? 8080}`);
   const billUrl = `${siteUrl}/api/bills/${token}`;
 
-  // Sanitize phone to E.164 format
-  const rawPhone = order.customerPhone.replace(/\D/g, "");
-  const phone = rawPhone.startsWith("91") && rawPhone.length === 12
-    ? rawPhone
-    : rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
-
-  // WhatsApp message — bill URL is the centrepiece, no attachment needed
-  const itemLines = items.map((i) => `  ${i.quantity}\u00D7 ${i.name} \u2014 \u20B9${i.unitPrice * i.quantity}`).join("\n");
-  let msg = `Hi ${order.customerName},\n\n`;
-  msg += `Your payment bill is ready.\n\n`;
-  msg += `*Items:*\n${itemLines}\n\n`;
-  if (order.tax > 0) msg += `Subtotal: \u20B9${order.subtotal}\nTax: \u20B9${order.tax}\n`;
-  msg += `*Total: \u20B9${order.total}*\n`;
-  if (order.tableNumber) msg += `Table: ${order.tableNumber}\n`;
-  msg += `Reference: Order#${order.id}\n\n`;
-  msg += `View bill + scan QR to pay:\n${billUrl}\n\n`;
-  if (upiId) msg += `UPI: ${upiId}\n\n`;
-  msg += `After payment, please reply with your payment screenshot.`;
-
-  const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+  const { whatsappUrl, message } = sendPaymentBill({
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    restaurantName: restaurant?.name ?? "Restaurant",
+    tableNumber: order.tableNumber ?? null,
+    orderId: order.id,
+    total: order.total,
+    upiId: upiId || null,
+    billUrl,
+  });
 
   res.json({
     billUrl,
     whatsappUrl,
-    message: msg,
+    message,
     total: order.total,
     customerName: order.customerName,
-    customerPhone: phone,
+    customerPhone: order.customerPhone,
     restaurantName: restaurant?.name ?? "Restaurant",
     tableNumber: order.tableNumber ?? null,
   });

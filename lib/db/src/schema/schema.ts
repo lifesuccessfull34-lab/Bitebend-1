@@ -222,3 +222,16 @@ export const imageBlobs = pgTable("image_blobs", {
   contentType: text("content_type").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const billLinks = pgTable("bill_links", {
+  id: uuid("id").primaryKey(),
+  orderId: integer("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  imageBlobId: uuid("image_blob_id")
+    .notNull()
+    .references(() => imageBlobs.id, { onDelete: "cascade" }),
+  hmacSignature: text("hmac_signature").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
