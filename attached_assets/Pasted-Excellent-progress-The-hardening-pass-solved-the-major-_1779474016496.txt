@@ -1,0 +1,189 @@
+Excellent progress. The hardening pass solved the major architecture risks. Before final rollout, do one final production-readiness pass.
+
+FINAL PRODUCTION CHECKLIST:
+
+1. Move cleanup scheduler out of API process
+
+Current:
+
+setInterval(...).unref()
+
+Problem:
+
+* multiple API instances trigger duplicate cleanup
+* cleanup pauses during downtime
+* not reliable after restarts
+
+Replace with:
+
+* cron worker
+  or
+* scheduled DB job
+
+Cleanup should run independently of API lifecycle.
+
+---
+
+2. Optimize image storage
+
+Current:
+
+base64 PNG in imageBlobs table
+
+Problem:
+
+base64 adds storage overhead and bloats DB.
+
+Improve:
+
+Store binary/BYTEA if keeping in PostgreSQL.
+
+Future-ready structure:
+
+bill_links
+
+* token
+* imagePath
+* provider
+* expiresAt
+
+Storage adapter:
+
+LocalStorageProvider
+DatabaseStorageProvider
+S3StorageProvider
+
+Prepare interface now.
+
+---
+
+3. Add observability
+
+Log:
+
+bill_generated
+bill_opened
+bill_send_attempted
+bill_send_success
+bill_expired
+
+Include:
+
+* orderId
+* restaurantId
+* customerPhone
+* timestamp
+
+Do not rely on console logs.
+
+---
+
+4. Add OpenGraph preview
+
+Bill URL should render metadata:
+
+og:title
+og:description
+og:image
+
+When WhatsApp receives the link, generate a rich preview.
+
+Goal:
+
+Customer sees payment card preview directly inside chat.
+
+Not a raw URL.
+
+---
+
+5. Add QR payment tracking
+
+When customer opens bill:
+
+store:
+
+openedAt
+
+When payment succeeds later:
+
+link:
+
+orderId
+paymentId
+
+This creates funnel analytics:
+
+sent → opened → paid
+
+---
+
+6. Protect against repeated sends
+
+Current:
+
+5 per day
+
+Also add:
+
+minimum resend interval:
+
+60 seconds
+
+Prevent accidental spam clicking.
+
+---
+
+7. Add URL shortener layer
+
+Current bill links may become long.
+
+Use:
+
+bitebend.in/b/{shortId}
+
+instead of exposing token structure.
+
+Cleaner for WhatsApp and easier for customers.
+
+---
+
+8. Cross-device verification
+
+Test:
+
+Android WhatsApp
+iPhone WhatsApp
+WhatsApp Desktop
+Mobile browser
+Slow internet
+Incognito mode
+
+Verify:
+
+QR visible
+image loads
+preview loads
+link works
+
+---
+
+9. Keep sendPaymentBill abstraction frozen
+
+Future transport providers:
+
+WhatsAppDeepLinkProvider
+InteraktProvider
+WATIProvider
+MetaCloudProvider
+
+Dashboard must never know transport details.
+
+This is now a core architecture boundary.
+
+---
+
+After these pass:
+
+deploy.
+
+This is close to production-grade now.

@@ -71,6 +71,13 @@
       "when": 1748691200000,
       "tag": "0009_bill_links",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1748777600000,
+      "tag": "0010_bill_links_v2",
+      "breakpoints": true
     }
   ]
 }

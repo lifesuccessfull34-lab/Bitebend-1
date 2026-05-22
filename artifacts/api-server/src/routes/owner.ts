@@ -25,8 +25,11 @@ import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/o
 import {
   storeBill,
   getBillByToken,
+  getBillByShortId,
   sendPaymentBill,
   BillRateLimitError,
+  BillCooldownError,
+  type BillResult,
 } from "../lib/billService";
 
 const router = Router();
@@ -712,63 +715,169 @@ async function generateBillPng(opts: {
   return png;
 }
 
-// ─── GET /api/bills/:token ────────────────────────────────────────────────────
-// Public (no auth) — serves a persistent bill PNG by signed 24-hour token.
-// Returns 200+PNG for valid tokens, 410+HTML for expired, 404+HTML for invalid.
-const serveBillImage: RequestHandler = async (req, res) => {
-  const token = String(req.params.token);
-  const result = await getBillByToken(token);
+// ─── Bill HTML helpers ────────────────────────────────────────────────────────
 
-  if (result.status === "ok") {
-    res.setHeader("Content-Type", "image/png");
-    res.setHeader("Cache-Control", "public, max-age=3600");
-    res.setHeader("Content-Disposition", `inline; filename="bill-${token.slice(0, 8)}.png"`);
-    res.end(result.png);
-    return;
-  }
+function buildSiteUrl(): string {
+  return (
+    process.env["SITE_URL"]?.trim() ||
+    (() => {
+      const d = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim();
+      return d ? `https://${d}` : null;
+    })() ||
+    (process.env["REPLIT_DEV_DOMAIN"]
+      ? `https://${process.env["REPLIT_DEV_DOMAIN"]}`
+      : `http://localhost:${process.env["PORT"] ?? 8080}`)
+  );
+}
 
+const BILL_CSS = `
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #fff8f0; min-height: 100vh; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; padding: 20px; color: #1a1a1a; }
+  .card { background: #fff; border-radius: 16px; padding: 24px; max-width: 480px;
+          width: 100%; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
+  .header { text-align: center; margin-bottom: 16px; }
+  .header h1 { font-size: 18px; font-weight: 700; color: #1a1a1a; }
+  .header p { font-size: 13px; color: #888; margin-top: 4px; }
+  .bill-img { width: 100%; height: auto; border-radius: 8px; display: block; }
+  .hint { text-align: center; margin-top: 16px; font-size: 13px; color: #666; line-height: 1.5; }
+  .brand { text-align: center; margin-top: 24px; font-size: 11px; color: #ccc; }
+  .icon { font-size: 48px; margin-bottom: 16px; text-align: center; }
+  .sub { font-size: 15px; color: #555; line-height: 1.5; margin-bottom: 12px; text-align: center; }
+  .meta { font-size: 13px; color: #888; margin-top: 4px; text-align: center; }`;
+
+function renderBillPage(
+  imageUrl: string,
+  restaurantName: string,
+  orderId: number,
+  tableNumber: string | null,
+): string {
+  const tableText = tableNumber ? ` · Table ${tableNumber}` : "";
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const safeRestaurant = esc(restaurantName);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Bill — ${safeRestaurant}</title>
+  <meta property="og:title" content="Payment Bill — ${safeRestaurant}" />
+  <meta property="og:description" content="Order #${orderId}${tableText} — Scan the QR code to pay instantly" />
+  <meta property="og:image" content="${esc(imageUrl)}" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="600" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Payment Bill — ${safeRestaurant}" />
+  <meta name="twitter:image" content="${esc(imageUrl)}" />
+  <style>${BILL_CSS}</style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>Payment Bill</h1>
+      <p>${safeRestaurant}${tableText}</p>
+    </div>
+    <img class="bill-img" src="${esc(imageUrl)}" alt="Payment Bill" />
+    <p class="hint">Scan the QR code in the bill to pay instantly.<br>The amount is already pre-filled.</p>
+  </div>
+  <p class="brand">Powered by Bitebend</p>
+</body>
+</html>`;
+}
+
+function renderBillError(result: BillResult): { statusCode: number; html: string } {
   const isExpired = result.status === "expired";
   const statusCode = isExpired ? 410 : 404;
   const title = isExpired ? "Bill Expired" : "Bill Not Found";
-  const restaurantName = isExpired ? result.restaurantName : "the restaurant";
-  const orderRef = isExpired ? `Order #${result.orderId}` : "";
-  const tableText = isExpired && result.tableNumber ? `<p class="meta">Table: ${result.tableNumber}</p>` : "";
+  const restaurantName = isExpired ? result.context.restaurantName : "";
+  const orderId = isExpired ? result.context.orderId : null;
+  const tableNumber = isExpired ? result.context.tableNumber : null;
 
-  res.status(statusCode).setHeader("Content-Type", "text/html; charset=utf-8").send(`<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${title} — Bitebend</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-           background: #fff8f0; min-height: 100vh; display: flex; align-items: center;
-           justify-content: center; padding: 24px; color: #1a1a1a; }
-    .card { background: #fff; border-radius: 16px; padding: 40px 32px; max-width: 420px;
-            width: 100%; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,.08); }
-    .icon { font-size: 48px; margin-bottom: 16px; }
-    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
-    .sub { color: #555; font-size: 15px; line-height: 1.5; margin-bottom: 20px; }
-    .meta { color: #888; font-size: 13px; margin-top: 4px; }
-    .brand { margin-top: 32px; font-size: 12px; color: #ccc; }
-  </style>
+  <style>${BILL_CSS}</style>
 </head>
 <body>
   <div class="card">
-    <div class="icon">${isExpired ? "⏱️" : "🔍"}</div>
-    <h1>${title}</h1>
+    <div class="icon">${isExpired ? "&#x23F1;&#xFE0F;" : "&#x1F50D;"}</div>
+    <h1 style="text-align:center;font-size:22px;font-weight:700;margin-bottom:8px">${title}</h1>
     <p class="sub">${
       isExpired
-        ? `This payment bill from <strong>${restaurantName}</strong> has expired (bills are valid for 24 hours). Please ask the staff to resend it.`
+        ? `This payment bill from <strong>${restaurantName}</strong> has expired. Bills are valid for 24 hours. Please ask staff to resend it.`
         : "This bill link is invalid or has already been removed."
     }</p>
-    ${orderRef ? `<p class="meta">${orderRef}</p>` : ""}
-    ${tableText}
-    <p class="brand">Powered by Bitebend</p>
+    ${orderId ? `<p class="meta">Order #${orderId}</p>` : ""}
+    ${tableNumber ? `<p class="meta">Table: ${tableNumber}</p>` : ""}
   </div>
+  <p class="brand">Powered by Bitebend</p>
 </body>
-</html>`);
+</html>`;
+  return { statusCode, html };
+}
+
+// ─── GET /api/bills/:token ─────────────────────────────────────────────────────
+// Public — serves an OpenGraph-tagged HTML page with the bill image.
+// WhatsApp scrapes this URL and shows a rich card preview in chat.
+const serveBillPage: RequestHandler = async (req, res) => {
+  const token = String(req.params.token);
+  const result = await getBillByToken(token);
+
+  if (result.status === "ok") {
+    const imageUrl = `${buildSiteUrl()}/api/bills/${token}/image`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8")
+       .setHeader("Cache-Control", "public, max-age=3600")
+       .send(renderBillPage(imageUrl, result.context.restaurantName, result.context.orderId, result.context.tableNumber));
+    return;
+  }
+
+  const { statusCode, html } = renderBillError(result);
+  res.status(statusCode).setHeader("Content-Type", "text/html; charset=utf-8").send(html);
+};
+
+// ─── GET /api/bills/:token/image ──────────────────────────────────────────────
+// Public — serves the raw PNG. Used as og:image src and for direct image access.
+const serveBillImageRaw: RequestHandler = async (req, res) => {
+  const token = String(req.params.token);
+  const result = await getBillByToken(token);
+
+  if (result.status === "ok") {
+    res.setHeader("Content-Type", "image/png")
+       .setHeader("Cache-Control", "public, max-age=3600")
+       .setHeader("Content-Disposition", `inline; filename="bill.png"`)
+       .end(result.png);
+    return;
+  }
+
+  if (result.status === "expired") {
+    res.status(410).json({ error: "Bill expired" });
+    return;
+  }
+  res.status(404).json({ error: "Bill not found" });
+};
+
+// ─── GET /api/b/:shortId ──────────────────────────────────────────────────────
+// Public — short URL used in WhatsApp messages (e.g. /api/b/a1b2c3d4e5).
+// Serves the same OpenGraph HTML page as /api/bills/:token.
+const serveBillShort: RequestHandler = async (req, res) => {
+  const shortId = String(req.params.shortId);
+  const result = await getBillByShortId(shortId);
+
+  if (result.status === "ok") {
+    const imageUrl = `${buildSiteUrl()}/api/bills/${result.context.token}/image`;
+    res.setHeader("Content-Type", "text/html; charset=utf-8")
+       .setHeader("Cache-Control", "public, max-age=3600")
+       .send(renderBillPage(imageUrl, result.context.restaurantName, result.context.orderId, result.context.tableNumber));
+    return;
+  }
+
+  const { statusCode, html } = renderBillError(result);
+  res.status(statusCode).setHeader("Content-Type", "text/html; charset=utf-8").send(html);
 };
 
 // ─── GET /owner/orders/:orderId/bill ─────────────────────────────────────────
@@ -809,23 +918,25 @@ const getBill: RequestHandler = async (req, res) => {
     qrPngBuffer,
   });
 
-  // Persist PNG + metadata; throws BillRateLimitError if over limit
+  // Persist PNG + metadata; throws on rate limit or cooldown
   let token: string;
+  let shortId: string;
   try {
-    token = await storeBill(billPng, orderId);
+    ({ token, shortId } = await storeBill(billPng, orderId, user.restaurantId!));
   } catch (err) {
-    if (err instanceof BillRateLimitError) {
+    if (err instanceof BillRateLimitError || err instanceof BillCooldownError) {
       res.status(429).json({ error: err.message });
       return;
     }
     throw err;
   }
 
-  const siteUrl =
-    process.env["SITE_URL"]?.trim() ||
-    (() => { const d = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim(); return d ? `https://${d}` : null; })() ||
-    (process.env["REPLIT_DEV_DOMAIN"] ? `https://${process.env["REPLIT_DEV_DOMAIN"]}` : `http://localhost:${process.env["PORT"] ?? 8080}`);
+  const siteUrl = buildSiteUrl();
+  // Short URL goes in the WhatsApp message; full token URL used for OG image
+  const shortUrl = `${siteUrl}/api/b/${shortId}`;
   const billUrl = `${siteUrl}/api/bills/${token}`;
+
+  req.log.info({ orderId, restaurantId: user.restaurantId, shortId }, "bill_send_attempted");
 
   const { whatsappUrl, message } = sendPaymentBill({
     customerName: order.customerName,
@@ -835,11 +946,13 @@ const getBill: RequestHandler = async (req, res) => {
     orderId: order.id,
     total: order.total,
     upiId: upiId || null,
-    billUrl,
+    billUrl: shortUrl,
   });
 
+  req.log.info({ orderId, restaurantId: user.restaurantId, shortId }, "bill_send_success");
+
   res.json({
-    billUrl,
+    billUrl: shortUrl,
     whatsappUrl,
     message,
     total: order.total,
@@ -847,6 +960,8 @@ const getBill: RequestHandler = async (req, res) => {
     customerPhone: order.customerPhone,
     restaurantName: restaurant?.name ?? "Restaurant",
     tableNumber: order.tableNumber ?? null,
+    // full token URL for direct image access if needed
+    imageUrl: `${billUrl}/image`,
   });
 };
 
@@ -1296,7 +1411,9 @@ router.post("/owner/orders/:orderId/verify-upi", requireOwner, verifyUpiPayment)
 router.post("/owner/orders/:orderId/reject-upi", requireOwner, rejectUpiPayment);
 router.get("/owner/orders/:orderId/whatsapp", requireOwner, getWhatsappBill);
 router.get("/owner/orders/:orderId/bill", requireOwner, getBill);
-router.get("/bills/:token", serveBillImage);
+router.get("/bills/:token/image", serveBillImageRaw); // raw PNG (og:image src)
+router.get("/bills/:token", serveBillPage);           // OG HTML page
+router.get("/b/:shortId", serveBillShort);            // short URL in WhatsApp messages
 router.post("/owner/orders/:orderId/verify-payment", requireOwner, verifyOrderPayment);
 router.patch("/owner/orders/:orderId/approve-payment", requireOwner, approvePayment);
 router.patch("/owner/orders/:orderId/reject-payment", requireOwner, rejectPayment);

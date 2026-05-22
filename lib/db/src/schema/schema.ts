@@ -232,6 +232,8 @@ export const billLinks = pgTable("bill_links", {
     .notNull()
     .references(() => imageBlobs.id, { onDelete: "cascade" }),
   hmacSignature: text("hmac_signature").notNull(),
+  shortId: text("short_id").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
+  openedAt: timestamp("opened_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

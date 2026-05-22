@@ -1,8 +1,10 @@
-import { createHmac, randomUUID } from "crypto";
+import { createHmac, randomBytes, randomUUID } from "crypto";
 import { db, billLinks, imageBlobs, orders, restaurants } from "@workspace/db";
-import { eq, and, gte, count, lt } from "drizzle-orm";
+import { eq, and, gte, count, max, lt } from "drizzle-orm";
+import { logger } from "./logger";
 
 const MAX_SENDS_PER_ORDER = 5;
+const COOLDOWN_MS = 60 * 1000;  // 60 seconds between sends
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // ─── Errors ───────────────────────────────────────────────────────────────────
@@ -15,13 +17,13 @@ export class BillRateLimitError extends Error {
   }
 }
 
-export class BillExpiredError extends Error {
-  readonly orderId: number;
-  constructor(orderId: number) {
-    super("Bill link has expired");
-    this.name = "BillExpiredError";
-    this.orderId = orderId;
-    Object.setPrototypeOf(this, BillExpiredError.prototype);
+export class BillCooldownError extends Error {
+  readonly secondsRemaining: number;
+  constructor(secondsRemaining: number) {
+    super(`Please wait ${secondsRemaining} seconds before sending again.`);
+    this.name = "BillCooldownError";
+    this.secondsRemaining = secondsRemaining;
+    Object.setPrototypeOf(this, BillCooldownError.prototype);
   }
 }
 
@@ -42,34 +44,48 @@ function parseToken(token: string): { id: string; sig: string } | null {
   return { id: token.slice(0, dot), sig: token.slice(dot + 1) };
 }
 
+function generateShortId(): string {
+  return randomBytes(5).toString("hex"); // 10 lowercase hex chars
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 /**
  * Persist a bill PNG to the DB and return a signed public token.
- * Throws BillRateLimitError when the order has already been billed
- * MAX_SENDS_PER_ORDER times in the current 24-hour window.
+ * Throws BillRateLimitError when the order has exceeded MAX_SENDS_PER_ORDER.
+ * Throws BillCooldownError when the last send was within 60 seconds.
  */
-export async function storeBill(png: Buffer, orderId: number): Promise<string> {
+export async function storeBill(
+  png: Buffer,
+  orderId: number,
+  restaurantId: number,
+): Promise<{ token: string; shortId: string }> {
   const windowStart = new Date(Date.now() - TTL_MS);
-  const [{ value: existing }] = await db
-    .select({ value: count() })
-    .from(billLinks)
-    .where(
-      and(
-        eq(billLinks.orderId, orderId),
-        gte(billLinks.createdAt, windowStart),
-      ),
-    );
 
-  if (Number(existing) >= MAX_SENDS_PER_ORDER) {
+  const [{ total, latest }] = await db
+    .select({ total: count(), latest: max(billLinks.createdAt) })
+    .from(billLinks)
+    .where(and(eq(billLinks.orderId, orderId), gte(billLinks.createdAt, windowStart)));
+
+  if (Number(total) >= MAX_SENDS_PER_ORDER) {
+    logger.warn({ orderId, restaurantId }, "bill_send_blocked: rate limit exceeded");
     throw new BillRateLimitError();
+  }
+
+  if (latest) {
+    const elapsed = Date.now() - latest.getTime();
+    if (elapsed < COOLDOWN_MS) {
+      const secondsRemaining = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+      logger.warn({ orderId, restaurantId, secondsRemaining }, "bill_send_blocked: cooldown active");
+      throw new BillCooldownError(secondsRemaining);
+    }
   }
 
   const expiresAt = new Date(Date.now() + TTL_MS);
   const id = randomUUID();
   const hmac = computeHmac(id, orderId, expiresAt);
+  const shortId = generateShortId();
 
-  // Store the PNG as base64 in imageBlobs (same mechanism as dish photos)
   const [blob] = await db
     .insert(imageBlobs)
     .values({ data: png.toString("base64"), contentType: "image/png" })
@@ -80,46 +96,39 @@ export async function storeBill(png: Buffer, orderId: number): Promise<string> {
     orderId,
     imageBlobId: blob.id,
     hmacSignature: hmac,
+    shortId,
     expiresAt,
   });
 
-  return `${id}.${hmac}`;
+  logger.info({ orderId, restaurantId, shortId }, "bill_generated");
+
+  return { token: `${id}.${hmac}`, shortId };
 }
 
 // ─── Retrieve ─────────────────────────────────────────────────────────────────
 
+export type BillContext = {
+  orderId: number;
+  restaurantName: string;
+  tableNumber: string | null;
+  token: string;
+  shortId: string;
+};
+
 export type BillResult =
-  | { status: "ok"; png: Buffer }
-  | { status: "expired"; orderId: number; restaurantName: string; tableNumber: string | null }
+  | { status: "ok"; png: Buffer; context: BillContext }
+  | { status: "expired"; context: BillContext }
   | { status: "notFound" };
 
-/**
- * Retrieve a bill by its signed token.
- * Returns a discriminated union so the caller can return the right HTTP status.
- */
-export async function getBillByToken(token: string): Promise<BillResult> {
-  const parts = parseToken(token);
-  if (!parts) return { status: "notFound" };
+async function resolveBillContext(
+  link: { id: string; orderId: number; expiresAt: Date; hmacSignature: string; imageBlobId: string; shortId: string; openedAt: Date | null },
+  sig: string,
+): Promise<BillResult> {
+  // HMAC verification
+  const expected = computeHmac(link.id, link.orderId, link.expiresAt);
+  if (sig !== expected) return { status: "notFound" };
 
-  const [link] = await db
-    .select({
-      expiresAt: billLinks.expiresAt,
-      hmacSignature: billLinks.hmacSignature,
-      imageBlobId: billLinks.imageBlobId,
-      orderId: billLinks.orderId,
-    })
-    .from(billLinks)
-    .where(eq(billLinks.id, parts.id))
-    .limit(1);
-
-  if (!link) return { status: "notFound" };
-
-  // Constant-time-ish HMAC comparison via recompute
-  const expected = computeHmac(parts.id, link.orderId, link.expiresAt);
-  if (parts.sig !== expected) return { status: "notFound" };
-
-  if (link.expiresAt < new Date()) {
-    // Fetch enough context for the fallback page
+  const contextBase = async (): Promise<BillContext> => {
     const [orderRow] = await db
       .select({ restaurantId: orders.restaurantId, tableNumber: orders.tableNumber })
       .from(orders)
@@ -136,11 +145,18 @@ export async function getBillByToken(token: string): Promise<BillResult> {
       : "the restaurant";
 
     return {
-      status: "expired",
       orderId: link.orderId,
       restaurantName,
       tableNumber: orderRow?.tableNumber ?? null,
+      token: `${link.id}.${link.hmacSignature}`,
+      shortId: link.shortId,
     };
+  };
+
+  if (link.expiresAt < new Date()) {
+    const context = await contextBase();
+    logger.info({ orderId: link.orderId, shortId: link.shortId }, "bill_expired: customer hit expired link");
+    return { status: "expired", context };
   }
 
   const [blob] = await db
@@ -151,7 +167,60 @@ export async function getBillByToken(token: string): Promise<BillResult> {
 
   if (!blob) return { status: "notFound" };
 
-  return { status: "ok", png: Buffer.from(blob.data, "base64") };
+  // Record first open (best-effort, non-blocking)
+  if (!link.openedAt) {
+    db.update(billLinks)
+      .set({ openedAt: new Date() })
+      .where(eq(billLinks.id, link.id))
+      .then(() => {
+        logger.info({ orderId: link.orderId, shortId: link.shortId }, "bill_opened");
+      })
+      .catch(() => void 0);
+  }
+
+  const context = await contextBase();
+  return { status: "ok", png: Buffer.from(blob.data, "base64"), context };
+}
+
+export async function getBillByToken(token: string): Promise<BillResult> {
+  const parts = parseToken(token);
+  if (!parts) return { status: "notFound" };
+
+  const [link] = await db
+    .select({
+      id: billLinks.id,
+      expiresAt: billLinks.expiresAt,
+      hmacSignature: billLinks.hmacSignature,
+      imageBlobId: billLinks.imageBlobId,
+      orderId: billLinks.orderId,
+      shortId: billLinks.shortId,
+      openedAt: billLinks.openedAt,
+    })
+    .from(billLinks)
+    .where(eq(billLinks.id, parts.id))
+    .limit(1);
+
+  if (!link) return { status: "notFound" };
+  return resolveBillContext(link, parts.sig);
+}
+
+export async function getBillByShortId(shortId: string): Promise<BillResult> {
+  const [link] = await db
+    .select({
+      id: billLinks.id,
+      expiresAt: billLinks.expiresAt,
+      hmacSignature: billLinks.hmacSignature,
+      imageBlobId: billLinks.imageBlobId,
+      orderId: billLinks.orderId,
+      shortId: billLinks.shortId,
+      openedAt: billLinks.openedAt,
+    })
+    .from(billLinks)
+    .where(eq(billLinks.shortId, shortId))
+    .limit(1);
+
+  if (!link) return { status: "notFound" };
+  return resolveBillContext(link, link.hmacSignature);
 }
 
 // ─── Transport abstraction ────────────────────────────────────────────────────
@@ -164,7 +233,7 @@ export interface BillPayload {
   orderId: number;
   total: number;
   upiId: string | null;
-  billUrl: string;
+  billUrl: string; // short URL shown in message
 }
 
 export interface SendResult {
@@ -175,20 +244,13 @@ export interface SendResult {
 /**
  * WhatsApp deep-link transport (current provider).
  *
- * When a WhatsApp Business API provider is added (Interakt, WATI, Meta Cloud),
- * create a new function with the same BillPayload → SendResult signature and
- * swap the import in the route. The route itself stays unchanged.
+ * To add a new provider (Interakt, WATI, Meta Cloud API):
+ *   1. Create a new function with the same (BillPayload) => SendResult signature
+ *   2. Swap the import in owner.ts
+ *   3. The route handler and Dashboard never change
  */
 export function sendPaymentBill(payload: BillPayload): SendResult {
-  const {
-    customerName,
-    customerPhone,
-    restaurantName,
-    tableNumber,
-    orderId,
-    total,
-    billUrl,
-  } = payload;
+  const { customerName, customerPhone, restaurantName, tableNumber, orderId, total, billUrl } = payload;
 
   const rawPhone = customerPhone.replace(/\D/g, "");
   const phone =
@@ -224,26 +286,23 @@ export function sendPaymentBill(payload: BillPayload): SendResult {
 
 /**
  * Delete expired bill links and their associated imageBlobs.
- * Run once per day (called from server startup via setInterval).
+ * Called once on startup, then every 24 h via setInterval in index.ts.
  */
-export async function purgeExpiredBills(): Promise<number> {
+export async function purgeExpiredBills(): Promise<void> {
   const now = new Date();
 
-  // Fetch expired imageBlob IDs before deleting links
   const expiredLinks = await db
     .select({ imageBlobId: billLinks.imageBlobId })
     .from(billLinks)
     .where(lt(billLinks.expiresAt, now));
 
-  if (expiredLinks.length === 0) return 0;
+  if (expiredLinks.length === 0) return;
 
-  // Delete links first (FK constraint satisfied by cascade, but explicit is fine)
   await db.delete(billLinks).where(lt(billLinks.expiresAt, now));
 
-  // Delete orphaned blobs (blobs that were only used by bill_links)
   for (const { imageBlobId } of expiredLinks) {
-    await db.delete(imageBlobs).where(eq(imageBlobs.id, imageBlobId));
+    await db.delete(imageBlobs).where(eq(imageBlobs.id, imageBlobId)).catch(() => void 0);
   }
 
-  return expiredLinks.length;
+  logger.info({ count: expiredLinks.length }, "bill_cleanup: purged expired bills");
 }
