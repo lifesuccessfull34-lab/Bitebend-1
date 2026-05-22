@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -307,11 +308,16 @@ export default function Dashboard() {
   const [rejectingPaymentId, setRejectingPaymentId]   = useState<number | null>(null);
 
   // Bill state
-  const [billModal, setBillModal]           = useState<BillModal | null>(null);
-  const [billLoading, setBillLoading]       = useState<number | null>(null);
+  const [billModal, setBillModal]         = useState<BillModal | null>(null);
+  const [billLoading, setBillLoading]     = useState<number | null>(null);
   const [downloadingBill, setDownloadingBill] = useState(false);
-  // true after a download-fallback share — prompts the user to attach the file manually
+  // Step label shown inside the Share Bill button while the share flow is running
+  // null = idle; any string = in-progress (button disabled + label changes)
+  const [shareStep, setShareStep]         = useState<string | null>(null);
+  // true after a download-fallback — prompts the owner to attach the file manually
   const [billDownloaded, setBillDownloaded] = useState(false);
+  // Prevents rapid double-clicks from triggering two concurrent share flows
+  const shareInFlightRef = useRef(false);
 
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const uploadOrderIdRef = useRef<number | null>(null);
@@ -427,20 +433,55 @@ export default function Dashboard() {
     }
   };
 
-  // Shares the actual generated bill PNG — never sends a plain-text WhatsApp message.
-  //
-  // Path 1 (preferred — mobile & some desktop browsers):
-  //   Web Share API with file support → opens the OS share sheet with the bill PNG
-  //   already attached. The owner taps WhatsApp and the image goes with a short caption.
-  //
-  // Path 2 (fallback — browsers without file-share support):
-  //   Downloads the bill PNG to the device and sets billDownloaded=true so the modal
-  //   shows a clear instruction: "Saved — now open WhatsApp and attach the file."
-  //   Never opens WhatsApp with a plain text URL.
+  // ─── Desktop/fallback share path ──────────────────────────────────────────
+  // Downloads the bill image and simultaneously opens WhatsApp (Web or Desktop)
+  // pre-filled with the customer's number and a short opener message so the owner
+  // can immediately attach the downloaded file.
+  const shareFallback = (modal: BillModal, imgUrl: string) => {
+    // 1. Download the bill image
+    const a = document.createElement("a");
+    a.href = imgUrl;
+    a.download = `bill-order-${modal.orderId}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // 2. Build a short WhatsApp opener (NOT the full bill — the image carries that)
+    const fallbackMsg =
+      `Hi ${modal.customerName},\n\n` +
+      `Please find the attached payment bill with QR code.\n\n` +
+      `Total: ₹${modal.total}\n` +
+      `Reference: Order#${modal.orderId}\n\n` +
+      `Please scan the QR code and complete payment.`;
+
+    // 3. Extract phone from the wa.me URL already in the modal
+    const phoneMatch = modal.whatsappUrl.match(/wa\.me\/(\d+)/);
+    const phone = phoneMatch ? phoneMatch[1] : "";
+
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const waUrl = isMobile
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(fallbackMsg)}`
+      : `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(fallbackMsg)}`;
+
+    // Slight delay so the browser processes the download click first
+    setTimeout(() => window.open(waUrl, "_blank"), 400);
+
+    setBillDownloaded(true);
+    toast.success("Bill downloaded — attach it in WhatsApp and send");
+  };
+
+  // ─── Primary share flow ────────────────────────────────────────────────────
+  // Mobile (Web Share API + file support): opens OS share sheet with bill PNG attached.
+  // Desktop / unsupported browser: download + auto-open WhatsApp with pre-filled message.
+  // Duplicate-click guard prevents two concurrent share operations.
   const handleShareBill = async (modal: BillModal) => {
+    if (shareInFlightRef.current) return;
+    shareInFlightRef.current = true;
     setBillDownloaded(false);
-    setDownloadingBill(true);
+
     try {
+      // Step 1 — generate the bill canvas image
+      setShareStep("Generating bill...");
       const imgUrl = await generateBillImage(modal);
 
       // Convert data-URL → Blob → File for the share API
@@ -448,38 +489,38 @@ export default function Dashboard() {
       const blob = await res.blob();
       const file = new File([blob], `bill-order-${modal.orderId}.png`, { type: "image/png" });
 
-      // Short caption — the image itself contains all the details
+      // Diagnostic logging (visible in DevTools console)
+      console.log("[ShareBill] navigator.share supported:", typeof navigator.share === "function");
+      console.log("[ShareBill] navigator.canShare result:", navigator.canShare?.({ files: [file] }));
+
       const caption =
         `Payment Bill — Order #${modal.orderId}\n` +
         `Total: ₹${modal.total}\n` +
         `Scan the QR code to pay.\n` +
         `Reference: Order#${modal.orderId}`;
 
-      // Try Web Share API with file support.
-      // canShare() returning true does NOT guarantee success on desktop — browsers may
-      // throw if no share targets are registered (e.g. desktop Chrome without apps).
-      // Wrap in try/catch so any failure gracefully falls through to the download path.
+      // Step 2 — try native share sheet (works on Android/iOS and some desktop browsers)
       if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
+        setShareStep("Sharing...");
         try {
           await navigator.share({ title: `Payment Bill — Order #${modal.orderId}`, text: caption, files: [file] });
-          return; // shared successfully — done
+          toast.success("Bill shared successfully");
+          return;
         } catch (shareErr) {
-          // AbortError = user dismissed the share sheet — don't download, just exit
+          console.log("[ShareBill] Share failed:", shareErr);
+          // User tapped away from the share sheet — exit cleanly, no download
           if (shareErr instanceof Error && shareErr.name === "AbortError") return;
-          // Any other error (NotAllowedError, no share targets, etc.) — fall through to download
+          // Any other error (no share targets, NotAllowedError on desktop, etc.)
+          // → fall through to the reliable download + WhatsApp fallback below
         }
       }
 
-      // Fallback: download the bill image and show a clear "attach it manually" prompt
-      const a = document.createElement("a");
-      a.href = imgUrl;
-      a.download = `bill-order-${modal.orderId}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setBillDownloaded(true);
+      // Step 3 — fallback: download + open WhatsApp automatically
+      setShareStep("Opening WhatsApp...");
+      shareFallback(modal, imgUrl);
     } finally {
-      setDownloadingBill(false);
+      setShareStep(null);
+      shareInFlightRef.current = false;
     }
   };
 
@@ -694,19 +735,18 @@ export default function Dashboard() {
                   size="sm"
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9"
                   onClick={() => void handleShareBill(billModal)}
-                  disabled={downloadingBill}
+                  disabled={shareStep !== null || downloadingBill}
                 >
-                  {downloadingBill
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    : <MessageCircle className="w-3.5 h-3.5 mr-1.5" />}
-                  {billDownloaded ? "Share Again" : "Share Bill"}
+                  {shareStep !== null
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />{shareStep}</>
+                    : <><MessageCircle className="w-3.5 h-3.5 mr-1.5" />{billDownloaded ? "Share Again" : "Share Bill"}</>}
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   className="flex-1 text-xs h-9 text-orange-600 border-orange-200 hover:bg-orange-50"
                   onClick={() => void handleDownloadBill()}
-                  disabled={downloadingBill}
+                  disabled={downloadingBill || shareStep !== null}
                 >
                   {downloadingBill
                     ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
