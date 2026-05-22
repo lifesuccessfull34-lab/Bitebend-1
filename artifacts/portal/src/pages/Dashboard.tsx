@@ -455,13 +455,22 @@ export default function Dashboard() {
         `Scan the QR code to pay.\n` +
         `Reference: Order#${modal.orderId}`;
 
-      // Web Share API with file support (Android Chrome, iOS Safari ≥ 15, desktop Chrome 86+)
+      // Try Web Share API with file support.
+      // canShare() returning true does NOT guarantee success on desktop — browsers may
+      // throw if no share targets are registered (e.g. desktop Chrome without apps).
+      // Wrap in try/catch so any failure gracefully falls through to the download path.
       if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title: `Payment Bill — Order #${modal.orderId}`, text: caption, files: [file] });
-        return;
+        try {
+          await navigator.share({ title: `Payment Bill — Order #${modal.orderId}`, text: caption, files: [file] });
+          return; // shared successfully — done
+        } catch (shareErr) {
+          // AbortError = user dismissed the share sheet — don't download, just exit
+          if (shareErr instanceof Error && shareErr.name === "AbortError") return;
+          // Any other error (NotAllowedError, no share targets, etc.) — fall through to download
+        }
       }
 
-      // Fallback: save bill to device and prompt the owner to attach it manually
+      // Fallback: download the bill image and show a clear "attach it manually" prompt
       const a = document.createElement("a");
       a.href = imgUrl;
       a.download = `bill-order-${modal.orderId}.png`;
