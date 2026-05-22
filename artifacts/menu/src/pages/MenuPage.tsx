@@ -10,6 +10,7 @@ import type {
   MenuItemData,
   OrderType,
   ViewState,
+  RazorpayCheckoutState,
 } from "./menu/types";
 import { LoadingView } from "./menu/LoadingView";
 import { ErrorView } from "./menu/ErrorView";
@@ -18,6 +19,8 @@ import { OrderSuccessView } from "./menu/OrderSuccessView";
 import { CheckoutView } from "./menu/CheckoutView";
 import { CartView } from "./menu/CartView";
 import { MenuView } from "./menu/MenuView";
+import { RazorpayCheckout } from "./menu/RazorpayCheckout";
+import type { RazorpayResponse } from "./menu/RazorpayCheckout";
 
 const BASE = "";
 
@@ -67,6 +70,9 @@ export default function MenuPage() {
   // Payment proof upload state
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofResult, setProofResult] = useState<ProofResult | null>(null);
+
+  // Razorpay checkout state — non-null when the Razorpay modal should be open
+  const [razorpayCheckout, setRazorpayCheckout] = useState<(RazorpayCheckoutState & { customerName: string; customerPhone: string }) | null>(null);
 
   useEffect(() => {
     if (!rawParam) {
@@ -257,12 +263,70 @@ export default function MenuPage() {
       setOrderTotal(total);
       setCart([]);
       setProofResult(null);
-      setView("success");
+
+      // If the restaurant has Razorpay configured, open the payment gateway
+      if (restaurant?.razorpayKeyId) {
+        const rzpRes = await fetch(`${BASE}/api/menu/${restaurant.id}/razorpay-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId: data.id,
+            amount: total,
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim(),
+          }),
+        });
+        const rzpData = await rzpRes.json() as {
+          razorpayOrderId: string;
+          keyId: string;
+          amount: number;
+          restaurantName: string;
+          error?: string;
+        };
+        if (!rzpRes.ok) throw new Error(rzpData.error ?? "Failed to create payment");
+        setRazorpayCheckout({
+          keyId: rzpData.keyId,
+          razorpayOrderId: rzpData.razorpayOrderId,
+          amountPaise: rzpData.amount,
+          restaurantName: rzpData.restaurantName,
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim(),
+        });
+        setView("razorpay_checkout");
+      } else {
+        setView("success");
+      }
     } catch (err) {
       setPlaceError(err instanceof Error ? err.message : "Failed to place order");
     } finally {
       setPlacing(false);
     }
+  };
+
+  const handleRazorpaySuccess = async (response: RazorpayResponse) => {
+    // Verify payment server-side
+    if (orderId && restaurant) {
+      try {
+        await fetch(`${BASE}/api/menu/${restaurant.id}/orders/${orderId}/verify-razorpay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            razorpayPaymentId: response.razorpay_payment_id,
+            razorpayOrderId: response.razorpay_order_id,
+            razorpaySignature: response.razorpay_signature,
+          }),
+        });
+      } catch { /* Webhook will handle marking paid — non-fatal */ }
+    }
+    setRazorpayCheckout(null);
+    setView("success");
+  };
+
+  const handleRazorpayDismiss = () => {
+    // Customer closed the modal without paying — show success view anyway
+    // (order is already placed; they can pay at the table or retry)
+    setRazorpayCheckout(null);
+    setView("success");
   };
 
   const handleUploadProof = async (file: File) => {
@@ -343,6 +407,57 @@ export default function MenuPage() {
     );
   }
 
+  if (view === "razorpay_checkout" && razorpayCheckout) {
+    return (
+      <div style={{
+        minHeight: "100dvh", display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        background: "#faf9f6", padding: "24px",
+      }}>
+        <RazorpayCheckout
+          keyId={razorpayCheckout.keyId}
+          razorpayOrderId={razorpayCheckout.razorpayOrderId}
+          amountPaise={razorpayCheckout.amountPaise}
+          restaurantName={razorpayCheckout.restaurantName}
+          customerName={razorpayCheckout.customerName}
+          customerPhone={razorpayCheckout.customerPhone}
+          onSuccess={handleRazorpaySuccess}
+          onDismiss={handleRazorpayDismiss}
+        />
+        <div style={{ textAlign: "center", maxWidth: "320px" }}>
+          <div style={{
+            width: "56px", height: "56px", borderRadius: "50%",
+            background: "#fff7ed", border: "2px solid #fed7aa",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 16px",
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#ea580c" strokeWidth="2" strokeLinejoin="round"/>
+              <path d="M2 17l10 5 10-5" stroke="#ea580c" strokeWidth="2" strokeLinejoin="round"/>
+              <path d="M2 12l10 5 10-5" stroke="#ea580c" strokeWidth="2" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <p style={{ fontWeight: 700, fontSize: "18px", color: "#111827", marginBottom: "8px" }}>
+            Complete Your Payment
+          </p>
+          <p style={{ fontSize: "13px", color: "#6b7280", lineHeight: 1.5 }}>
+            A secure payment window should open. If it didn't appear, please check if your browser blocked a popup.
+          </p>
+          <button
+            onClick={handleRazorpayDismiss}
+            style={{
+              marginTop: "20px", fontSize: "13px", color: "#6b7280",
+              background: "none", border: "none", cursor: "pointer",
+              textDecoration: "underline",
+            }}
+          >
+            Skip — I'll pay later
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (view === "form") {
     return (
       <CheckoutView
@@ -369,6 +484,7 @@ export default function MenuPage() {
         placeError={placeError}
         onSubmit={handlePlaceOrder}
         onBack={() => setView("cart")}
+        razorpayConfigured={!!restaurant.razorpayKeyId}
       />
     );
   }

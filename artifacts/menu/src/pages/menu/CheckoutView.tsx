@@ -28,6 +28,8 @@ interface Props {
   placeError: string;
   onSubmit: (e: FormEvent) => void;
   onBack: () => void;
+  /** When true, the submit button says "Proceed to Pay via Razorpay" */
+  razorpayConfigured?: boolean;
 }
 
 const C = {
@@ -95,6 +97,7 @@ export function CheckoutView({
   placeError,
   onSubmit,
   onBack,
+  razorpayConfigured = false,
 }: Props) {
   const inputStyle: React.CSSProperties = {
     width: "100%", height: "44px",
@@ -307,7 +310,12 @@ export function CheckoutView({
           ) : (
             <CheckCircle2 style={{ width: "18px", height: "18px" }} />
           )}
-          {placing ? "Placing Order…" : `Place Order · ₹${total.toFixed(2)}`}
+          {placing
+            ? "Placing Order…"
+            : razorpayConfigured
+              ? `Proceed to Pay · ₹${total.toFixed(2)}`
+              : `Place Order · ₹${total.toFixed(2)}`
+          }
         </button>
       </form>
     </div>

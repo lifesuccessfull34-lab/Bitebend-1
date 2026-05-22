@@ -81,7 +81,7 @@ const updateRestaurant: RequestHandler = async (req, res) => {
 
   const {
     name, description, cuisineType, logoUrl, address, city, phone, email,
-    upiId, upiName, personalUpiEnabled, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret,
+    upiId, upiName, personalUpiEnabled, whatsappNumber, taxPercent, seatingLabel, razorpayKeyId, razorpayKeySecret, razorpayWebhookSecret,
     upiVerified, verifiedAt,
     qrImageData, qrDecodedPayload, qrMerchantName, qrExtractedUpiId, paymentQrEnabled,
   } = req.body as Record<string, unknown>;
@@ -125,6 +125,7 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (seatingLabel !== undefined) updates.seatingLabel = seatingLabel;
   if (razorpayKeyId !== undefined) updates.razorpayKeyId = razorpayKeyId;
   if (razorpayKeySecret !== undefined) updates.razorpayKeySecret = razorpayKeySecret;
+  if (razorpayWebhookSecret !== undefined) updates.razorpayWebhookSecret = razorpayWebhookSecret;
 
   try {
     const [updated] = await db

@@ -245,6 +245,7 @@ export default function Profile() {
     taxPercent: "5",
     razorpayKeyId: "",
     razorpayKeySecret: "",
+    razorpayWebhookSecret: "",
   });
 
   // Login credentials state
@@ -293,6 +294,7 @@ export default function Profile() {
           taxPercent: String(r.taxPercent ?? 5),
           razorpayKeyId: (r as any).razorpayKeyId ?? "",
           razorpayKeySecret: (r as any).razorpayKeySecret ?? "",
+          razorpayWebhookSecret: (r as any).razorpayWebhookSecret ?? "",
         });
       })
       .catch((err) => {
@@ -392,6 +394,7 @@ export default function Profile() {
         taxPercent: parseInt(form.taxPercent),
         razorpayKeyId: form.razorpayKeyId || null,
         razorpayKeySecret: form.razorpayKeySecret || null,
+        razorpayWebhookSecret: form.razorpayWebhookSecret || null,
       };
       console.log("[SAVE PAYMENT QR]", {
         paymentQrEnabled: payload.paymentQrEnabled,
@@ -850,6 +853,29 @@ export default function Profile() {
                   <p className="text-xs text-muted-foreground">Stored securely — never shared with customers</p>
                 </div>
               </div>
+
+              {razorpayConfigured && (
+                <div className="space-y-1.5">
+                  <Label>Webhook Secret <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                  <div className="relative">
+                    <Input
+                      type={showSecret ? "text" : "password"}
+                      value={form.razorpayWebhookSecret}
+                      onChange={set("razorpayWebhookSecret")}
+                      placeholder="From Razorpay Dashboard → Webhooks"
+                      className="font-mono text-sm pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSecret((v) => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Used to verify payment webhooks from Razorpay — auto-marks orders paid on success</p>
+                </div>
+              )}
 
               {!razorpayConfigured && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">

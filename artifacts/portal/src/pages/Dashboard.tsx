@@ -926,8 +926,15 @@ export default function Dashboard() {
                             <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 font-medium">Rejected</span>
                           )}
                           {order.paymentMethod && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border font-medium capitalize">
-                              {order.paymentMethod === "upi" ? "UPI" : order.paymentMethod}
+                            <span className={cn(
+                              "text-xs px-2 py-0.5 rounded-full border font-medium",
+                              order.paymentMethod === "razorpay"
+                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                : "bg-muted text-muted-foreground border-border capitalize",
+                            )}>
+                              {order.paymentMethod === "upi" ? "UPI"
+                                : order.paymentMethod === "razorpay" ? "Razorpay · Online"
+                                : order.paymentMethod}
                             </span>
                           )}
                         </div>

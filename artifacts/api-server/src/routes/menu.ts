@@ -328,15 +328,17 @@ const getOrderStatus: RequestHandler = async (req, res) => {
 };
 
 // POST /menu/:restaurantId/razorpay-order — create Razorpay order (accepts numeric ID or slug)
+// Also accepts optional `orderId` (platform order) to link payment back to the order via webhook.
 const createRazorpayOrder: RequestHandler = async (req, res) => {
   const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
   if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
   const restaurantId = restaurant.id;
 
-  const { amount, customerName, customerPhone } = req.body as {
+  const { amount, customerName, customerPhone, orderId } = req.body as {
     amount: number;
     customerName: string;
     customerPhone: string;
+    orderId?: number;
   };
   if (!amount || !customerName || !customerPhone) {
     res.status(400).json({ error: "amount, customerName and customerPhone are required" });
@@ -349,18 +351,28 @@ const createRazorpayOrder: RequestHandler = async (req, res) => {
 
   const rzp = new Razorpay({ key_id: restaurant.razorpayKeyId, key_secret: restaurant.razorpayKeySecret });
 
-  const order = await rzp.orders.create({
-    amount: amount * 100, // paise
+  const rzpOrder = await rzp.orders.create({
+    amount: Math.round(amount * 100), // paise — must be integer
     currency: "INR",
-    receipt: `rcpt_${restaurantId}_${Date.now()}`,
-    notes: { customerName, customerPhone },
+    receipt: `rcpt_${restaurantId}_${orderId ?? Date.now()}`,
+    notes: { customerName, customerPhone, platformOrderId: String(orderId ?? "") },
   });
 
+  // Link the Razorpay order ID to the platform order so the webhook can find it
+  if (orderId) {
+    await db
+      .update(orders)
+      .set({ razorpayOrderId: rzpOrder.id, paymentMethod: "razorpay", updatedAt: new Date() })
+      .where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId)));
+
+    req.log.info({ orderId, razorpayOrderId: rzpOrder.id }, "[Razorpay] Order linked to platform order");
+  }
+
   res.json({
-    razorpayOrderId: order.id,
+    razorpayOrderId: rzpOrder.id,
     keyId: restaurant.razorpayKeyId,
-    amount: order.amount,
-    currency: order.currency,
+    amount: rzpOrder.amount,
+    currency: rzpOrder.currency,
     restaurantName: restaurant.name,
   });
 };
@@ -495,6 +507,81 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
   });
 };
 
+// POST /menu/:restaurantId/orders/:orderId/verify-razorpay
+// Client-side payment verification: customer sends back razorpay_payment_id + signature.
+// We verify the HMAC and mark the order paid. The webhook does the same but this gives
+// immediate feedback to the customer without relying on webhook delivery timing.
+const verifyRazorpayPayment: RequestHandler = async (req, res) => {
+  const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
+  if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
+  if (!restaurant.razorpayKeySecret) { res.status(400).json({ error: "Razorpay not configured" }); return; }
+
+  const orderId = parseInt(String(req.params.orderId));
+  if (isNaN(orderId)) { res.status(400).json({ error: "Invalid order ID" }); return; }
+
+  const { razorpayPaymentId, razorpayOrderId, razorpaySignature } = req.body as {
+    razorpayPaymentId: string;
+    razorpayOrderId: string;
+    razorpaySignature: string;
+  };
+  if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+    res.status(400).json({ error: "razorpayPaymentId, razorpayOrderId and razorpaySignature are required" });
+    return;
+  }
+
+  // Verify HMAC-SHA256: body = razorpay_order_id + "|" + razorpay_payment_id
+  const { createHmac } = await import("crypto");
+  const body = `${razorpayOrderId}|${razorpayPaymentId}`;
+  const expected = createHmac("sha256", restaurant.razorpayKeySecret)
+    .update(body)
+    .digest("hex");
+
+  if (expected !== razorpaySignature) {
+    req.log.warn({ orderId, razorpayOrderId }, "[Razorpay] Signature mismatch — rejecting client verification");
+    res.status(400).json({ error: "Payment signature invalid" });
+    return;
+  }
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurant.id)))
+    .limit(1);
+
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  if (order.paymentStatus === "paid") {
+    res.json({ success: true, alreadyPaid: true });
+    return;
+  }
+
+  const [updated] = await db
+    .update(orders)
+    .set({
+      paymentStatus: "paid",
+      razorpayPaymentId,
+      paidAt: new Date(),
+      status: order.status === "pending_payment" ? "awaiting_confirmation" : order.status,
+      updatedAt: new Date(),
+    })
+    .where(eq(orders.id, orderId))
+    .returning();
+
+  req.log.info({ orderId, razorpayPaymentId }, "[Razorpay] Client verification successful — order marked paid");
+
+  // Emit SSE event so the dashboard updates in real time
+  const { emitOrderEvent } = await import("../lib/orderEvents");
+  emitOrderEvent(restaurant.id, {
+    id: updated.id,
+    customerName: updated.customerName,
+    tableNumber: updated.tableNumber,
+    total: updated.total,
+    itemCount: 0, // item count not tracked on orders table directly
+  });
+
+  res.json({ success: true });
+};
+
 router.get("/menu/:restaurantId", getPublicMenu);
 router.get("/menu/:restaurantId/payment-qr", getPaymentQr);
 router.post("/menu/:restaurantId/razorpay-order", createRazorpayOrder);
@@ -502,6 +589,7 @@ router.post("/menu/:restaurantId/orders", placeOrder);
 router.get("/menu/:restaurantId/orders/:orderId", getOrderStatus);
 router.patch("/menu/:restaurantId/orders/:orderId/confirm-payment", confirmPayment);
 router.post("/menu/:restaurantId/orders/:orderId/payment-proof", submitPaymentProof);
+router.post("/menu/:restaurantId/orders/:orderId/verify-razorpay", verifyRazorpayPayment);
 
 /**
  * POST /api/menu/client-error

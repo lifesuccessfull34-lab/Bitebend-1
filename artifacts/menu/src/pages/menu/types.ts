@@ -55,4 +55,13 @@ export type ViewState =
   | "cart"
   | "form"
   | "pending_upi_payment"
+  | "razorpay_checkout"
   | "success";
+
+export interface RazorpayCheckoutState {
+  keyId: string;
+  razorpayOrderId: string;
+  /** Amount in paise (integer) */
+  amountPaise: number;
+  restaurantName: string;
+}
