@@ -7,6 +7,7 @@ import type { RequestHandler } from "express";
 import Razorpay from "razorpay";
 import { normalizeRestaurantParam, isNumericRestaurantParam } from "@workspace/url-utils";
 import { emitOrderEvent } from "../lib/orderEvents";
+import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/ocr";
 
 const router = Router();
 
@@ -397,12 +398,91 @@ const getPaymentQr: RequestHandler = async (req, res) => {
   res.json({ qrImageData: restaurant.qrImageData, qrDecodedPayload: restaurant.qrDecodedPayload ?? null });
 };
 
+// ─── POST /menu/:restaurantId/orders/:orderId/payment-proof ──────────────────
+// Public endpoint: customer uploads payment screenshot for AI verification.
+const submitPaymentProof: RequestHandler = async (req, res) => {
+  const restaurantId = parseInt(String(req.params.restaurantId));
+  const orderId = parseInt(String(req.params.orderId));
+
+  const { screenshotBase64, mimeType = "image/jpeg" } = req.body as {
+    screenshotBase64?: string;
+    mimeType?: string;
+  };
+
+  if (!screenshotBase64) {
+    res.status(400).json({ error: "screenshotBase64 is required" });
+    return;
+  }
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, restaurantId)))
+    .limit(1);
+
+  if (!order) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  if (order.paymentStatus === "paid") {
+    res.json({ alreadyPaid: true, ocrConfigured: true, matched: true, confidence: 100 });
+    return;
+  }
+
+  if (!isOcrConfigured()) {
+    await db
+      .update(orders)
+      .set({
+        paymentScreenshotUrl: screenshotBase64,
+        paymentVerificationStatus: "manual_review",
+        paymentStatus: "manual_review",
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId));
+    res.json({ ocrConfigured: false, matched: false, confidence: 0 });
+    return;
+  }
+
+  const ocrResult = await extractPaymentData(screenshotBase64, mimeType);
+  const match = matchPayment(ocrResult, order.total);
+  const newPaymentStatus = match.matched ? "paid" : "manual_review";
+  const newVerificationStatus = match.matched ? "ai_verified" : "manual_review";
+
+  await db
+    .update(orders)
+    .set({
+      paymentScreenshotUrl: screenshotBase64,
+      paymentOcrData: JSON.stringify(ocrResult),
+      paymentVerificationStatus: newVerificationStatus,
+      paymentStatus: newPaymentStatus,
+      updatedAt: new Date(),
+    })
+    .where(eq(orders.id, orderId));
+
+  req.log.info(
+    { orderId, matched: match.matched, confidence: ocrResult.confidence, utr: ocrResult.utr },
+    "Payment proof processed",
+  );
+
+  res.json({
+    ocrConfigured: true,
+    matched: match.matched,
+    paymentStatus: newPaymentStatus,
+    confidence: ocrResult.confidence,
+    utr: ocrResult.utr,
+    amount: ocrResult.amount,
+    reason: match.reason,
+  });
+};
+
 router.get("/menu/:restaurantId", getPublicMenu);
 router.get("/menu/:restaurantId/payment-qr", getPaymentQr);
 router.post("/menu/:restaurantId/razorpay-order", createRazorpayOrder);
 router.post("/menu/:restaurantId/orders", placeOrder);
 router.get("/menu/:restaurantId/orders/:orderId", getOrderStatus);
 router.patch("/menu/:restaurantId/orders/:orderId/confirm-payment", confirmPayment);
+router.post("/menu/:restaurantId/orders/:orderId/payment-proof", submitPaymentProof);
 
 /**
  * POST /api/menu/client-error

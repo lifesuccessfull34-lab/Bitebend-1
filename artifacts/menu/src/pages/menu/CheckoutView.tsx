@@ -5,8 +5,6 @@ import {
   UtensilsCrossed,
   User,
   Phone,
-  Banknote,
-  Smartphone,
   Loader2,
   CheckCircle2,
 } from "lucide-react";
@@ -23,14 +21,11 @@ interface Props {
   onCustomerPhoneChange: (phone: string) => void;
   notes: string;
   onNotesChange: (notes: string) => void;
-  paymentMethod: "cash" | "upi" | "razorpay" | null;
-  onPaymentMethodChange: (m: "cash" | "upi" | "razorpay" | null) => void;
   subtotal: number;
   tax: number;
   total: number;
   placing: boolean;
   placeError: string;
-  paymentGridCols: string;
   onSubmit: (e: FormEvent) => void;
   onBack: () => void;
 }
@@ -93,8 +88,6 @@ export function CheckoutView({
   onCustomerPhoneChange,
   notes,
   onNotesChange,
-  paymentMethod,
-  onPaymentMethodChange,
   subtotal,
   tax,
   total,
@@ -114,26 +107,10 @@ export function CheckoutView({
     boxSizing: "border-box",
   };
 
-  const payMethodBtn = (active: boolean, accent: string = C.orange): React.CSSProperties => ({
-    display: "flex", flexDirection: "column",
-    alignItems: "center", gap: "6px",
-    padding: "12px 8px",
-    borderRadius: "12px",
-    border: `2px solid ${active ? accent : C.border}`,
-    backgroundColor: active ? `${accent}0f` : "#fff",
-    color: active ? accent : C.muted,
-    transition: "border-color 0.15s, background-color 0.15s",
-    cursor: "pointer",
-  });
-
   return (
     <div style={{ minHeight: "100dvh", backgroundColor: C.bg }}>
 
       {/* ── Sticky header ──────────────────────────────────────── */}
-      {/*
-       * Outer shell absorbs safe-area-inset-top. Inner row stays 56 px so
-       * tap targets are always correctly sized below the notch/status bar.
-       */}
       <div style={{
         position: "sticky", top: 0, zIndex: 20,
         backgroundColor: C.card,
@@ -162,7 +139,6 @@ export function CheckoutView({
           Your Details
         </h1>
 
-        {/* Order type badge */}
         <div style={{
           display: "flex", alignItems: "center", gap: "5px",
           backgroundColor: C.mutedBg,
@@ -184,7 +160,7 @@ export function CheckoutView({
           )}
         </div>
       </div>
-      </div>{/* end outer sticky wrapper */}
+      </div>
 
       <form onSubmit={onSubmit} style={{ padding: "16px", paddingBottom: "24px", maxWidth: "512px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "14px" }}>
 
@@ -193,7 +169,6 @@ export function CheckoutView({
           <SectionLabel>Contact Info</SectionLabel>
           <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
 
-            {/* Name */}
             <div>
               <FieldLabel>Your Name *</FieldLabel>
               <div style={{ position: "relative" }}>
@@ -213,7 +188,6 @@ export function CheckoutView({
               </div>
             </div>
 
-            {/* Phone */}
             <div>
               <FieldLabel>WhatsApp Number *</FieldLabel>
               <div style={{ position: "relative" }}>
@@ -238,7 +212,6 @@ export function CheckoutView({
               </div>
             </div>
 
-            {/* Notes */}
             <div>
               <FieldLabel>Special Requests <span style={{ fontWeight: 400, color: C.muted }}>(optional)</span></FieldLabel>
               <textarea
@@ -303,121 +276,6 @@ export function CheckoutView({
           </div>
         </SectionCard>
 
-        {/* ── Payment Method ────────────────────────────────────── */}
-        <SectionCard>
-          <SectionLabel>Payment Method</SectionLabel>
-          <div style={{ padding: "10px 16px 16px" }}>
-
-            {/* Payment options */}
-            <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
-              {/* Cash */}
-              <button
-                type="button"
-                onClick={() => onPaymentMethodChange("cash")}
-                style={{ ...payMethodBtn(paymentMethod === "cash"), flex: 1 }}
-              >
-                <Banknote style={{ width: "20px", height: "20px" }} />
-                <span style={{ fontSize: "12px", fontWeight: 600 }}>Cash</span>
-              </button>
-
-              {/* UPI / QR — shown when QR is uploaded or when personal UPI deep-link is enabled */}
-              {(restaurant.hasPaymentQr || (restaurant.upiId && restaurant.personalUpiEnabled)) && (
-                <button
-                  type="button"
-                  onClick={() => onPaymentMethodChange("upi")}
-                  style={{ ...payMethodBtn(paymentMethod === "upi"), flex: 1 }}
-                >
-                  <Smartphone style={{ width: "20px", height: "20px" }} />
-                  <span style={{ fontSize: "12px", fontWeight: 600 }}>UPI</span>
-                </button>
-              )}
-
-              {/* Razorpay */}
-              {restaurant.razorpayKeyId && (
-                <button
-                  type="button"
-                  onClick={() => onPaymentMethodChange("razorpay")}
-                  style={{ ...payMethodBtn(paymentMethod === "razorpay", "#2563eb"), flex: 1 }}
-                >
-                  <svg style={{ width: "20px", height: "20px" }} viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M21.97 5.23 13.19 20H9.22l3.34-5.77L6.03 4h4.05l3.43 6.27 3.05-5.04h5.41z" />
-                  </svg>
-                  <span style={{ fontSize: "12px", fontWeight: 600 }}>Online</span>
-                </button>
-              )}
-            </div>
-
-            {/* Context hints */}
-            {paymentMethod === "cash" && (
-              <p style={{ fontSize: "12px", color: C.muted, lineHeight: "1.5" }}>
-                {orderType === "take_away"
-                  ? "Pay cash at the counter when collecting your order."
-                  : "Our staff will collect cash at your table."}
-              </p>
-            )}
-
-            {paymentMethod === "razorpay" && (
-              <div style={{ backgroundColor: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", padding: "10px 12px" }}>
-                <p style={{ fontSize: "12px", color: "#1d4ed8", fontWeight: 600, marginBottom: "2px" }}>Pay securely online</p>
-                <p style={{ fontSize: "12px", color: "#3b82f6", lineHeight: "1.4" }}>
-                  Cards, UPI, Netbanking, Wallets — confirmed immediately after payment.
-                </p>
-              </div>
-            )}
-
-            {/* UPI inline button */}
-            {paymentMethod === "upi" && (
-              <div style={{ backgroundColor: "#fff7ed", border: "1px solid #fed7aa", borderRadius: "10px", padding: "10px 12px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                {restaurant.upiId ? (
-                  <>
-                    <button
-                      type="submit"
-                      disabled={placing}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-                        width: "100%", height: "46px",
-                        backgroundColor: C.orange, color: "#fff",
-                        borderRadius: "10px", fontWeight: 700, fontSize: "14px",
-                        opacity: placing ? 0.6 : 1,
-                      }}
-                    >
-                      {placing
-                        ? <Loader2 style={{ width: "16px", height: "16px" }} />
-                        : <Smartphone style={{ width: "16px", height: "16px" }} />}
-                      {placing ? "Placing Order…" : restaurant.hasPaymentQr ? `Scan QR · ₹${total.toFixed(2)}` : `Pay ₹${total.toFixed(2)} via UPI`}
-                    </button>
-                    <p style={{ fontSize: "11px", color: C.orange, textAlign: "center" }}>
-                      {restaurant.hasPaymentQr ? "Show QR — scan with any UPI app" : "Opens GPay, PhonePe, Paytm or any UPI app"}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p style={{ fontSize: "12px", color: "#92400e" }}>
-                      Pay via UPI at the {orderType === "take_away" ? "counter" : "table"} — show your screenshot to staff.
-                    </p>
-                    <button
-                      type="submit"
-                      disabled={placing}
-                      style={{
-                        display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-                        width: "100%", height: "46px",
-                        backgroundColor: C.orange, color: "#fff",
-                        borderRadius: "10px", fontWeight: 700, fontSize: "14px",
-                        opacity: placing ? 0.6 : 1,
-                      }}
-                    >
-                      {placing
-                        ? <Loader2 style={{ width: "16px", height: "16px" }} />
-                        : <CheckCircle2 style={{ width: "16px", height: "16px" }} />}
-                      {placing ? "Placing Order…" : `Place Order · ₹${total.toFixed(2)}`}
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </SectionCard>
-
         {/* Error */}
         {placeError && (
           <div style={{
@@ -429,34 +287,28 @@ export function CheckoutView({
           </div>
         )}
 
-        {/* ── Primary CTA (cash / razorpay) ─────────────────────── */}
-        {paymentMethod !== "upi" && (
-          <button
-            type="submit"
-            disabled={placing}
-            style={{
-              width: "100%", height: "52px",
-              borderRadius: "14px",
-              backgroundColor: paymentMethod === "razorpay" ? "#2563eb" : C.orange,
-              color: "#fff",
-              fontWeight: 700, fontSize: "16px",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-              opacity: placing ? 0.65 : 1,
-              boxShadow: paymentMethod === "razorpay"
-                ? "0 4px 16px rgba(37,99,235,0.30)"
-                : "0 4px 16px rgba(234,88,12,0.30)",
-            }}
-          >
-            {placing ? (
-              <Loader2 style={{ width: "18px", height: "18px" }} />
-            ) : (
-              <CheckCircle2 style={{ width: "18px", height: "18px" }} />
-            )}
-            {placing
-              ? (paymentMethod === "razorpay" ? "Opening Payment…" : "Placing Order…")
-              : (paymentMethod === "razorpay" ? `Pay ₹${total.toFixed(2)} Online` : `Place Order · ₹${total.toFixed(2)}`)}
-          </button>
-        )}
+        {/* ── Place Order CTA ────────────────────────────────────── */}
+        <button
+          type="submit"
+          disabled={placing}
+          style={{
+            width: "100%", height: "52px",
+            borderRadius: "14px",
+            backgroundColor: C.orange,
+            color: "#fff",
+            fontWeight: 700, fontSize: "16px",
+            display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+            opacity: placing ? 0.65 : 1,
+            boxShadow: "0 4px 16px rgba(234,88,12,0.30)",
+          }}
+        >
+          {placing ? (
+            <Loader2 style={{ width: "18px", height: "18px" }} />
+          ) : (
+            <CheckCircle2 style={{ width: "18px", height: "18px" }} />
+          )}
+          {placing ? "Placing Order…" : `Place Order · ₹${total.toFixed(2)}`}
+        </button>
       </form>
     </div>
   );

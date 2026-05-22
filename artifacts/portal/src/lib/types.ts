@@ -137,9 +137,12 @@ export interface Order {
   subtotal: number;
   tax: number;
   total: number;
-  paymentStatus: "unpaid" | "paid";
+  paymentStatus: "unpaid" | "paid" | "manual_review";
   paymentMethod: string | null;
   notes: string | null;
+  paymentScreenshotUrl: string | null;
+  paymentOcrData: string | null;
+  paymentVerificationStatus: string | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];

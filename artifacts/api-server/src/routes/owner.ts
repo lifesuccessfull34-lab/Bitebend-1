@@ -21,6 +21,7 @@ import { extname } from "path";
 import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { addConnection, removeConnection } from "../lib/orderEvents";
+import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/ocr";
 
 const router = Router();
 
@@ -529,7 +530,7 @@ const getWhatsappBill: RequestHandler = async (req, res) => {
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
 
   let msg = `🧾 *Bill from ${restaurant?.name ?? "Restaurant"}*\n`;
-  msg += `Order #${order.id} | Table: ${order.tableNumber ?? "Takeaway"}\n`;
+  msg += `Order #${order.id} | ${order.tableNumber ? `Table: ${order.tableNumber}` : "Takeaway"}\n`;
   msg += `━━━━━━━━━━━━━━━━\n`;
   for (const item of items) {
     msg += `${item.quantity}x ${item.name} — ₹${item.unitPrice * item.quantity}\n`;
@@ -539,11 +540,11 @@ const getWhatsappBill: RequestHandler = async (req, res) => {
   if (order.tax > 0) msg += `Tax (${restaurant?.taxPercent ?? 5}%): ₹${order.tax}\n`;
   msg += `*Total: ₹${order.total}*\n`;
   if (restaurant?.upiId) {
-    msg += `\nPay via UPI: ${restaurant.upiId}`;
+    msg += `\nPay via UPI: *${restaurant.upiId}*\n`;
   }
-  msg += `\n\nThank you for dining with us! 🙏`;
+  msg += `\n📸 After payment, please *reply with your payment screenshot* so we can verify it instantly.\n`;
+  msg += `\nThank you for dining with us! 🙏`;
 
-  // Always send to the customer's phone — strip non-digits then ensure IN country code
   const rawPhone = order.customerPhone.replace(/\D/g, "");
   const phone = rawPhone.startsWith("91") && rawPhone.length === 12
     ? rawPhone
@@ -553,6 +554,168 @@ const getWhatsappBill: RequestHandler = async (req, res) => {
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
 
   res.json({ url, message: msg });
+};
+
+// ─── GET /owner/orders/:orderId/bill ─────────────────────────────────────────
+// Returns a QR code (data URL) for sharing payment info + WhatsApp URL.
+const getBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, user.restaurantId!)).limit(1);
+  const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+
+  const qrPayload = `amount=${order.total};merchant=${restaurant?.name ?? ""};reference=Order${order.id}`;
+  const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 280, margin: 2 });
+
+  let msg = `🧾 *Bill from ${restaurant?.name ?? "Restaurant"}*\n`;
+  msg += `Order #${order.id} | ${order.tableNumber ? `Table: ${order.tableNumber}` : "Takeaway"}\n`;
+  msg += `━━━━━━━━━━━━━━━━\n`;
+  for (const item of items) {
+    msg += `${item.quantity}x ${item.name} — ₹${item.unitPrice * item.quantity}\n`;
+  }
+  msg += `━━━━━━━━━━━━━━━━\n`;
+  msg += `Subtotal: ₹${order.subtotal}\n`;
+  if (order.tax > 0) msg += `Tax (${restaurant?.taxPercent ?? 5}%): ₹${order.tax}\n`;
+  msg += `*Total: ₹${order.total}*\n`;
+  if (restaurant?.upiId) {
+    msg += `\nPay via UPI: *${restaurant.upiId}*\n`;
+  }
+  msg += `\n📸 After payment, please *reply with your payment screenshot* so we can verify it instantly.\n`;
+  msg += `\nThank you for dining with us! 🙏`;
+
+  const rawPhone = order.customerPhone.replace(/\D/g, "");
+  const phone = rawPhone.startsWith("91") && rawPhone.length === 12
+    ? rawPhone
+    : rawPhone.length === 10
+      ? `91${rawPhone}`
+      : rawPhone;
+  const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+
+  res.json({ qrDataUrl, qrPayload, whatsappUrl, message: msg, total: order.total });
+};
+
+// ─── POST /owner/orders/:orderId/verify-payment ───────────────────────────────
+// Owner uploads a payment screenshot on behalf of the customer (manual OCR trigger).
+const verifyOrderPayment: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+
+  const { screenshotBase64, mimeType = "image/jpeg" } = req.body as {
+    screenshotBase64?: string;
+    mimeType?: string;
+  };
+
+  if (!screenshotBase64) {
+    res.status(400).json({ error: "screenshotBase64 is required" });
+    return;
+  }
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  if (order.paymentStatus === "paid") {
+    res.json({ alreadyPaid: true, ocrConfigured: true, matched: true, confidence: 100 });
+    return;
+  }
+
+  if (!isOcrConfigured()) {
+    await db
+      .update(orders)
+      .set({
+        paymentScreenshotUrl: screenshotBase64,
+        paymentVerificationStatus: "manual_review",
+        paymentStatus: "manual_review",
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId));
+    res.json({ ocrConfigured: false, matched: false, confidence: 0 });
+    return;
+  }
+
+  const ocrResult = await extractPaymentData(screenshotBase64, mimeType);
+  const match = matchPayment(ocrResult, order.total);
+  const newPaymentStatus = match.matched ? "paid" : "manual_review";
+  const newVerificationStatus = match.matched ? "ai_verified" : "manual_review";
+
+  await db
+    .update(orders)
+    .set({
+      paymentScreenshotUrl: screenshotBase64,
+      paymentOcrData: JSON.stringify(ocrResult),
+      paymentVerificationStatus: newVerificationStatus,
+      paymentStatus: newPaymentStatus,
+      updatedAt: new Date(),
+    })
+    .where(eq(orders.id, orderId));
+
+  req.log.info(
+    { orderId, matched: match.matched, confidence: ocrResult.confidence },
+    "Owner triggered payment verification",
+  );
+
+  res.json({
+    ocrConfigured: true,
+    matched: match.matched,
+    paymentStatus: newPaymentStatus,
+    confidence: ocrResult.confidence,
+    utr: ocrResult.utr,
+    amount: ocrResult.amount,
+    reason: match.reason,
+  });
+};
+
+// ─── PATCH /owner/orders/:orderId/approve-payment ────────────────────────────
+const approvePayment: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  await db
+    .update(orders)
+    .set({ paymentStatus: "paid", paymentVerificationStatus: "approved", updatedAt: new Date() })
+    .where(eq(orders.id, orderId));
+
+  req.log.info({ orderId }, "Payment manually approved");
+  res.json({ success: true });
+};
+
+// ─── PATCH /owner/orders/:orderId/reject-payment ─────────────────────────────
+const rejectPayment: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  await db
+    .update(orders)
+    .set({ paymentStatus: "unpaid", paymentVerificationStatus: "rejected", updatedAt: new Date() })
+    .where(eq(orders.id, orderId));
+
+  req.log.info({ orderId }, "Payment rejected");
+  res.json({ success: true });
 };
 
 // ─── Customer Analytics ───────────────────────────────────────────────────────
@@ -884,6 +1047,10 @@ router.put("/owner/orders/:orderId", requireOwner, updateOrder);
 router.post("/owner/orders/:orderId/verify-upi", requireOwner, verifyUpiPayment);
 router.post("/owner/orders/:orderId/reject-upi", requireOwner, rejectUpiPayment);
 router.get("/owner/orders/:orderId/whatsapp", requireOwner, getWhatsappBill);
+router.get("/owner/orders/:orderId/bill", requireOwner, getBill);
+router.post("/owner/orders/:orderId/verify-payment", requireOwner, verifyOrderPayment);
+router.patch("/owner/orders/:orderId/approve-payment", requireOwner, approvePayment);
+router.patch("/owner/orders/:orderId/reject-payment", requireOwner, rejectPayment);
 
 router.get("/owner/stats", requireOwner, getStats);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +20,11 @@ import {
   AlertTriangle,
   CheckCircle2,
   ShieldCheck,
+  Upload,
+  BadgeCheck,
+  ScanLine,
+  QrCode,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -39,7 +44,6 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   payment_failed:        { label: "Payment Failed",   color: "bg-red-100 text-red-700 border-red-300" },
 };
 
-// Strict one-step flow — legacy entry states all map to "preparing" next
 const LEGACY_ENTRY = new Set(["ordered", "pending_payment", "awaiting_confirmation", "pending", "confirmed"]);
 
 function getNextStatus(status: string): string | null {
@@ -49,7 +53,6 @@ function getNextStatus(status: string): string | null {
   return null;
 }
 
-// Steps for the progress tracker (new flow only)
 const TRACKER_STEPS = ["ordered", "preparing", "ready", "completed"] as const;
 const TRACKER_LABELS: Record<string, string> = {
   ordered: "Ordered", preparing: "Preparing", ready: "Ready", completed: "Completed",
@@ -67,6 +70,26 @@ function extractUtr(notes: string | null | undefined): string | null {
   if (!notes) return null;
   const m = notes.match(/UTR:\s*([A-Za-z0-9]+)/);
   return m ? m[1] : null;
+}
+
+interface OcrData {
+  amount: number | null;
+  utr: string | null;
+  status: string | null;
+  merchant: string | null;
+  timestamp: string | null;
+  confidence: number;
+  ocrConfigured: boolean;
+  error?: string;
+}
+
+interface BillModal {
+  orderId: number;
+  qrDataUrl: string;
+  qrPayload: string;
+  whatsappUrl: string;
+  message: string;
+  total: number;
 }
 
 // ─── Status tracker component ─────────────────────────────────────────────────
@@ -131,6 +154,15 @@ export default function Dashboard() {
   const [rejectingId, setRejectingId] = useState<number | null>(null);
   const [filter, setFilter] = useState<string>("active");
   const [orderErrors, setOrderErrors] = useState<Record<number, string>>({});
+
+  // Payment verification state
+  const [uploadingProofId, setUploadingProofId] = useState<number | null>(null);
+  const [approvingId, setApprovingId] = useState<number | null>(null);
+  const [rejectingPaymentId, setRejectingPaymentId] = useState<number | null>(null);
+  const [billModal, setBillModal] = useState<BillModal | null>(null);
+  const [billLoading, setBillLoading] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadOrderIdRef = useRef<number | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -225,12 +257,24 @@ export default function Dashboard() {
     }
   };
 
+  const handleGetBill = async (orderId: number) => {
+    setBillLoading(orderId);
+    try {
+      const data = await apiFetch<BillModal>(`/owner/orders/${orderId}/bill`);
+      setBillModal({ ...data, orderId });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to load bill";
+      setOrderErrors((prev) => ({ ...prev, [orderId]: msg }));
+    } finally {
+      setBillLoading(null);
+    }
+  };
+
   const handleWhatsapp = async (orderId: number) => {
     setWhatsappLoading(orderId);
     try {
       const { url } = await apiFetch<{ url: string }>(`/owner/orders/${orderId}/whatsapp`);
       const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      // On desktop use WhatsApp Web; on mobile wa.me opens the app directly
       const finalUrl = isMobile
         ? url
         : url.replace("https://wa.me/", "https://web.whatsapp.com/send?phone=").replace("?text=", "&text=");
@@ -238,6 +282,64 @@ export default function Dashboard() {
     } finally {
       setWhatsappLoading(null);
     }
+  };
+
+  const handleUploadProof = async (orderId: number, file: File) => {
+    clearError(orderId);
+    setUploadingProofId(orderId);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await apiFetch(`/owner/orders/${orderId}/verify-payment`, {
+        method: "POST",
+        body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type }),
+      });
+      await fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to process screenshot";
+      setOrderErrors((prev) => ({ ...prev, [orderId]: msg }));
+    } finally {
+      setUploadingProofId(null);
+    }
+  };
+
+  const handleApprovePayment = async (orderId: number) => {
+    clearError(orderId);
+    setApprovingId(orderId);
+    try {
+      await apiFetch(`/owner/orders/${orderId}/approve-payment`, { method: "PATCH" });
+      await fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to approve payment";
+      setOrderErrors((prev) => ({ ...prev, [orderId]: msg }));
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const handleRejectPayment = async (orderId: number) => {
+    clearError(orderId);
+    setRejectingPaymentId(orderId);
+    try {
+      await apiFetch(`/owner/orders/${orderId}/reject-payment`, { method: "PATCH" });
+      await fetchData();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to reject payment";
+      setOrderErrors((prev) => ({ ...prev, [orderId]: msg }));
+    } finally {
+      setRejectingPaymentId(null);
+    }
+  };
+
+  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const orderId = uploadOrderIdRef.current;
+    if (file && orderId) void handleUploadProof(orderId, file);
+    e.target.value = "";
   };
 
   const filteredOrders = orders.filter((o) => {
@@ -303,6 +405,79 @@ export default function Dashboard() {
 
   return (
     <AppShell>
+      {/* Hidden file input for screenshot upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={onFileSelected}
+      />
+
+      {/* Bill modal */}
+      {billModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setBillModal(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-orange-500" />
+                <span className="font-semibold text-sm">Payment Bill · Order #{billModal.orderId}</span>
+              </div>
+              <button onClick={() => setBillModal(null)} className="p-1 rounded-full hover:bg-muted">
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+
+            <div className="p-4 flex flex-col items-center gap-4">
+              <div className="bg-white border-2 border-border rounded-xl p-3">
+                <img src={billModal.qrDataUrl} alt="Payment QR" className="w-48 h-48" />
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-orange-600">₹{billModal.total}</p>
+                <p className="text-xs text-muted-foreground mt-1 font-mono bg-muted rounded px-2 py-1 break-all">
+                  {billModal.qrPayload}
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground text-center">
+                Screenshot this QR code and share it with your customer via WhatsApp.
+                Ask them to reply with their payment screenshot after paying.
+              </p>
+            </div>
+
+            <div className="p-4 pt-0 flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9"
+                onClick={() => {
+                  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+                  const finalUrl = isMobile
+                    ? billModal.whatsappUrl
+                    : billModal.whatsappUrl.replace("https://wa.me/", "https://web.whatsapp.com/send?phone=").replace("?text=", "&text=");
+                  window.open(finalUrl, "whatsapp_window");
+                }}
+              >
+                <MessageCircle className="w-3 h-3 mr-1" />
+                Open WhatsApp
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs h-9 px-3"
+                onClick={() => setBillModal(null)}
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
@@ -354,10 +529,8 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* UPI Status badge — shown when restaurant has a UPI ID configured */}
-        {stats && (stats.upiVerified || !stats.verifiedAt) && (() => {
-          // Only render when stats are loaded and has a UPI ID we can comment on
-          if (!stats.upiVerified) return null;
+        {/* UPI Status badge */}
+        {stats && stats.upiVerified && (() => {
           return (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 text-sm w-fit">
               <ShieldCheck className="w-4 h-4 text-green-600 shrink-0" />
@@ -376,8 +549,6 @@ export default function Dashboard() {
         <div className="bg-card rounded-xl border border-border">
           <div className="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
             <h2 className="text-base font-semibold shrink-0">Orders</h2>
-            {/* Tabs: flex-wrap so they never overflow on small screens.
-                whitespace-nowrap keeps each pill label on one line. */}
             <div className="flex gap-1 flex-wrap">
               {["active", "completed", "cancelled", "all"].map((f) => (
                 <button
@@ -415,6 +586,7 @@ export default function Dashboard() {
                 const isPaying = payingId === order.id;
                 const isActive = ACTIVE_STATUSES.includes(order.status);
                 const isUnpaid = order.paymentStatus !== "paid";
+                const isManualReview = order.paymentStatus === "manual_review";
                 const orderError = orderErrors[order.id];
                 const isPendingUpiVerification =
                   order.status === "awaiting_confirmation" &&
@@ -423,11 +595,24 @@ export default function Dashboard() {
                 const utr = isPendingUpiVerification ? extractUtr(order.notes) : null;
                 const isVerifying = verifyingId === order.id;
                 const isRejecting = rejectingId === order.id;
+                const isUploadingProof = uploadingProofId === order.id;
+                const isApproving = approvingId === order.id;
+                const isRejectingPayment = rejectingPaymentId === order.id;
+
+                // Parse OCR data if present
+                let ocrData: OcrData | null = null;
+                if (order.paymentOcrData) {
+                  try { ocrData = JSON.parse(order.paymentOcrData) as OcrData; } catch { /* ignore */ }
+                }
+
+                // Determine verification status badge
+                const verificationStatus = order.paymentVerificationStatus;
+                const isAiVerified = verificationStatus === "ai_verified";
+                const isApproved = verificationStatus === "approved";
+                const isRejectedPayment = verificationStatus === "rejected";
 
                 return (
                   <div key={order.id} className={cn("p-4 transition-colors", i % 2 === 0 ? "bg-[#F9FAFB] hover:bg-[#F1F3F5]" : "bg-[#EEF2FF] hover:bg-[#E5EAFC]")}>
-                    {/* On mobile: stack order info above buttons (flex-col).
-                        On sm+: side-by-side with buttons in a right column (flex-row). */}
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                       {/* Left: order info */}
                       <div className="flex-1 min-w-0">
@@ -442,15 +627,32 @@ export default function Dashboard() {
                           <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", cfg.color)}>
                             {cfg.label}
                           </span>
-                          {isUnpaid ? (
+
+                          {/* Payment status badge */}
+                          {order.paymentStatus === "paid" && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium flex items-center gap-1">
+                              {(isAiVerified || isApproved) && <BadgeCheck className="w-3 h-3" />}
+                              ✓ Paid
+                              {isAiVerified && <span className="text-[10px] text-green-500 ml-0.5">AI</span>}
+                            </span>
+                          )}
+                          {isManualReview && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-300 font-semibold flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" />
+                              Review Required
+                            </span>
+                          )}
+                          {order.paymentStatus === "unpaid" && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-300 font-semibold">
                               UNPAID
                             </span>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium">
-                              ✓ Paid
+                          )}
+                          {isRejectedPayment && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 font-medium">
+                              Rejected
                             </span>
                           )}
+
                           {order.paymentMethod && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border font-medium capitalize">
                               {order.paymentMethod === "upi" ? "UPI" : order.paymentMethod}
@@ -461,11 +663,10 @@ export default function Dashboard() {
                         <p className="text-sm font-medium">{order.customerName}</p>
                         <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
 
-                        {/* Status progress tracker */}
                         <StatusTracker status={order.status} />
 
-                        {/* Unpaid warning on active orders */}
-                        {isActive && isUnpaid && (
+                        {/* Unpaid warning */}
+                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
                           <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
                             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                             Order is unpaid — collect payment before completing
@@ -500,7 +701,65 @@ export default function Dashboard() {
                           <p className="mt-1 text-xs text-muted-foreground italic">Note: {order.notes}</p>
                         )}
 
-                        {/* UPI payment pending verification panel */}
+                        {/* OCR / AI verification panel */}
+                        {ocrData && (
+                          <div className={cn(
+                            "mt-3 rounded-lg border p-3",
+                            ocrData.ocrConfigured === false
+                              ? "border-slate-200 bg-slate-50"
+                              : isAiVerified
+                                ? "border-green-200 bg-green-50"
+                                : "border-amber-200 bg-amber-50"
+                          )}>
+                            {!ocrData.ocrConfigured ? (
+                              <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                                <ScanLine className="w-3.5 h-3.5 shrink-0" />
+                                OCR not configured yet — screenshot saved for manual review
+                              </p>
+                            ) : (
+                              <>
+                                <p className={cn(
+                                  "text-xs font-semibold flex items-center gap-1.5 mb-2",
+                                  isAiVerified ? "text-green-800" : "text-amber-800"
+                                )}>
+                                  {isAiVerified
+                                    ? <><BadgeCheck className="w-3.5 h-3.5 shrink-0" /> AI Verified Payment</>
+                                    : <><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Low Confidence — Manual Review</>
+                                  }
+                                  <span className="ml-auto font-mono text-[10px]">{ocrData.confidence}% confidence</span>
+                                </p>
+                                <div className={cn("space-y-1 text-xs", isAiVerified ? "text-green-700" : "text-amber-700")}>
+                                  {ocrData.utr && (
+                                    <div className="flex justify-between">
+                                      <span className="opacity-70">UTR</span>
+                                      <span className="font-mono font-bold">{ocrData.utr}</span>
+                                    </div>
+                                  )}
+                                  {ocrData.amount !== null && (
+                                    <div className="flex justify-between">
+                                      <span className="opacity-70">Amount</span>
+                                      <span className="font-bold">₹{ocrData.amount}</span>
+                                    </div>
+                                  )}
+                                  {ocrData.status && (
+                                    <div className="flex justify-between">
+                                      <span className="opacity-70">Status</span>
+                                      <span className="font-semibold capitalize">{ocrData.status}</span>
+                                    </div>
+                                  )}
+                                  {ocrData.merchant && (
+                                    <div className="flex justify-between">
+                                      <span className="opacity-70">Merchant</span>
+                                      <span>{ocrData.merchant}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Legacy UPI verification panel */}
                         {isPendingUpiVerification && (
                           <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
                             <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
@@ -520,13 +779,12 @@ export default function Dashboard() {
                                 <span className="text-amber-600">Amount</span>
                                 <span className="font-bold text-amber-900">₹{order.total}</span>
                               </div>
-                              {utr && (
+                              {utr ? (
                                 <div className="flex justify-between items-center mt-1 pt-1 border-t border-amber-200">
                                   <span className="text-amber-600">UTR</span>
                                   <span className="font-mono font-bold tracking-wider text-amber-900 text-sm">{utr}</span>
                                 </div>
-                              )}
-                              {!utr && (
+                              ) : (
                                 <div className="mt-1 pt-1 border-t border-amber-200 text-amber-600 italic">
                                   No UTR provided by customer
                                 </div>
@@ -536,11 +794,10 @@ export default function Dashboard() {
                         )}
                       </div>
 
-                      {/* Right: action buttons.
-                          Mobile: full-width row that wraps (buttons sit below order info).
-                          sm+: fixed-width vertical column beside the order info. */}
-                      <div className="flex flex-row flex-wrap gap-2 sm:flex-col sm:shrink-0 sm:min-w-[140px]">
-                        {/* UPI verification buttons — shown instead of advance/paid when awaiting confirmation */}
+                      {/* Right: action buttons */}
+                      <div className="flex flex-row flex-wrap gap-2 sm:flex-col sm:shrink-0 sm:min-w-[148px]">
+
+                        {/* Legacy UPI verification buttons */}
                         {isPendingUpiVerification && (
                           <>
                             <Button
@@ -569,8 +826,37 @@ export default function Dashboard() {
                           </>
                         )}
 
-                        {/* Single advance button — driven purely by orderStatus; hidden while UPI is unverified */}
-                        {nextStatus && !isPendingUpiVerification && (
+                        {/* Approve / Reject for manual_review */}
+                        {isManualReview && !isPendingUpiVerification && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => handleApprovePayment(order.id)}
+                              disabled={isApproving || isRejectingPayment}
+                            >
+                              {isApproving
+                                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                              Approve Paid
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
+                              onClick={() => handleRejectPayment(order.id)}
+                              disabled={isApproving || isRejectingPayment}
+                            >
+                              {isRejectingPayment
+                                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                : <XCircle className="w-3 h-3 mr-1" />}
+                              Reject
+                            </Button>
+                          </>
+                        )}
+
+                        {/* Advance status button */}
+                        {nextStatus && !isPendingUpiVerification && !isManualReview && (
                           <Button
                             size="sm"
                             className="w-full text-xs h-8 bg-orange-500 hover:bg-orange-600 text-white"
@@ -586,8 +872,27 @@ export default function Dashboard() {
                           </Button>
                         )}
 
-                        {/* Mark as Paid (Cash) — active + unpaid + not a pending UPI order */}
-                        {isActive && isUnpaid && !isPendingUpiVerification && (
+                        {/* Upload screenshot for AI verification */}
+                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !ocrData && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="w-full text-xs h-8 text-blue-700 border-blue-300 hover:bg-blue-50"
+                            disabled={isUploadingProof}
+                            onClick={() => {
+                              uploadOrderIdRef.current = order.id;
+                              fileInputRef.current?.click();
+                            }}
+                          >
+                            {isUploadingProof
+                              ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                              : <Upload className="w-3 h-3 mr-1" />}
+                            Upload Screenshot
+                          </Button>
+                        )}
+
+                        {/* Mark as Paid (Cash) */}
+                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -602,7 +907,21 @@ export default function Dashboard() {
                           </Button>
                         )}
 
-                        {/* Send Bill (WhatsApp) */}
+                        {/* Share Payment Bill (QR + WhatsApp) */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full text-xs h-8 text-green-600 border-green-200 hover:bg-green-50"
+                          onClick={() => void handleGetBill(order.id)}
+                          disabled={billLoading === order.id}
+                        >
+                          {billLoading === order.id
+                            ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                            : <QrCode className="w-3 h-3 mr-1" />}
+                          Share Payment Bill
+                        </Button>
+
+                        {/* Send Bill via WhatsApp (quick) */}
                         <Button
                           size="sm"
                           variant="outline"
@@ -616,7 +935,7 @@ export default function Dashboard() {
                           Send Bill
                         </Button>
 
-                        {/* Cancel — only for non-terminal orders */}
+                        {/* Cancel */}
                         {order.status !== "completed" && order.status !== "cancelled" && (
                           <Button
                             size="sm"

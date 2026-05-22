@@ -169,11 +169,14 @@ export const orders = pgTable("orders", {
   subtotal: integer("subtotal").notNull(),
   tax: integer("tax").notNull().default(0),
   total: integer("total").notNull(),
-  paymentStatus: text("payment_status", { enum: ["unpaid", "paid"] })
+  paymentStatus: text("payment_status", { enum: ["unpaid", "paid", "manual_review"] })
     .notNull()
     .default("unpaid"),
   paymentMethod: text("payment_method"),
   notes: text("notes"),
+  paymentScreenshotUrl: text("payment_screenshot_url"),
+  paymentOcrData: text("payment_ocr_data"),
+  paymentVerificationStatus: text("payment_verification_status"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

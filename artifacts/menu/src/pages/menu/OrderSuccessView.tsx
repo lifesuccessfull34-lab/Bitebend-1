@@ -1,14 +1,26 @@
-import { CheckCircle2, ShoppingBag, UtensilsCrossed } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, ShoppingBag, UtensilsCrossed, Upload, Loader2, BadgeCheck, AlertTriangle } from "lucide-react";
 import type { RestaurantData, OrderType } from "./types";
+
+interface ProofResult {
+  ocrConfigured: boolean;
+  matched?: boolean;
+  confidence?: number;
+  utr?: string | null;
+  amount?: number | null;
+  error?: string;
+}
 
 interface Props {
   orderId: number;
   orderTotal: number;
-  paymentMethod: "cash" | "upi" | "razorpay" | null;
   orderType: OrderType | null;
   restaurant: RestaurantData;
   manualTableNumber: string;
-  onPlaceAnother: () => void;
+  uploadingProof: boolean;
+  proofResult: ProofResult | null;
+  onUploadProof: (file: File) => void;
+  onRedirectToMenu: () => void;
 }
 
 const C = {
@@ -26,15 +38,42 @@ const C = {
 export function OrderSuccessView({
   orderId,
   orderTotal,
-  paymentMethod,
   orderType,
   restaurant,
   manualTableNumber,
-  onPlaceAnother,
+  uploadingProof,
+  proofResult,
+  onUploadProof,
+  onRedirectToMenu,
 }: Props) {
   const isTakeAway = orderType === "take_away";
-  const isUpi = paymentMethod === "upi";
-  const isRazorpay = paymentMethod === "razorpay";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const onRedirectRef = useRef(onRedirectToMenu);
+  const [countdown, setCountdown] = useState(4);
+
+  useEffect(() => { onRedirectRef.current = onRedirectToMenu; });
+
+  // Auto-redirect countdown — pauses while uploading or after proof uploaded
+  useEffect(() => {
+    if (uploadingProof || proofResult) return;
+    const interval = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(interval);
+          onRedirectRef.current();
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [uploadingProof, proofResult]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onUploadProof(file);
+    e.target.value = "";
+  };
 
   return (
     <div style={{
@@ -62,12 +101,10 @@ export function OrderSuccessView({
           </div>
 
           <h1 style={{ fontSize: "26px", fontWeight: 800, color: C.ink, marginBottom: "6px" }}>
-            {isUpi ? "Payment Noted!" : "Order Placed!"}
+            Order Placed!
           </h1>
           <p style={{ fontSize: "14px", color: C.muted, lineHeight: "1.5" }}>
-            {isUpi
-              ? "Staff will verify your payment and confirm."
-              : `Your order #${orderId} is confirmed.`}
+            Your order #{orderId} has been sent to the kitchen.
           </p>
         </div>
 
@@ -79,7 +116,6 @@ export function OrderSuccessView({
           overflow: "hidden",
           marginBottom: "14px",
         }}>
-          {/* Order number + location */}
           <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}` }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
               <span style={{ fontSize: "12px", color: C.muted }}>Order</span>
@@ -99,27 +135,116 @@ export function OrderSuccessView({
             </div>
           </div>
 
-          {/* Total + payment note */}
           <div style={{ padding: "14px 16px", backgroundColor: C.greenBg }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
-              <span style={{ fontSize: "13px", fontWeight: 600, color: "#15803d" }}>Total Paid</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "#15803d" }}>Total</span>
               <span style={{ fontSize: "18px", fontWeight: 800, color: "#15803d" }}>₹{orderTotal.toFixed(2)}</span>
             </div>
             <p style={{ fontSize: "12px", color: "#166534", lineHeight: "1.45" }}>
-              {isRazorpay
-                ? "✓ Paid online via Razorpay — order confirmed."
-                : isUpi
-                ? "✓ Payment noted — staff will verify shortly."
-                : isTakeAway
-                ? "Pay cash at the counter when collecting your order."
-                : "Our staff will collect cash at your table."}
+              Staff will collect payment at your {isTakeAway ? "counter" : "table"}.
             </p>
           </div>
         </div>
 
-        {/* ── CTA ──────────────────────────────────────────────── */}
+        {/* ── Optional payment screenshot ───────────────────────── */}
+        {!proofResult && (
+          <div style={{
+            backgroundColor: C.card,
+            borderRadius: "16px",
+            border: `1px solid ${C.border}`,
+            padding: "16px",
+            marginBottom: "14px",
+          }}>
+            <p style={{ fontSize: "13px", fontWeight: 700, color: C.ink, marginBottom: "4px" }}>
+              Already paid? (Optional)
+            </p>
+            <p style={{ fontSize: "12px", color: C.muted, marginBottom: "12px", lineHeight: "1.5" }}>
+              Upload your UPI payment screenshot for instant verification.
+            </p>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingProof}
+              style={{
+                width: "100%", height: "44px",
+                borderRadius: "10px",
+                border: `1.5px dashed ${uploadingProof ? "#d1c9bf" : C.orange}`,
+                backgroundColor: uploadingProof ? "#faf9f6" : "#fff7ed",
+                color: uploadingProof ? C.muted : C.orange,
+                fontWeight: 600, fontSize: "13px",
+                display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+              }}
+            >
+              {uploadingProof ? (
+                <><Loader2 style={{ width: "16px", height: "16px" }} /> Verifying…</>
+              ) : (
+                <><Upload style={{ width: "16px", height: "16px" }} /> Upload Payment Screenshot</>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* ── OCR result card ───────────────────────────────────── */}
+        {proofResult && (
+          <div style={{
+            backgroundColor: C.card,
+            borderRadius: "16px",
+            border: `1px solid ${proofResult.matched ? "#bbf7d0" : proofResult.ocrConfigured ? "#fed7aa" : "#e2e8f0"}`,
+            padding: "16px",
+            marginBottom: "14px",
+          }}>
+            {!proofResult.ocrConfigured ? (
+              <>
+                <p style={{ fontSize: "13px", fontWeight: 700, color: "#374151", marginBottom: "4px" }}>
+                  Screenshot saved
+                </p>
+                <p style={{ fontSize: "12px", color: C.muted }}>
+                  Staff will verify your payment manually.
+                </p>
+              </>
+            ) : proofResult.matched ? (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                  <BadgeCheck style={{ width: "20px", height: "20px", color: C.green }} />
+                  <span style={{ fontSize: "14px", fontWeight: 700, color: "#15803d" }}>
+                    Payment Verified ✓
+                  </span>
+                </div>
+                {proofResult.utr && (
+                  <p style={{ fontSize: "12px", color: "#166534" }}>UTR: {proofResult.utr}</p>
+                )}
+                <p style={{ fontSize: "11px", color: "#16a34a", marginTop: "2px" }}>
+                  AI Confidence: {proofResult.confidence}%
+                </p>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <AlertTriangle style={{ width: "16px", height: "16px", color: "#d97706" }} />
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>
+                    Manual Review Required
+                  </span>
+                </div>
+                <p style={{ fontSize: "12px", color: "#92400e" }}>
+                  Staff will verify your payment shortly.
+                  {proofResult.confidence !== undefined && ` (AI confidence: ${proofResult.confidence}%)`}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Redirect CTA / countdown ──────────────────────────── */}
         <button
-          onClick={onPlaceAnother}
+          onClick={onRedirectToMenu}
           style={{
             width: "100%", height: "50px",
             borderRadius: "14px",
@@ -129,7 +254,9 @@ export function OrderSuccessView({
             boxShadow: "0 4px 16px rgba(234,88,12,0.28)",
           }}
         >
-          Place Another Order
+          {!uploadingProof && !proofResult && countdown > 0
+            ? `Back to Menu (${countdown})`
+            : "Back to Menu"}
         </button>
 
         <p style={{ textAlign: "center", fontSize: "12px", color: C.muted, marginTop: "14px" }}>
