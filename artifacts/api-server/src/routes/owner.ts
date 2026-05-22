@@ -22,6 +22,7 @@ import { randomUUID } from "crypto";
 import sharp from "sharp";
 import { addConnection, removeConnection } from "../lib/orderEvents";
 import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/ocr";
+import { storeBill, getBillByToken } from "../lib/billCache";
 
 const router = Router();
 
@@ -557,8 +558,175 @@ const getWhatsappBill: RequestHandler = async (req, res) => {
   res.json({ url, message: msg });
 };
 
+// ─── Bill image generator (server-side) ──────────────────────────────────────
+// Produces a 600×N pixel PNG payment bill with embedded UPI QR code using sharp.
+// No browser Canvas needed — runs entirely on the server.
+
+interface BillItem { name: string; quantity: number; unitPrice: number; isVeg: boolean }
+
+async function generateBillPng(opts: {
+  restaurantName: string;
+  orderId: number;
+  tableNumber: string | null;
+  customerName: string;
+  items: BillItem[];
+  subtotal: number;
+  tax: number;
+  total: number;
+  qrPngBuffer: Buffer;
+}): Promise<Buffer> {
+  const W = 600;
+  const ITEM_H = 28;
+  const itemsH = opts.items.length * ITEM_H;
+  const H = 680 + itemsH;
+
+  const svgLines: string[] = [];
+
+  const line = (x1: number, y1: number, x2: number, y2: number) =>
+    `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#E5E7EB" stroke-width="1"/>`;
+
+  const text = (x: number, y: number, content: string, opts: {
+    size?: number; weight?: string; fill?: string; anchor?: string
+  } = {}) => {
+    const { size = 15, weight = "normal", fill = "#111827", anchor = "start" } = opts;
+    const escaped = content
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+    return `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" font-family="Arial,sans-serif">${escaped}</text>`;
+  };
+
+  svgLines.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`);
+
+  // White background
+  svgLines.push(`<rect width="${W}" height="${H}" fill="#FFFFFF"/>`);
+
+  // Orange header
+  svgLines.push(`<rect width="${W}" height="86" fill="#F97316"/>`);
+  svgLines.push(text(W / 2, 52, opts.restaurantName, { size: 26, weight: "bold", fill: "#FFFFFF", anchor: "middle" }));
+  svgLines.push(text(W / 2, 76, "Payment Bill", { size: 13, fill: "#FED7AA", anchor: "middle" }));
+
+  let y = 120;
+
+  // Title
+  svgLines.push(text(W / 2, y, "Payment Bill", { size: 22, weight: "bold", fill: "#111827", anchor: "middle" }));
+  y += 32;
+
+  // Order meta
+  svgLines.push(text(40, y, `Order #${opts.orderId}`, { size: 14, fill: "#6B7280" }));
+  if (opts.tableNumber) {
+    svgLines.push(text(W - 40, y, `Table: ${opts.tableNumber}`, { size: 14, fill: "#6B7280", anchor: "end" }));
+  }
+  y += 24;
+  svgLines.push(text(40, y, `Customer: ${opts.customerName}`, { size: 14, fill: "#6B7280" }));
+  y += 28;
+
+  // Divider
+  svgLines.push(line(40, y, W - 40, y));
+  y += 24;
+
+  // Items header
+  svgLines.push(text(40, y, "Items Ordered", { size: 15, weight: "bold", fill: "#374151" }));
+  y += 10;
+
+  // Item rows
+  for (const item of opts.items) {
+    y += ITEM_H;
+    const dotColor = item.isVeg ? "#22C55E" : "#EF4444";
+    svgLines.push(`<circle cx="50" cy="${y - 5}" r="5" fill="${dotColor}"/>`);
+    svgLines.push(text(64, y, `${item.quantity}\u00D7 ${item.name}`, { size: 14, fill: "#111827" }));
+    svgLines.push(text(W - 40, y, `\u20B9${item.unitPrice * item.quantity}`, { size: 14, fill: "#111827", anchor: "end" }));
+  }
+  y += 24;
+
+  // Divider
+  svgLines.push(line(40, y, W - 40, y));
+  y += 28;
+
+  // Subtotal / tax / total
+  if (opts.tax > 0) {
+    svgLines.push(text(40, y, "Subtotal", { size: 14, fill: "#6B7280" }));
+    svgLines.push(text(W - 40, y, `\u20B9${opts.subtotal}`, { size: 14, fill: "#6B7280", anchor: "end" }));
+    y += 24;
+    svgLines.push(text(40, y, "Tax", { size: 14, fill: "#6B7280" }));
+    svgLines.push(text(W - 40, y, `\u20B9${opts.tax}`, { size: 14, fill: "#6B7280", anchor: "end" }));
+    y += 24;
+    svgLines.push(line(40, y, W - 40, y));
+    y += 20;
+  }
+
+  svgLines.push(text(40, y, "Total", { size: 20, weight: "bold", fill: "#111827" }));
+  svgLines.push(text(W - 40, y, `\u20B9${opts.total}`, { size: 22, weight: "bold", fill: "#F97316", anchor: "end" }));
+  y += 44;
+
+  // QR label
+  svgLines.push(text(W / 2, y, "Scan QR Code to Pay", { size: 17, weight: "bold", fill: "#374151", anchor: "middle" }));
+  y += 18;
+
+  // QR placeholder (replaced below with actual PNG embed)
+  const QR_SIZE = 220;
+  const qrX = (W - QR_SIZE) / 2;
+  svgLines.push(`<rect x="${qrX - 10}" y="${y - 4}" width="${QR_SIZE + 20}" height="${QR_SIZE + 20}" rx="12" fill="#FFFFFF" stroke="#E5E7EB"/>`);
+  // Mark position for QR overlay: store y in a sentinel comment
+  svgLines.push(`<!--QR:${qrX}:${y + 4}:${QR_SIZE}-->`);
+  y += QR_SIZE + 32;
+
+  // Footer
+  svgLines.push(text(W / 2, y, "After payment, reply with your payment screenshot", { size: 13, fill: "#6B7280", anchor: "middle" }));
+  y += 20;
+  svgLines.push(text(W / 2, y, `Reference: Order#${opts.orderId}`, { size: 13, fill: "#6B7280", anchor: "middle" }));
+  y += 28;
+
+  // Thank-you strip
+  svgLines.push(`<rect x="0" y="${H - 44}" width="${W}" height="44" fill="#FFF7ED"/>`);
+  svgLines.push(text(W / 2, H - 16, "Thank you for dining with us!", { size: 14, fill: "#EA580C", anchor: "middle" }));
+
+  svgLines.push("</svg>");
+
+  const svgStr = svgLines.join("\n");
+
+  // Extract QR position from sentinel comment
+  const qrMatch = svgStr.match(/<!--QR:(\d+\.?\d*):(\d+\.?\d*):(\d+\.?\d*)-->/);
+  const qrLeft = qrMatch ? Number(qrMatch[1]) : qrX;
+  const qrTop  = qrMatch ? Number(qrMatch[2]) : 118 + 32 + 24 + 28 + 28 + 24 + itemsH + 24 + 28 + 44 + 18;
+
+  // Composite: SVG base + QR PNG overlay
+  const svgBuffer = Buffer.from(svgStr, "utf-8");
+
+  const png = await sharp(svgBuffer)
+    .resize(W, H)
+    .composite([{
+      input: await sharp(opts.qrPngBuffer).resize(QR_SIZE, QR_SIZE).toBuffer(),
+      top: Math.round(qrTop),
+      left: Math.round(qrLeft),
+    }])
+    .png()
+    .toBuffer();
+
+  return png;
+}
+
+// ─── GET /api/bills/:token ────────────────────────────────────────────────────
+// Public (no auth) — serves a cached bill PNG by short-lived token.
+// Tokens expire after 30 minutes. Restaurant staff share this URL via WhatsApp.
+const serveBillImage: RequestHandler = (req, res) => {
+  const token = String(req.params.token);
+  const png = getBillByToken(token);
+  if (!png) {
+    res.status(404).json({ error: "Bill not found or expired" });
+    return;
+  }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "public, max-age=1800");
+  res.setHeader("Content-Disposition", `inline; filename="bill-${token.slice(0, 8)}.png"`);
+  res.end(png);
+};
+
 // ─── GET /owner/orders/:orderId/bill ─────────────────────────────────────────
-// Returns a QR code (data URL) for sharing payment info + WhatsApp URL.
+// Generates a payment bill PNG on the server, stores it with a short-lived
+// token, and returns a public billUrl + WhatsApp deep-link pre-filled with
+// the bill URL and payment details. No file download on the restaurant device.
 const getBill: RequestHandler = async (req, res) => {
   const user = req.user!;
   const orderId = parseInt(String(req.params.orderId));
@@ -573,44 +741,66 @@ const getBill: RequestHandler = async (req, res) => {
   const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, user.restaurantId!)).limit(1);
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
 
-  // Use standard UPI deep-link so GPay / PhonePe / Paytm auto-fill the amount
+  // UPI QR payload — auto-fills amount in GPay / PhonePe / Paytm
   const upiId = restaurant?.upiId ?? "";
   const qrPayload = upiId
     ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(restaurant?.name ?? "")}&am=${order.total}&tn=${encodeURIComponent(`Order#${order.id}`)}&cu=INR`
-    : `amount=${order.total};merchant=${encodeURIComponent(restaurant?.name ?? "")};reference=Order${order.id}`;
-  const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 400, margin: 2, errorCorrectionLevel: "H" });
+    : `Order #${order.id} | Total: Rs.${order.total}`;
 
-  const itemLines = items.map((item) => `  ${item.quantity}x ${item.name} - ₹${item.unitPrice * item.quantity}`).join("\n");
-  let msg = `Hello ${order.customerName},\n\n`;
-  msg += `Your order is ready. 🍽️\n\n`;
-  msg += `*Items Ordered:*\n${itemLines}\n\n`;
-  msg += `Subtotal: ₹${order.subtotal}`;
-  if (order.tax > 0) msg += `\nTax: ₹${order.tax}`;
-  msg += `\n*Total: ₹${order.total}*\n\n`;
-  if (restaurant?.upiId) msg += `UPI: ${restaurant.upiId}\n\n`;
-  msg += `Please scan the QR in the attached bill and complete payment.\n\n`;
-  msg += `After payment share payment screenshot/details.\n\n`;
-  msg += `Reference: Order#${order.id}`;
+  // Generate QR as raw PNG buffer (sharp-compatible)
+  const qrPngBuffer = await QRCode.toBuffer(qrPayload, { width: 400, margin: 2, errorCorrectionLevel: "H", type: "png" });
 
+  // Generate full bill image server-side
+  const billPng = await generateBillPng({
+    restaurantName: restaurant?.name ?? "Restaurant",
+    orderId: order.id,
+    tableNumber: order.tableNumber ?? null,
+    customerName: order.customerName,
+    items: items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, isVeg: i.isVeg ?? true })),
+    subtotal: order.subtotal,
+    tax: order.tax,
+    total: order.total,
+    qrPngBuffer,
+  });
+
+  // Store in memory cache and get a public token URL
+  const token = storeBill(billPng);
+  const siteUrl =
+    process.env["SITE_URL"]?.trim() ||
+    (() => { const d = process.env["REPLIT_DOMAINS"]?.split(",")[0]?.trim(); return d ? `https://${d}` : null; })() ||
+    (process.env["REPLIT_DEV_DOMAIN"] ? `https://${process.env["REPLIT_DEV_DOMAIN"]}` : `http://localhost:${process.env["PORT"] ?? 8080}`);
+  const billUrl = `${siteUrl}/api/bills/${token}`;
+
+  // Sanitize phone to E.164 format
   const rawPhone = order.customerPhone.replace(/\D/g, "");
   const phone = rawPhone.startsWith("91") && rawPhone.length === 12
     ? rawPhone
-    : rawPhone.length === 10
-      ? `91${rawPhone}`
-      : rawPhone;
+    : rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
+
+  // WhatsApp message — bill URL is the centrepiece, no attachment needed
+  const itemLines = items.map((i) => `  ${i.quantity}\u00D7 ${i.name} \u2014 \u20B9${i.unitPrice * i.quantity}`).join("\n");
+  let msg = `Hi ${order.customerName},\n\n`;
+  msg += `Your payment bill is ready.\n\n`;
+  msg += `*Items:*\n${itemLines}\n\n`;
+  if (order.tax > 0) msg += `Subtotal: \u20B9${order.subtotal}\nTax: \u20B9${order.tax}\n`;
+  msg += `*Total: \u20B9${order.total}*\n`;
+  if (order.tableNumber) msg += `Table: ${order.tableNumber}\n`;
+  msg += `Reference: Order#${order.id}\n\n`;
+  msg += `View bill + scan QR to pay:\n${billUrl}\n\n`;
+  if (upiId) msg += `UPI: ${upiId}\n\n`;
+  msg += `After payment, please reply with your payment screenshot.`;
+
   const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
 
   res.json({
-    qrDataUrl,
-    qrPayload,
+    billUrl,
     whatsappUrl,
     message: msg,
     total: order.total,
     customerName: order.customerName,
-    customerPhone: phone,          // sanitized E.164-style phone (91XXXXXXXXXX) — used by client to open WhatsApp directly
+    customerPhone: phone,
     restaurantName: restaurant?.name ?? "Restaurant",
     tableNumber: order.tableNumber ?? null,
-    items: items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, isVeg: i.isVeg })),
   });
 };
 
@@ -1060,6 +1250,7 @@ router.post("/owner/orders/:orderId/verify-upi", requireOwner, verifyUpiPayment)
 router.post("/owner/orders/:orderId/reject-upi", requireOwner, rejectUpiPayment);
 router.get("/owner/orders/:orderId/whatsapp", requireOwner, getWhatsappBill);
 router.get("/owner/orders/:orderId/bill", requireOwner, getBill);
+router.get("/bills/:token", serveBillImage);
 router.post("/owner/orders/:orderId/verify-payment", requireOwner, verifyOrderPayment);
 router.patch("/owner/orders/:orderId/approve-payment", requireOwner, approvePayment);
 router.patch("/owner/orders/:orderId/reject-payment", requireOwner, rejectPayment);

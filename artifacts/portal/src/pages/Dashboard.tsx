@@ -23,9 +23,6 @@ import {
   Upload,
   BadgeCheck,
   ScanLine,
-  QrCode,
-  X,
-  Download,
   Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -85,164 +82,15 @@ interface OcrData {
   error?: string;
 }
 
-interface BillItem {
-  name: string;
-  quantity: number;
-  unitPrice: number;
-  isVeg: boolean;
-}
-
-interface BillModal {
-  orderId: number;
-  qrDataUrl: string;
-  qrPayload: string;
+interface BillData {
+  billUrl: string;
   whatsappUrl: string;
   message: string;
   total: number;
   customerName: string;
-  customerPhone: string;   // sanitized by server (e.g. "919876543210")
+  customerPhone: string;
   restaurantName: string;
   tableNumber: string | null;
-  items: BillItem[];
-}
-
-// ─── Canvas bill image generator ──────────────────────────────────────────────
-// Draws the full payment bill with an embedded QR code onto an off-screen canvas
-// and returns it as a PNG data-URL. No external PDF library needed.
-
-async function generateBillImage(modal: BillModal): Promise<string> {
-  const W = 600;
-  const itemsH = modal.items.length * 30;
-  const H = 660 + itemsH;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d")!;
-
-  // Background
-  ctx.fillStyle = "#FFFFFF";
-  ctx.fillRect(0, 0, W, H);
-
-  // Orange header
-  ctx.fillStyle = "#F97316";
-  ctx.fillRect(0, 0, W, 86);
-  ctx.fillStyle = "#FFFFFF";
-  ctx.font = "bold 30px Arial, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText(modal.restaurantName, W / 2, 56);
-
-  let y = 120;
-
-  // Title
-  ctx.fillStyle = "#111827";
-  ctx.font = "bold 22px Arial, sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("Payment Bill", W / 2, y);
-  y += 32;
-
-  // Order + customer meta
-  ctx.font = "15px Arial, sans-serif";
-  ctx.fillStyle = "#6B7280";
-  ctx.textAlign = "left";
-  ctx.fillText(`Order #${modal.orderId}`, 40, y);
-  if (modal.tableNumber) {
-    ctx.textAlign = "right";
-    ctx.fillText(`Table: ${modal.tableNumber}`, W - 40, y);
-  }
-  y += 24;
-  ctx.textAlign = "left";
-  ctx.fillText(`Customer: ${modal.customerName}`, 40, y);
-  y += 32;
-
-  // Divider
-  ctx.strokeStyle = "#E5E7EB";
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W - 40, y); ctx.stroke();
-  y += 24;
-
-  // Items header
-  ctx.font = "bold 15px Arial, sans-serif";
-  ctx.fillStyle = "#374151";
-  ctx.textAlign = "left";
-  ctx.fillText("Items Ordered", 40, y);
-  y += 10;
-
-  // Item rows
-  for (const item of modal.items) {
-    y += 28;
-    // veg/non-veg dot
-    ctx.beginPath();
-    ctx.arc(50, y - 5, 5, 0, Math.PI * 2);
-    ctx.fillStyle = item.isVeg ? "#22C55E" : "#EF4444";
-    ctx.fill();
-
-    ctx.font = "15px Arial, sans-serif";
-    ctx.fillStyle = "#111827";
-    ctx.textAlign = "left";
-    ctx.fillText(`${item.quantity}× ${item.name}`, 62, y);
-    ctx.textAlign = "right";
-    ctx.fillText(`₹${item.unitPrice * item.quantity}`, W - 40, y);
-  }
-  y += 24;
-
-  // Divider
-  ctx.strokeStyle = "#E5E7EB";
-  ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W - 40, y); ctx.stroke();
-  y += 32;
-
-  // Total
-  ctx.font = "bold 24px Arial, sans-serif";
-  ctx.fillStyle = "#F97316";
-  ctx.textAlign = "right";
-  ctx.fillText(`Total: ₹${modal.total}`, W - 40, y);
-  y += 44;
-
-  // QR label
-  ctx.font = "bold 17px Arial, sans-serif";
-  ctx.fillStyle = "#374151";
-  ctx.textAlign = "center";
-  ctx.fillText("Scan QR Code to Pay", W / 2, y);
-  y += 18;
-
-  // Load and draw QR image (wait for it to be ready)
-  const qrImg = new Image();
-  qrImg.src = modal.qrDataUrl;
-  await new Promise<void>((resolve) => {
-    if (qrImg.complete && qrImg.naturalWidth > 0) { resolve(); return; }
-    qrImg.onload = () => resolve();
-    qrImg.onerror = () => resolve();
-  });
-  const qrSize = 220;
-  const qrX = (W - qrSize) / 2;
-  // white border around QR
-  ctx.fillStyle = "#FFFFFF";
-  ctx.strokeStyle = "#E5E7EB";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.roundRect(qrX - 10, y - 4, qrSize + 20, qrSize + 20, 12);
-  ctx.fill(); ctx.stroke();
-  ctx.drawImage(qrImg, qrX, y + 4, qrSize, qrSize);
-  y += qrSize + 32;
-
-  // Footer instructions
-  ctx.font = "13px Arial, sans-serif";
-  ctx.fillStyle = "#6B7280";
-  ctx.textAlign = "center";
-  ctx.fillText("After payment, reply with your payment screenshot", W / 2, y);
-  y += 20;
-  ctx.fillText(`Reference: Order#${modal.orderId}`, W / 2, y);
-  y += 28;
-
-  // Thank-you strip
-  ctx.fillStyle = "#FFF7ED";
-  ctx.fillRect(0, H - 44, W, 44);
-  ctx.font = "14px Arial, sans-serif";
-  ctx.fillStyle = "#EA580C";
-  ctx.textAlign = "center";
-  ctx.fillText("Thank you for dining with us! 🙏", W / 2, H - 16);
-
-  return canvas.toDataURL("image/png");
 }
 
 // ─── Status tracker ────────────────────────────────────────────────────────────
@@ -308,17 +156,8 @@ export default function Dashboard() {
   const [approvingId, setApprovingId]                 = useState<number | null>(null);
   const [rejectingPaymentId, setRejectingPaymentId]   = useState<number | null>(null);
 
-  // Bill state
-  const [billModal, setBillModal]         = useState<BillModal | null>(null);
+  // Bill state — server generates the image; we just track loading per order
   const [billLoading, setBillLoading]     = useState<number | null>(null);
-  const [downloadingBill, setDownloadingBill] = useState(false);
-  // Step label shown inside the Share Bill button while the share flow is running
-  // null = idle; any string = in-progress (button disabled + label changes)
-  const [shareStep, setShareStep]         = useState<string | null>(null);
-  // true after a download-fallback — prompts the owner to attach the file manually
-  const [billDownloaded, setBillDownloaded] = useState(false);
-  // Prevents rapid double-clicks from triggering two concurrent share flows
-  const shareInFlightRef = useRef(false);
 
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const uploadOrderIdRef = useRef<number | null>(null);
@@ -404,130 +243,23 @@ export default function Dashboard() {
     }
   };
 
-  // Combined "Send Payment Bill" action: fetches bill data (QR + message) and shows modal
+  // ─── Send Payment Bill ────────────────────────────────────────────────────
+  // Server generates the bill PNG and returns a hosted public URL + WhatsApp
+  // deep-link with the bill URL pre-filled. Restaurant staff tap one button,
+  // WhatsApp opens with the message ready — no download, no attachment needed.
   const handleSendPaymentBill = async (orderId: number) => {
     clearError(orderId);
     setBillLoading(orderId);
     try {
-      const data = await apiFetch<BillModal>(`/owner/orders/${orderId}/bill`);
-      setBillModal({ ...data, orderId });
+      const data = await apiFetch<BillData>(`/owner/orders/${orderId}/bill`);
+      if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
+      window.open(data.whatsappUrl, "_blank");
+      toast.success("WhatsApp opened — tap Send to deliver the bill");
     } catch (err: unknown) {
-      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed to load bill" }));
+      toast.error(err instanceof Error ? err.message : "Unable to send payment bill");
+      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed to send bill" }));
     } finally {
       setBillLoading(null);
-    }
-  };
-
-  const handleDownloadBill = async () => {
-    if (!billModal) return;
-    setDownloadingBill(true);
-    try {
-      const imgUrl = await generateBillImage(billModal);
-      const a = document.createElement("a");
-      a.href = imgUrl;
-      a.download = `bill-order-${billModal.orderId}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } finally {
-      setDownloadingBill(false);
-    }
-  };
-
-  // ─── Desktop/fallback share path ──────────────────────────────────────────
-  // Downloads the bill image and simultaneously opens the customer's WhatsApp
-  // chat directly (Web on desktop, native app on mobile) with a short pre-filled
-  // message. The owner attaches the downloaded bill image in that chat.
-  const shareFallback = (modal: BillModal, imgUrl: string) => {
-    // Server guarantees canonical format "91XXXXXXXXXX" — use directly.
-    const waPhone = modal.customerPhone;
-
-    // ── Debug logging ──
-    console.log("[ShareBill] Order:", modal.orderId);
-    console.log("[ShareBill] Customer phone:", waPhone);
-    console.log("[ShareBill] WhatsApp target:", `https://wa.me/${waPhone}`);
-
-    // ── Guard: missing phone ──
-    if (!waPhone) {
-      toast.error("Customer phone number not found — cannot open WhatsApp");
-      return;
-    }
-
-    // 1. Download the bill image
-    const a = document.createElement("a");
-    a.href = imgUrl;
-    a.download = `bill-order-${modal.orderId}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    // 2. Short WhatsApp opener — the image carries all the detail
-    const fallbackMsg =
-      `Hi ${modal.customerName},\n\n` +
-      `Please find the attached payment bill with QR code.\n\n` +
-      `Total: ₹${modal.total}\n` +
-      (modal.tableNumber ? `Table: ${modal.tableNumber}\n` : "") +
-      `Reference: Order#${modal.orderId}\n\n` +
-      `Please scan the QR code and complete payment.`;
-
-    // 3. Open the customer's chat directly using the universal wa.me deep link.
-    // wa.me correctly opens WhatsApp Web/Desktop to the specific customer's chat
-    // on all platforms. web.whatsapp.com/send?phone= lands on the chat list instead.
-    const waUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(fallbackMsg)}`;
-
-    // Slight delay so the browser finishes the download click first
-    setTimeout(() => window.open(waUrl, "_blank"), 400);
-
-    setBillDownloaded(true);
-    toast.success("Bill downloaded and WhatsApp opened");
-  };
-
-  // ─── Primary share flow ────────────────────────────────────────────────────
-  // Mobile: Web Share API with file attached (OS share sheet → WhatsApp).
-  // Desktop: skip share dialog entirely — download bill + open wa.me deep link
-  // directly to the customer's chat. navigator.share() on desktop Chrome/Windows
-  // shows a broken "couldn't show all ways to share" dialog, so we never invoke it
-  // on non-mobile devices.
-  const handleShareBill = async (modal: BillModal) => {
-    if (shareInFlightRef.current) return;
-    shareInFlightRef.current = true;
-    setBillDownloaded(false);
-
-    try {
-      setShareStep("Generating bill...");
-      const imgUrl = await generateBillImage(modal);
-
-      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-      // ── Mobile: try native share sheet with the bill PNG attached ──────────
-      if (isMobile && typeof navigator.share === "function") {
-        const res = await fetch(imgUrl);
-        const blob = await res.blob();
-        const file = new File([blob], `bill-order-${modal.orderId}.png`, { type: "image/png" });
-
-        if (navigator.canShare?.({ files: [file] })) {
-          setShareStep("Sharing...");
-          try {
-            await navigator.share({
-              title: `Payment Bill — Order #${modal.orderId}`,
-              text: `Payment bill for Order #${modal.orderId} — Total ₹${modal.total}`,
-              files: [file],
-            });
-            toast.success("Bill shared successfully");
-            return;
-          } catch (shareErr) {
-            if (shareErr instanceof Error && shareErr.name === "AbortError") return;
-            // Fall through to the reliable path below
-          }
-        }
-      }
-
-      // ── Desktop (and mobile fallback): download + open customer's chat ─────
-      setShareStep("Opening WhatsApp...");
-      shareFallback(modal, imgUrl);
-    } finally {
-      setShareStep(null);
-      shareInFlightRef.current = false;
     }
   };
 
@@ -640,134 +372,6 @@ export default function Dashboard() {
       {/* Hidden file input for screenshot upload */}
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileSelected} />
 
-      {/* ── Bill modal ─────────────────────────────────────────────────────── */}
-      {billModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setBillModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-
-            {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
-              <div className="flex items-center gap-2">
-                <QrCode className="w-5 h-5 text-orange-500" />
-                <span className="font-semibold text-sm">Payment Bill · Order #{billModal.orderId}</span>
-              </div>
-              <button onClick={() => setBillModal(null)} className="p-1 rounded-full hover:bg-muted">
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-
-            {/* Scrollable bill preview */}
-            <div className="overflow-y-auto flex-1">
-              {/* Bill card */}
-              <div className="mx-4 my-4 rounded-xl border border-border overflow-hidden">
-                {/* Restaurant header */}
-                <div className="bg-orange-500 px-5 py-4 text-center">
-                  <p className="text-white font-bold text-lg">{billModal.restaurantName}</p>
-                  <p className="text-orange-100 text-xs mt-0.5">Payment Bill</p>
-                </div>
-
-                <div className="p-4 space-y-3">
-                  {/* Order meta */}
-                  <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Order #{billModal.orderId}</span>
-                    {billModal.tableNumber && <span>Table: {billModal.tableNumber}</span>}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Customer: <span className="font-medium text-foreground">{billModal.customerName}</span></div>
-
-                  <div className="border-t border-dashed border-border" />
-
-                  {/* Items */}
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Items Ordered</p>
-                    <div className="space-y-1.5">
-                      {billModal.items.map((item, i) => (
-                        <div key={i} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-1.5">
-                            <span className={cn("w-2 h-2 rounded-full shrink-0", item.isVeg ? "bg-green-500" : "bg-red-500")} />
-                            <span>{item.quantity}× {item.name}</span>
-                          </div>
-                          <span className="font-medium">₹{item.unitPrice * item.quantity}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="border-t border-dashed border-border" />
-
-                  {/* Total */}
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-base">Total</span>
-                    <span className="font-bold text-xl text-orange-600">₹{billModal.total}</span>
-                  </div>
-
-                  {/* QR code — embedded image */}
-                  <div className="flex flex-col items-center py-4 gap-3">
-                    <p className="text-sm font-semibold text-muted-foreground">Scan QR Code to Pay</p>
-                    <div className="p-3 bg-white border-2 border-border rounded-xl">
-                      <img
-                        src={billModal.qrDataUrl}
-                        alt="Payment QR Code"
-                        className="w-52 h-52"
-                        onLoad={() => { /* QR loaded — ready for download */ }}
-                      />
-                    </div>
-                    <p className="text-[11px] text-muted-foreground font-mono text-center break-all px-2">
-                      {billModal.qrPayload}
-                    </p>
-                  </div>
-
-                  {/* Instructions */}
-                  <div className="bg-orange-50 rounded-lg px-3 py-2.5 text-xs text-orange-800 space-y-1">
-                    <p>📸 After payment, share your payment screenshot with us.</p>
-                    <p className="font-mono">Reference: Order#{billModal.orderId}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div className="px-4 pb-4 pt-2 shrink-0 border-t space-y-2">
-              {/* Post-download instruction — shown when Web Share API is unavailable */}
-              {billDownloaded && (
-                <div className="flex items-start gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5 text-xs text-green-800">
-                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5 text-green-600" />
-                  <span>
-                    <span className="font-semibold">Bill saved to your device.</span>
-                    {" "}Open WhatsApp, start a chat with the customer, tap the attachment icon and send the downloaded bill image.
-                  </span>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9"
-                  onClick={() => void handleShareBill(billModal)}
-                  disabled={shareStep !== null || downloadingBill}
-                >
-                  {shareStep !== null
-                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />{shareStep}</>
-                    : <><MessageCircle className="w-3.5 h-3.5 mr-1.5" />{billDownloaded ? "Share Again" : "Share Bill"}</>}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1 text-xs h-9 text-orange-600 border-orange-200 hover:bg-orange-50"
-                  onClick={() => void handleDownloadBill()}
-                  disabled={downloadingBill || shareStep !== null}
-                >
-                  {downloadingBill
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    : <Download className="w-3.5 h-3.5 mr-1.5" />}
-                  Download
-                </Button>
-                <Button size="sm" variant="ghost" className="text-xs h-9 px-3" onClick={() => { setBillModal(null); setBillDownloaded(false); }}>
-                  <X className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
