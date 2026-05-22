@@ -470,11 +470,10 @@ export default function Dashboard() {
       `Reference: Order#${modal.orderId}\n\n` +
       `Please scan the QR code and complete payment.`;
 
-    // 3. Open the customer's chat directly (no contact search screen)
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const waUrl = isMobile
-      ? `https://wa.me/${waPhone}?text=${encodeURIComponent(fallbackMsg)}`
-      : `https://web.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(fallbackMsg)}`;
+    // 3. Open the customer's chat directly using the universal wa.me deep link.
+    // wa.me correctly opens WhatsApp Web/Desktop to the specific customer's chat
+    // on all platforms. web.whatsapp.com/send?phone= lands on the chat list instead.
+    const waUrl = `https://wa.me/${waPhone}?text=${encodeURIComponent(fallbackMsg)}`;
 
     // Slight delay so the browser finishes the download click first
     setTimeout(() => window.open(waUrl, "_blank"), 400);
@@ -484,51 +483,46 @@ export default function Dashboard() {
   };
 
   // ─── Primary share flow ────────────────────────────────────────────────────
-  // Mobile (Web Share API + file support): opens OS share sheet with bill PNG attached.
-  // Desktop / unsupported browser: download + auto-open WhatsApp with pre-filled message.
-  // Duplicate-click guard prevents two concurrent share operations.
+  // Mobile: Web Share API with file attached (OS share sheet → WhatsApp).
+  // Desktop: skip share dialog entirely — download bill + open wa.me deep link
+  // directly to the customer's chat. navigator.share() on desktop Chrome/Windows
+  // shows a broken "couldn't show all ways to share" dialog, so we never invoke it
+  // on non-mobile devices.
   const handleShareBill = async (modal: BillModal) => {
     if (shareInFlightRef.current) return;
     shareInFlightRef.current = true;
     setBillDownloaded(false);
 
     try {
-      // Step 1 — generate the bill canvas image
       setShareStep("Generating bill...");
       const imgUrl = await generateBillImage(modal);
 
-      // Convert data-URL → Blob → File for the share API
-      const res = await fetch(imgUrl);
-      const blob = await res.blob();
-      const file = new File([blob], `bill-order-${modal.orderId}.png`, { type: "image/png" });
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-      // Diagnostic logging (visible in DevTools console)
-      console.log("[ShareBill] navigator.share supported:", typeof navigator.share === "function");
-      console.log("[ShareBill] navigator.canShare result:", navigator.canShare?.({ files: [file] }));
+      // ── Mobile: try native share sheet with the bill PNG attached ──────────
+      if (isMobile && typeof navigator.share === "function") {
+        const res = await fetch(imgUrl);
+        const blob = await res.blob();
+        const file = new File([blob], `bill-order-${modal.orderId}.png`, { type: "image/png" });
 
-      const caption =
-        `Payment Bill — Order #${modal.orderId}\n` +
-        `Total: ₹${modal.total}\n` +
-        `Scan the QR code to pay.\n` +
-        `Reference: Order#${modal.orderId}`;
-
-      // Step 2 — try native share sheet (works on Android/iOS and some desktop browsers)
-      if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
-        setShareStep("Sharing...");
-        try {
-          await navigator.share({ title: `Payment Bill — Order #${modal.orderId}`, text: caption, files: [file] });
-          toast.success("Bill shared successfully");
-          return;
-        } catch (shareErr) {
-          console.log("[ShareBill] Share failed:", shareErr);
-          // User tapped away from the share sheet — exit cleanly, no download
-          if (shareErr instanceof Error && shareErr.name === "AbortError") return;
-          // Any other error (no share targets, NotAllowedError on desktop, etc.)
-          // → fall through to the reliable download + WhatsApp fallback below
+        if (navigator.canShare?.({ files: [file] })) {
+          setShareStep("Sharing...");
+          try {
+            await navigator.share({
+              title: `Payment Bill — Order #${modal.orderId}`,
+              text: `Payment bill for Order #${modal.orderId} — Total ₹${modal.total}`,
+              files: [file],
+            });
+            toast.success("Bill shared successfully");
+            return;
+          } catch (shareErr) {
+            if (shareErr instanceof Error && shareErr.name === "AbortError") return;
+            // Fall through to the reliable path below
+          }
         }
       }
 
-      // Step 3 — fallback: download + open WhatsApp automatically
+      // ── Desktop (and mobile fallback): download + open customer's chat ─────
       setShareStep("Opening WhatsApp...");
       shareFallback(modal, imgUrl);
     } finally {
