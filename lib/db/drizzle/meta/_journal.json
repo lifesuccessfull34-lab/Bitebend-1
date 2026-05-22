@@ -50,6 +50,20 @@
       "when": 1748432000000,
       "tag": "0006_payment_verification",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1748518400000,
+      "tag": "0007_razorpay_order_payment",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1748604800000,
+      "tag": "0008_razorpay_webhook_secret",
+      "breakpoints": true
     }
   ]
 }

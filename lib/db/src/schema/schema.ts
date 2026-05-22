@@ -64,6 +64,7 @@ export const restaurants = pgTable("restaurants", {
   seatingLabel: text("seating_label"),
   razorpayKeyId: text("razorpay_key_id"),
   razorpayKeySecret: text("razorpay_key_secret"),
+  razorpayWebhookSecret: text("razorpay_webhook_secret"),
   approvalStatus: text("approval_status", { enum: ["pending", "approved", "rejected"] }).notNull().default("approved"),
   approvalNote: text("approval_note"),
   subscriptionPlan: text("subscription_plan", { enum: ["free", "basic", "premium"] }).notNull().default("free"),
@@ -177,6 +178,9 @@ export const orders = pgTable("orders", {
   paymentScreenshotUrl: text("payment_screenshot_url"),
   paymentOcrData: text("payment_ocr_data"),
   paymentVerificationStatus: text("payment_verification_status"),
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
