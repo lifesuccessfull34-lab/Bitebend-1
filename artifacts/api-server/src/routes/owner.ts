@@ -606,6 +606,7 @@ const getBill: RequestHandler = async (req, res) => {
     message: msg,
     total: order.total,
     customerName: order.customerName,
+    customerPhone: phone,          // sanitized E.164-style phone (91XXXXXXXXXX) — used by client to open WhatsApp directly
     restaurantName: restaurant?.name ?? "Restaurant",
     tableNumber: order.tableNumber ?? null,
     items: items.map((i) => ({ name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, isVeg: i.isVeg })),

@@ -100,6 +100,7 @@ interface BillModal {
   message: string;
   total: number;
   customerName: string;
+  customerPhone: string;   // sanitized by server (e.g. "919876543210")
   restaurantName: string;
   tableNumber: string | null;
   items: BillItem[];
@@ -434,10 +435,30 @@ export default function Dashboard() {
   };
 
   // ─── Desktop/fallback share path ──────────────────────────────────────────
-  // Downloads the bill image and simultaneously opens WhatsApp (Web or Desktop)
-  // pre-filled with the customer's number and a short opener message so the owner
-  // can immediately attach the downloaded file.
+  // Downloads the bill image and simultaneously opens the customer's WhatsApp
+  // chat directly (Web on desktop, native app on mobile) with a short pre-filled
+  // message. The owner attaches the downloaded bill image in that chat.
   const shareFallback = (modal: BillModal, imgUrl: string) => {
+    // ── Phone sanitization (client-side safety net) ──
+    // Server already normalises to "91XXXXXXXXXX", but we re-sanitize defensively.
+    const rawPhone  = modal.customerPhone.replace(/\D/g, "").replace(/^0+/, "");
+    const waPhone   = rawPhone.startsWith("91") && rawPhone.length === 12
+      ? rawPhone
+      : rawPhone.length === 10
+        ? `91${rawPhone}`
+        : rawPhone;
+
+    // ── Debug logging ──
+    console.log("[ShareBill] Order:", modal.orderId);
+    console.log("[ShareBill] Customer phone (raw):", modal.customerPhone);
+    console.log("[ShareBill] WhatsApp target:", waPhone);
+
+    // ── Guard: missing phone ──
+    if (!waPhone) {
+      toast.error("Customer phone number not found — cannot open WhatsApp");
+      return;
+    }
+
     // 1. Download the bill image
     const a = document.createElement("a");
     a.href = imgUrl;
@@ -446,28 +467,26 @@ export default function Dashboard() {
     a.click();
     document.body.removeChild(a);
 
-    // 2. Build a short WhatsApp opener (NOT the full bill — the image carries that)
+    // 2. Short WhatsApp opener — the image carries all the detail
     const fallbackMsg =
       `Hi ${modal.customerName},\n\n` +
       `Please find the attached payment bill with QR code.\n\n` +
       `Total: ₹${modal.total}\n` +
+      (modal.tableNumber ? `Table: ${modal.tableNumber}\n` : "") +
       `Reference: Order#${modal.orderId}\n\n` +
       `Please scan the QR code and complete payment.`;
 
-    // 3. Extract phone from the wa.me URL already in the modal
-    const phoneMatch = modal.whatsappUrl.match(/wa\.me\/(\d+)/);
-    const phone = phoneMatch ? phoneMatch[1] : "";
-
+    // 3. Open the customer's chat directly (no contact search screen)
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const waUrl = isMobile
-      ? `https://wa.me/${phone}?text=${encodeURIComponent(fallbackMsg)}`
-      : `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(fallbackMsg)}`;
+      ? `https://wa.me/${waPhone}?text=${encodeURIComponent(fallbackMsg)}`
+      : `https://web.whatsapp.com/send?phone=${waPhone}&text=${encodeURIComponent(fallbackMsg)}`;
 
-    // Slight delay so the browser processes the download click first
+    // Slight delay so the browser finishes the download click first
     setTimeout(() => window.open(waUrl, "_blank"), 400);
 
     setBillDownloaded(true);
-    toast.success("Bill downloaded — attach it in WhatsApp and send");
+    toast.success("Bill downloaded and WhatsApp opened");
   };
 
   // ─── Primary share flow ────────────────────────────────────────────────────
