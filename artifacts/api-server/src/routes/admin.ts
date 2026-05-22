@@ -15,8 +15,9 @@ import {
   menuItems,
   restaurantTables,
   platformSettings,
+  billLinks,
 } from "@workspace/db";
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, sql, inArray, gte, lt, and, isNotNull } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/auth";
 import type { RequestHandler } from "express";
 
@@ -319,6 +320,34 @@ const getAdminStats: RequestHandler = async (_req, res) => {
   });
 };
 
+// ── Bill Stats ─────────────────────────────────────────────────────────────
+
+const getBillStats: RequestHandler = async (_req, res) => {
+  const now = new Date();
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const [total] = await db.select({ count: sql<number>`count(*)::int` }).from(billLinks);
+  const [active] = await db.select({ count: sql<number>`count(*)::int` }).from(billLinks).where(gte(billLinks.expiresAt, now));
+  const [expired] = await db.select({ count: sql<number>`count(*)::int` }).from(billLinks).where(lt(billLinks.expiresAt, now));
+  const [opened] = await db.select({ count: sql<number>`count(*)::int` }).from(billLinks).where(isNotNull(billLinks.openedAt));
+  const [last24hGen] = await db.select({ count: sql<number>`count(*)::int` }).from(billLinks).where(gte(billLinks.createdAt, yesterday));
+  const [last24hOpened] = await db.select({ count: sql<number>`count(*)::int` }).from(billLinks).where(
+    and(isNotNull(billLinks.openedAt), gte(billLinks.openedAt!, yesterday)),
+  );
+
+  res.json({
+    total: total?.count ?? 0,
+    active: active?.count ?? 0,
+    expired: expired?.count ?? 0,
+    opened: opened?.count ?? 0,
+    openRate: total?.count ? Math.round(((opened?.count ?? 0) / total.count) * 100) : 0,
+    last24h: {
+      generated: last24hGen?.count ?? 0,
+      opened: last24hOpened?.count ?? 0,
+    },
+  });
+};
+
 // ── All Orders (cross-platform) ────────────────────────────────────────────
 
 const listAllOrders: RequestHandler = async (_req, res) => {
@@ -587,6 +616,7 @@ router.post("/admin/transactions/:txnId/mark-paid", requireAdmin, markTransactio
 router.post("/admin/transactions/:txnId/reject", requireAdmin, rejectTransaction);
 
 router.get("/admin/stats", requireAdmin, getAdminStats);
+router.get("/admin/bill-stats", requireAdmin, getBillStats);
 router.get("/admin/orders", requireAdmin, listAllOrders);
 router.get("/admin/customers", requireAdmin, listCustomers);
 router.post("/admin/notifications", requireAdmin, sendNotification);

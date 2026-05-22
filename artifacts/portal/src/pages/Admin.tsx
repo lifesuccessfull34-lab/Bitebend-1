@@ -18,6 +18,7 @@ import {
   LayoutDashboard, TrendingDown, KeyRound, Copy, Eye, EyeOff,
   Filter, ChevronDown, Smartphone, ShieldCheck, Pencil, Clock,
   FileText, ScrollText, ExternalLink, Download, FileSpreadsheet,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATE_NAMES, getDistricts } from "@/data/india-states-districts";
@@ -173,6 +174,16 @@ export default function Admin() {
   const [restaurants, setRestaurants] = useState<RestaurantWithOwner[]>([]);
   const [customers, setCustomers] = useState<AdminCustomer[]>([]);
   const [stats, setStats] = useState<AdminStats | null>(null);
+
+  interface BillStats {
+    total: number;
+    active: number;
+    expired: number;
+    opened: number;
+    openRate: number;
+    last24h: { generated: number; opened: number };
+  }
+  const [billStats, setBillStats] = useState<BillStats | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [transactions, setTransactions] = useState<(SubscriptionTransaction & { restaurantName?: string })[]>([]);
   const [loading, setLoading] = useState(true);
@@ -262,13 +273,14 @@ export default function Admin() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [rests, s, custs, plns, txns, ps] = await Promise.all([
+      const [rests, s, custs, plns, txns, ps, bs] = await Promise.all([
         apiFetch<RestaurantWithOwner[]>("/admin/restaurants"),
         apiFetch<AdminStats>("/admin/stats"),
         apiFetch<AdminCustomer[]>("/admin/customers"),
         apiFetch<SubscriptionPlan[]>("/admin/plans"),
         apiFetch<(SubscriptionTransaction & { restaurantName?: string })[]>("/admin/transactions"),
         apiFetch<PaymentSettings>("/admin/payment-settings"),
+        apiFetch<BillStats>("/admin/bill-stats"),
       ]);
       setRestaurants(rests);
       setStats(s);
@@ -277,6 +289,7 @@ export default function Admin() {
       setTransactions(txns);
       setPaymentSettings(ps);
       setUpiIdEdit(ps.upiId);
+      setBillStats(bs);
     } catch (e) {
       handleAuthError(e);
     } finally {
@@ -700,6 +713,7 @@ export default function Admin() {
     customers: { title: "Customers", desc: `${customers.length} unique`, icon: Users },
     notifications: { title: "Send Notification", desc: "Broadcast to restaurants", icon: Bell },
     legal: { title: "Legal Pages", desc: "Terms & Conditions · Privacy Policy", icon: FileText },
+    bills: { title: "Bill Metrics", desc: "Payment bill delivery analytics", icon: Receipt },
   };
   const current = PAGE_TITLES[tab];
 
@@ -2169,6 +2183,78 @@ export default function Admin() {
           </div>
         </div>
       )}
+
+        {/* ── Bill Metrics ── */}
+        {tab === "bills" && (
+          <div className="space-y-6">
+            {/* Summary cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <Receipt className="w-4 h-4 text-slate-400" />
+                  <p className="text-xs text-slate-500 font-medium">Total Bills Sent</p>
+                </div>
+                <p className="text-2xl font-bold text-slate-800">{billStats?.total ?? "—"}</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  <p className="text-xs text-slate-500 font-medium">Active Links</p>
+                </div>
+                <p className="text-2xl font-bold text-emerald-600">{billStats?.active ?? "—"}</p>
+                <p className="text-xs text-slate-400 mt-1">Not yet expired</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-4 h-4 text-indigo-500" />
+                  <p className="text-xs text-slate-500 font-medium">Customer Opened</p>
+                </div>
+                <p className="text-2xl font-bold text-indigo-600">{billStats?.opened ?? "—"}</p>
+                <p className="text-xs text-slate-400 mt-1">Bill viewed by customer</p>
+              </div>
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <BarChart3 className="w-4 h-4 text-violet-500" />
+                  <p className="text-xs text-slate-500 font-medium">Open Rate</p>
+                </div>
+                <p className="text-2xl font-bold text-slate-800">{billStats?.openRate ?? "—"}%</p>
+                <p className="text-xs text-slate-400 mt-1">All-time</p>
+              </div>
+            </div>
+
+            {/* Last 24h */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-3 px-6 py-4 border-b border-slate-100 bg-slate-50">
+                <Clock className="w-4 h-4 text-slate-500" />
+                <h3 className="font-semibold text-slate-800 text-sm">Last 24 Hours</h3>
+              </div>
+              <div className="grid grid-cols-2 divide-x divide-slate-100 p-6">
+                <div className="pr-6">
+                  <p className="text-xs text-slate-400 mb-1">Bills Generated</p>
+                  <p className="text-3xl font-bold text-slate-800">{billStats?.last24h.generated ?? "—"}</p>
+                </div>
+                <div className="pl-6">
+                  <p className="text-xs text-slate-400 mb-1">Customer Opened</p>
+                  <p className="text-3xl font-bold text-indigo-600">{billStats?.last24h.opened ?? "—"}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Expired */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
+                  <Clock className="w-4 h-4 text-slate-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-700">Expired Links</p>
+                  <p className="text-xs text-slate-400">24-hour TTL elapsed</p>
+                </div>
+              </div>
+              <p className="text-xl font-semibold text-slate-500">{billStats?.expired ?? "—"}</p>
+            </div>
+          </div>
+        )}
 
     </AdminShell>
   );

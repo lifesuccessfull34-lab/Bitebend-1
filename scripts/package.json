@@ -10,6 +10,7 @@
     "check:css-bundle": "tsx ./src/check-css-bundle.ts",
     "check:no-http-links": "tsx ./src/check-http-links.ts",
     "check:qr-generation": "tsx ./src/check-qr-generation.ts",
+    "verify:bill-flow": "tsx ./src/verify-bill-flow.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

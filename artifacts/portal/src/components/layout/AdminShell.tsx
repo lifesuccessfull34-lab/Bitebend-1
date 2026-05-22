@@ -12,6 +12,7 @@ import {
   Shield,
   ChevronRight,
   FileText,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -25,7 +26,8 @@ export type AdminSection =
   | "payments"
   | "customers"
   | "notifications"
-  | "legal";
+  | "legal"
+  | "bills";
 
 interface NavItem {
   key: AdminSection;
@@ -166,4 +168,5 @@ export const ADMIN_NAV_ITEMS = (
   { key: "customers", label: "Customers", icon: Users },
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "legal", label: "Legal Pages", icon: FileText },
+  { key: "bills", label: "Bill Metrics", icon: Receipt },
 ];
