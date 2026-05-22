@@ -113,6 +113,17 @@ const getPublicMenu: RequestHandler = async (req, res) => {
   });
 };
 
+// ─── Phone normalization ───────────────────────────────────────────────────────
+// Strips all non-digits, removes leading zeros, and enforces the canonical Indian
+// WhatsApp format "91XXXXXXXXXX". Returns null for any unrecognisable number.
+function normalizePhone(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "").replace(/^0+/, "");
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 12 && digits.startsWith("91")) return digits;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  return null;
+}
+
 // POST /menu/:restaurantId/orders — customer places order (accepts numeric ID or slug)
 const placeOrder: RequestHandler = async (req, res) => {
   const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
@@ -136,6 +147,14 @@ const placeOrder: RequestHandler = async (req, res) => {
     res.status(400).json({ error: "customerName, customerPhone and items are required" });
     return;
   }
+
+  // Normalize and validate phone before touching the DB — only canonical format stored
+  const normalizedPhone = normalizePhone(customerPhone);
+  if (!normalizedPhone) {
+    res.status(400).json({ error: "Invalid customer phone number. Please enter a valid 10-digit Indian mobile number." });
+    return;
+  }
+  req.log.info({ orderId: "new", customerPhone: normalizedPhone }, "[Order] Storing normalized phone");
 
   // ── Offering mode enforcement ───────────────────────────────────────────────
   // seatingLabel === null means the restaurant is "Take Away Only".
@@ -216,7 +235,7 @@ const placeOrder: RequestHandler = async (req, res) => {
     tableId: tableId ?? null,
     tableNumber: tableNumber ?? null,
     customerName,
-    customerPhone,
+    customerPhone: normalizedPhone,
     notes: notes ?? null,
     subtotal,
     tax,

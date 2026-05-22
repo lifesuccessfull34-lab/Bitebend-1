@@ -439,19 +439,13 @@ export default function Dashboard() {
   // chat directly (Web on desktop, native app on mobile) with a short pre-filled
   // message. The owner attaches the downloaded bill image in that chat.
   const shareFallback = (modal: BillModal, imgUrl: string) => {
-    // ── Phone sanitization (client-side safety net) ──
-    // Server already normalises to "91XXXXXXXXXX", but we re-sanitize defensively.
-    const rawPhone  = modal.customerPhone.replace(/\D/g, "").replace(/^0+/, "");
-    const waPhone   = rawPhone.startsWith("91") && rawPhone.length === 12
-      ? rawPhone
-      : rawPhone.length === 10
-        ? `91${rawPhone}`
-        : rawPhone;
+    // Server guarantees canonical format "91XXXXXXXXXX" — use directly.
+    const waPhone = modal.customerPhone;
 
     // ── Debug logging ──
     console.log("[ShareBill] Order:", modal.orderId);
-    console.log("[ShareBill] Customer phone (raw):", modal.customerPhone);
-    console.log("[ShareBill] WhatsApp target:", waPhone);
+    console.log("[ShareBill] Customer phone:", waPhone);
+    console.log("[ShareBill] WhatsApp target:", `https://wa.me/${waPhone}`);
 
     // ── Guard: missing phone ──
     if (!waPhone) {
