@@ -425,14 +425,50 @@ export default function Dashboard() {
     }
   };
 
-  const openWhatsApp = (modal: BillModal) => {
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const finalUrl = isMobile
-      ? modal.whatsappUrl
-      : modal.whatsappUrl
-          .replace("https://wa.me/", "https://web.whatsapp.com/send?phone=")
-          .replace("?text=", "&text=");
-    window.open(finalUrl, "whatsapp_window");
+  // Shares the bill image + WhatsApp message in one tap.
+  // On mobile: uses Web Share API (file sharing) — opens the OS share sheet so the
+  //   owner can pick WhatsApp and the bill PNG is already attached.
+  // On desktop / fallback: downloads the bill image first, then opens WhatsApp Web
+  //   with the pre-filled message (owner manually attaches the downloaded image).
+  const handleShareBill = async (modal: BillModal) => {
+    setDownloadingBill(true);
+    try {
+      const imgUrl = await generateBillImage(modal);
+
+      // Convert data-URL → Blob → File for the share API
+      const fetchRes = await fetch(imgUrl);
+      const blob = await fetchRes.blob();
+      const file = new File([blob], `bill-order-${modal.orderId}.png`, { type: "image/png" });
+
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+      // Prefer Web Share API with file support (Android Chrome, iOS Safari ≥ 15)
+      if (isMobile && typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({
+          title: `Payment Bill — Order #${modal.orderId}`,
+          text: modal.message,
+          files: [file],
+        });
+        return;
+      }
+
+      // Fallback: download image, then open WhatsApp
+      const a = document.createElement("a");
+      a.href = imgUrl;
+      a.download = `bill-order-${modal.orderId}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      const waUrl = isMobile
+        ? modal.whatsappUrl
+        : modal.whatsappUrl
+            .replace("https://wa.me/", "https://web.whatsapp.com/send?phone=")
+            .replace("?text=", "&text=");
+      setTimeout(() => window.open(waUrl, "whatsapp_window"), 600);
+    } finally {
+      setDownloadingBill(false);
+    }
   };
 
   const handleUploadProof = async (orderId: number, file: File) => {
@@ -634,10 +670,13 @@ export default function Dashboard() {
               <Button
                 size="sm"
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9"
-                onClick={() => openWhatsApp(billModal)}
+                onClick={() => void handleShareBill(billModal)}
+                disabled={downloadingBill}
               >
-                <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
-                Send via WhatsApp
+                {downloadingBill
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  : <MessageCircle className="w-3.5 h-3.5 mr-1.5" />}
+                Share Bill
               </Button>
               <Button
                 size="sm"
@@ -649,7 +688,7 @@ export default function Dashboard() {
                 {downloadingBill
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
                   : <Download className="w-3.5 h-3.5 mr-1.5" />}
-                Download Bill
+                Download
               </Button>
               <Button size="sm" variant="ghost" className="text-xs h-9 px-3" onClick={() => setBillModal(null)}>
                 <X className="w-3.5 h-3.5" />

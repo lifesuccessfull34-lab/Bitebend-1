@@ -572,7 +572,11 @@ const getBill: RequestHandler = async (req, res) => {
   const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, user.restaurantId!)).limit(1);
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
 
-  const qrPayload = `amount=${order.total};merchant=${restaurant?.name ?? ""};reference=Order${order.id}`;
+  // Use standard UPI deep-link so GPay / PhonePe / Paytm auto-fill the amount
+  const upiId = restaurant?.upiId ?? "";
+  const qrPayload = upiId
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(restaurant?.name ?? "")}&am=${order.total}&tn=${encodeURIComponent(`Order#${order.id}`)}&cu=INR`
+    : `amount=${order.total};merchant=${encodeURIComponent(restaurant?.name ?? "")};reference=Order${order.id}`;
   const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 400, margin: 2, errorCorrectionLevel: "H" });
 
   const itemLines = items.map((item) => `  ${item.quantity}x ${item.name} - ₹${item.unitPrice * item.quantity}`).join("\n");
