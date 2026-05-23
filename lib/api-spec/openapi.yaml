@@ -1009,6 +1009,10 @@ components:
           type: string
         restaurantCity:
           type: string
+        restaurantState:
+          type: string
+        restaurantDistrict:
+          type: string
         cuisineType:
           type: string
           enum:

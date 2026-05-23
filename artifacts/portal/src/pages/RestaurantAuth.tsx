@@ -220,7 +220,7 @@ function SignInForm() {
 // ─── Register Tab ─────────────────────────────────────────────────────────────
 const emptyForm = () => ({
   restaurantName: "", ownerName: "", email: "", phone: "",
-  password: "", confirmPassword: "", cuisineType: "", state: "", city: "", address: "",
+  password: "", confirmPassword: "", cuisineType: "", state: "", district: "", city: "", address: "",
 });
 
 function RegisterForm() {
@@ -244,7 +244,8 @@ function RegisterForm() {
     if (!termsAccepted) { setError("You must accept Terms & Conditions and Privacy Policy"); return; }
     if (form.password !== form.confirmPassword) { setError("Passwords do not match."); return; }
     if (form.password.length < 6) { setError("Password must be at least 6 characters."); return; }
-    if (!form.city.trim()) { setError("Please enter your city or district."); return; }
+    if (form.state && !form.district) { setError("Please select a district."); return; }
+    if (!form.city.trim()) { setError("Please enter your city."); return; }
     setLoading(true);
     try {
       await apiFetch("/auth/register", {
@@ -257,6 +258,7 @@ function RegisterForm() {
           restaurantPhone: form.phone,
           restaurantCity: form.city,
           restaurantState: form.state || undefined,
+          restaurantDistrict: form.district || undefined,
           restaurantAddress: form.address || undefined,
           cuisineType: form.cuisineType || "other",
           termsAccepted: true,
@@ -334,22 +336,37 @@ function RegisterForm() {
       </FieldRow>
       <div className="grid grid-cols-2 gap-3">
         <FieldRow label="State">
-          <select value={form.state} onChange={(e) => setForm((f) => ({ ...f, state: e.target.value, city: "" }))} className={FIELD}>
+          <select
+            value={form.state}
+            onChange={(e) => setForm((f) => ({ ...f, state: e.target.value, district: "", city: "" }))}
+            className={FIELD}
+          >
             <option value="">Select state…</option>
             {STATE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </FieldRow>
-        <FieldRow label="City *">
-          {districts.length > 0 ? (
-            <select value={form.city} onChange={set("city")} className={FIELD} required>
-              <option value="">Select city…</option>
-              {districts.map((d) => <option key={d} value={d}>{d}</option>)}
-            </select>
-          ) : (
-            <Input placeholder="City / District" value={form.city} onChange={set("city")} required className="focus-visible:ring-orange-400" />
-          )}
+        <FieldRow label={form.state ? "District *" : "District"}>
+          <select
+            value={form.district}
+            onChange={set("district")}
+            disabled={!form.state}
+            className={FIELD}
+            required={!!form.state}
+          >
+            <option value="">{form.state ? "Select district…" : "Select state first"}</option>
+            {districts.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
         </FieldRow>
       </div>
+      <FieldRow label="City *">
+        <Input
+          placeholder="City / Town"
+          value={form.city}
+          onChange={set("city")}
+          required
+          className="focus-visible:ring-orange-400"
+        />
+      </FieldRow>
       <FieldRow label="Restaurant Address (optional)">
         <Input placeholder="123, MG Road, Near City Mall…" value={form.address}
           onChange={set("address")} className="focus-visible:ring-orange-400" />

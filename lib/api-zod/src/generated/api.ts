@@ -28,6 +28,8 @@ export const RegisterBody = zod.object({
   restaurantPhone: zod.string(),
   restaurantAddress: zod.string(),
   restaurantCity: zod.string(),
+  restaurantState: zod.string().optional(),
+  restaurantDistrict: zod.string().optional(),
   cuisineType: zod.enum([
     "north_indian",
     "south_indian",

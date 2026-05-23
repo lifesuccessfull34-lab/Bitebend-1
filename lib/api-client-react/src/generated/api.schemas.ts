@@ -55,6 +55,8 @@ export interface RegisterInput {
   restaurantPhone: string;
   restaurantAddress: string;
   restaurantCity: string;
+  restaurantState?: string;
+  restaurantDistrict?: string;
   cuisineType: RegisterInputCuisineType;
 }
 
