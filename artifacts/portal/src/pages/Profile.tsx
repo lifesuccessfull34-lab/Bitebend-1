@@ -532,8 +532,16 @@ export default function Profile() {
                 <Input type="tel" value={form.phone} onChange={set("phone")} required />
               </div>
               <div className="space-y-1.5">
-                <Label>Contact Email <span className="text-muted-foreground font-normal text-xs">(public)</span></Label>
-                <Input type="email" value={form.email} onChange={set("email")} required />
+                <Label>Restaurant Contact Email</Label>
+                <Input
+                  type="email"
+                  value={user?.email ?? form.email}
+                  readOnly
+                  className="bg-muted/50 cursor-default"
+                />
+                <p className="text-xs text-muted-foreground">
+                  This email is for restaurant information only and does not change account login credentials.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label>City</Label>
@@ -920,10 +928,13 @@ export default function Profile() {
           </div>
 
           <form onSubmit={handleCredSubmit} className="bg-card border border-border rounded-xl p-5 space-y-4">
-            {/* Current login email display */}
-            <div className="bg-muted/50 rounded-lg px-3 py-2.5 flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Current login email:</span>
-              <span className="text-sm font-mono font-medium">{user?.email}</span>
+            {/* Account login email display */}
+            <div className="bg-muted/50 rounded-lg px-3 py-2.5 space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Account Login Email:</span>
+                <span className="text-sm font-mono font-medium">{user?.email}</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Use this email when signing in.</p>
             </div>
 
             {/* Current password */}

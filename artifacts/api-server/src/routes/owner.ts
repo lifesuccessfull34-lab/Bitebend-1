@@ -112,7 +112,17 @@ const updateRestaurant: RequestHandler = async (req, res) => {
   if (address !== undefined) updates.address = address;
   if (city !== undefined) updates.city = city;
   if (phone !== undefined) updates.phone = phone;
-  if (email !== undefined) updates.email = email;
+  // ── Email sync guard ──────────────────────────────────────────────────────
+  // users.email is the canonical credential source of truth. restaurants.email
+  // must always mirror it. Log a warning if the submitted value diverges, then
+  // override with the canonical value unconditionally to self-heal any drift.
+  if (email !== undefined && email !== req.user!.email) {
+    req.log.warn(
+      { submitted: email, canonical: req.user!.email },
+      "[EMAIL_SYNC] Restaurant profile email submission diverges from users.email — overriding with canonical",
+    );
+  }
+  updates.email = req.user!.email; // unconditional — always mirrors users.email
   if (upiId !== undefined) updates.upiId = upiId;
   if (upiName !== undefined) updates.upiName = upiName;
   if (personalUpiEnabled !== undefined) updates.personalUpiEnabled = personalUpiEnabled;
@@ -1346,6 +1356,37 @@ const updateAccount: RequestHandler = async (req, res) => {
   }
 
   await db.update(users).set(updates).where(eq(users.id, user.id));
+
+  // ── Mirror users.email → restaurants.email (sync guardian) ────────────────
+  // Whenever the login email changes, immediately propagate it to
+  // restaurants.email so the two fields can never drift out of sync.
+  if (updates.email && user.restaurantId) {
+    await db
+      .update(restaurants)
+      .set({ email: updates.email as string })
+      .where(eq(restaurants.id, user.restaurantId));
+    req.log.info(
+      { userId: user.id, restaurantId: user.restaurantId, newEmail: updates.email },
+      "[EMAIL_SYNC] users.email change mirrored to restaurants.email",
+    );
+  }
+
+  // ── Post-write assertion ───────────────────────────────────────────────────
+  if (user.restaurantId) {
+    const [check] = await db
+      .select({ rEmail: restaurants.email })
+      .from(restaurants)
+      .where(eq(restaurants.id, user.restaurantId))
+      .limit(1);
+    const expectedEmail = (updates.email as string | undefined) ?? user.email;
+    if (check && check.rEmail !== expectedEmail) {
+      req.log.warn(
+        { restaurantEmail: check.rEmail, usersEmail: expectedEmail },
+        "[EMAIL_SYNC] Post-write assertion FAILED — restaurants.email still diverges",
+      );
+    }
+  }
+
   res.json({ ok: true, emailChanged: !!updates.email, passwordChanged: !!updates.passwordHash });
 };
 
