@@ -191,6 +191,8 @@ export default function Admin() {
     fileUrl: string | null; tags: string[]; featured: boolean;
     displayOrder: number; status: string; approvalStatus: string;
     visibleTo: string; createdBy: number | null; approvedBy: number | null;
+    updatedBy: number | null; reviewNotes: string | null; rejectionReason: string | null;
+    deletedAt: string | null;
     publishAt: string | null; expireAt: string | null;
     duration: string | null; videoSource: string | null; sizeLabel: string | null;
     planName: string | null; planPrice: string | null; planPeriod: string | null;
@@ -204,6 +206,7 @@ export default function Admin() {
     id: number | null; title: string; description: string; type: string;
     category: string; url: string; fileUrl: string; tags: string;
     featured: boolean; displayOrder: number; status: string; approvalStatus: string;
+    reviewNotes: string;
     duration: string; videoSource: string; sizeLabel: string;
     planName: string; planPrice: string; planPeriod: string;
     planFeatures: string; planHighlight: boolean; planBadge: string; planCta: string;
@@ -212,7 +215,7 @@ export default function Admin() {
   const emptyResForm = (): AdminResourceFormState => ({
     id: null, title: "", description: "", type: "video", category: "",
     url: "", fileUrl: "", tags: "", featured: false, displayOrder: 0,
-    status: "draft", approvalStatus: "pending",
+    status: "draft", approvalStatus: "pending", reviewNotes: "",
     duration: "", videoSource: "youtube", sizeLabel: "",
     planName: "", planPrice: "", planPeriod: "", planFeatures: "",
     planHighlight: false, planBadge: "", planCta: "",
@@ -223,7 +226,7 @@ export default function Admin() {
     type: r.type, category: r.category ?? "", url: r.url ?? "",
     fileUrl: r.fileUrl ?? "", tags: (r.tags ?? []).join(", "),
     featured: r.featured, displayOrder: r.displayOrder, status: r.status,
-    approvalStatus: r.approvalStatus,
+    approvalStatus: r.approvalStatus, reviewNotes: r.reviewNotes ?? "",
     duration: r.duration ?? "", videoSource: r.videoSource ?? "youtube",
     sizeLabel: r.sizeLabel ?? "", planName: r.planName ?? "",
     planPrice: r.planPrice ?? "", planPeriod: r.planPeriod ?? "",
@@ -546,6 +549,7 @@ export default function Admin() {
         iconColor: resForm.iconColor.trim() || null,
         question: resForm.question.trim() || null,
         answer: resForm.answer.trim() || null,
+        reviewNotes: resForm.reviewNotes.trim() || null,
       };
       if (resForm.id) {
         const updated = await apiFetch<AdminResource>(`/admin/resources/${resForm.id}`, { method: "PUT", body: JSON.stringify(body) });
@@ -569,9 +573,14 @@ export default function Admin() {
   }, [handleAuthError]);
 
   const handleResReject = useCallback(async (id: number) => {
+    const reason = window.prompt("Rejection reason (optional — shown to admins for tracking):");
+    if (reason === null) return;
     setResActionId(id);
     try {
-      const updated = await apiFetch<AdminResource>(`/admin/resources/${id}/reject`, { method: "POST" });
+      const updated = await apiFetch<AdminResource>(`/admin/resources/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ rejectionReason: reason.trim() || undefined }),
+      });
       setAdminResources((prev) => prev.map((r) => r.id === id ? updated : r));
     } catch (e) { handleAuthError(e); }
     finally { setResActionId(null); }
@@ -587,7 +596,7 @@ export default function Admin() {
   }, [handleAuthError]);
 
   const handleResDelete = useCallback(async (id: number) => {
-    if (!confirm("Delete this resource? This cannot be undone.")) return;
+    if (!confirm("Archive this resource? It will be soft-deleted and hidden from all views.")) return;
     setResActionId(id);
     try {
       await apiFetch(`/admin/resources/${id}`, { method: "DELETE" });
@@ -2602,6 +2611,14 @@ export default function Admin() {
                         placeholder="Detailed answer..." />
                     </div>
                   </>)}
+
+                  {/* Admin moderation notes — always visible */}
+                  <div className="sm:col-span-2 space-y-1">
+                    <Label className="text-xs text-slate-400">Review Notes (internal, admin-only)</Label>
+                    <Input value={resForm.reviewNotes}
+                      onChange={(e) => setResForm((f) => f ? { ...f, reviewNotes: e.target.value } : f)}
+                      placeholder="e.g. Approved — checked content quality" />
+                  </div>
                 </div>
 
                 <div className="flex gap-2 justify-end pt-1">
@@ -2664,6 +2681,12 @@ export default function Admin() {
                         </div>
                         {r.description && (
                           <p className="text-xs text-slate-500 truncate mt-0.5">{r.description}</p>
+                        )}
+                        {r.rejectionReason && r.approvalStatus === "rejected" && (
+                          <p className="text-[11px] text-red-500 mt-0.5">⚠ Rejected: {r.rejectionReason}</p>
+                        )}
+                        {r.reviewNotes && r.approvalStatus === "approved" && (
+                          <p className="text-[11px] text-emerald-600 mt-0.5">✓ {r.reviewNotes}</p>
                         )}
                         {r.category && (
                           <p className="text-[11px] text-slate-400 mt-0.5">{r.category}</p>

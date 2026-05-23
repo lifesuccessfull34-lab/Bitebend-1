@@ -18,7 +18,7 @@ import {
   billLinks,
   resources,
 } from "@workspace/db";
-import { eq, sql, inArray, gte, lt, and, isNotNull } from "drizzle-orm";
+import { eq, sql, inArray, gte, lt, and, isNotNull, isNull } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/auth";
 import type { RequestHandler } from "express";
 
@@ -689,7 +689,15 @@ router.get("/admin/build-info", requireAdmin, getBuildInfo);
 
 // ── Resources CRUD ────────────────────────────────────────────────────────────
 
+interface AdminResourceApproveInput {
+  reviewNotes?: string;
+}
+interface AdminResourceRejectInput {
+  rejectionReason?: string;
+}
 interface AdminResourceInput {
+  reviewNotes?: string;
+  rejectionReason?: string;
   title?: string;
   description?: string;
   type?: string;
@@ -721,17 +729,25 @@ interface AdminResourceInput {
   expireAt?: string | null;
 }
 
+// ── Authorization note ─────────────────────────────────────────────────────────
+// Every handler below is registered with requireAdmin which validates:
+//   1. req.session.userId exists (authenticated)
+//   2. user.role === "super_admin" (authorized)
+// Never rely on frontend filtering — all enforcement is server-side.
+
 const listAdminResources: RequestHandler = async (req, res) => {
   const { type: typeFilter, approvalStatus: aStatusFilter } = req.query as { type?: string; approvalStatus?: string };
-  const allRows = await db.select().from(resources).orderBy(resources.displayOrder, resources.createdAt);
-  const filtered = allRows
+  const rows = await db.select().from(resources)
+    .where(isNull(resources.deletedAt))
+    .orderBy(resources.displayOrder, resources.createdAt);
+  const filtered = rows
     .filter((r) => !typeFilter || r.type === typeFilter)
     .filter((r) => !aStatusFilter || r.approvalStatus === aStatusFilter);
   res.json(filtered);
 };
 
 const createAdminResource: RequestHandler = async (req, res) => {
-  const adminUserId = req.session.userId ?? null;
+  const adminUserId = req.session.userId!;
   const body = req.body as AdminResourceInput;
   if (!body.title?.trim() || !body.type) {
     res.status(400).json({ error: "title and type are required" });
@@ -753,7 +769,9 @@ const createAdminResource: RequestHandler = async (req, res) => {
     approvalStatus: (body.approvalStatus as RType["approvalStatus"]) ?? "pending",
     visibleTo: (body.visibleTo as RType["visibleTo"]) ?? "all",
     createdBy: adminUserId,
+    updatedBy: adminUserId,
     approvedBy: body.approvalStatus === "approved" ? adminUserId : null,
+    reviewNotes: body.reviewNotes?.trim() ?? null,
     publishAt: body.publishAt ? new Date(body.publishAt) : null,
     expireAt: body.expireAt ? new Date(body.expireAt) : null,
     duration: body.duration?.trim() ?? null,
@@ -772,18 +790,20 @@ const createAdminResource: RequestHandler = async (req, res) => {
     answer: body.answer?.trim() ?? null,
     updatedAt: new Date(),
   }).returning();
+  req.log.info({ resourceId: row.id, adminId: adminUserId }, "[RESOURCE_CREATE]");
   res.status(201).json(row);
 };
 
 const updateAdminResource: RequestHandler = async (req, res) => {
-  const adminUserId = req.session.userId ?? null;
+  const adminUserId = req.session.userId!;
   const resourceId = parseInt(String(req.params.id));
   if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
   const body = req.body as AdminResourceInput;
-  const [existing] = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const [existing] = await db.select().from(resources)
+    .where(and(eq(resources.id, resourceId), isNull(resources.deletedAt))).limit(1);
   if (!existing) { res.status(404).json({ error: "Resource not found" }); return; }
   type RType = typeof resources.$inferInsert;
-  const updates: Partial<RType> = { updatedAt: new Date() };
+  const updates: Partial<RType> = { updatedAt: new Date(), updatedBy: adminUserId };
   if (body.title !== undefined) updates.title = body.title.trim();
   if (body.description !== undefined) updates.description = body.description?.trim() ?? null;
   if (body.type !== undefined) updates.type = body.type as RType["type"];
@@ -801,6 +821,8 @@ const updateAdminResource: RequestHandler = async (req, res) => {
       updates.approvedBy = adminUserId;
     }
   }
+  if (body.reviewNotes !== undefined) updates.reviewNotes = body.reviewNotes?.trim() ?? null;
+  if (body.rejectionReason !== undefined) updates.rejectionReason = body.rejectionReason?.trim() ?? null;
   if (body.visibleTo !== undefined) updates.visibleTo = body.visibleTo as RType["visibleTo"];
   if (body.publishAt !== undefined) updates.publishAt = body.publishAt ? new Date(body.publishAt) : null;
   if (body.expireAt !== undefined) updates.expireAt = body.expireAt ? new Date(body.expireAt) : null;
@@ -818,53 +840,99 @@ const updateAdminResource: RequestHandler = async (req, res) => {
   if (body.iconColor !== undefined) updates.iconColor = body.iconColor?.trim() ?? null;
   if (body.question !== undefined) updates.question = body.question?.trim() ?? null;
   if (body.answer !== undefined) updates.answer = body.answer?.trim() ?? null;
-  const [updated] = await db.update(resources).set(updates).where(eq(resources.id, resourceId)).returning();
+  const [updated] = await db.update(resources).set(updates)
+    .where(and(eq(resources.id, resourceId), isNull(resources.deletedAt))).returning();
+  req.log.info({ resourceId, adminId: adminUserId }, "[RESOURCE_EDIT]");
   res.json(updated);
 };
 
+// Soft-delete only — never permanently remove resources
 const deleteAdminResource: RequestHandler = async (req, res) => {
+  const adminUserId = req.session.userId!;
   const resourceId = parseInt(String(req.params.id));
   if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
-  const [deleted] = await db.delete(resources).where(eq(resources.id, resourceId)).returning({ id: resources.id });
-  if (!deleted) { res.status(404).json({ error: "Resource not found" }); return; }
+  const [softDeleted] = await db.update(resources)
+    .set({ deletedAt: new Date(), updatedBy: adminUserId, updatedAt: new Date() })
+    .where(and(eq(resources.id, resourceId), isNull(resources.deletedAt)))
+    .returning({ id: resources.id });
+  if (!softDeleted) { res.status(404).json({ error: "Resource not found" }); return; }
+  req.log.info({ resourceId, adminId: adminUserId }, "[RESOURCE_DELETE]");
   res.json({ deleted: true });
 };
 
 const approveAdminResource: RequestHandler = async (req, res) => {
-  const adminUserId = req.session.userId ?? null;
+  const adminUserId = req.session.userId!;
   const resourceId = parseInt(String(req.params.id));
   if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const body = req.body as AdminResourceApproveInput;
   const [updated] = await db.update(resources)
-    .set({ approvalStatus: "approved", status: "active", approvedBy: adminUserId, updatedAt: new Date() })
-    .where(eq(resources.id, resourceId))
+    .set({
+      approvalStatus: "approved",
+      status: "active",
+      approvedBy: adminUserId,
+      updatedBy: adminUserId,
+      reviewNotes: body.reviewNotes?.trim() ?? null,
+      rejectionReason: null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(resources.id, resourceId), isNull(resources.deletedAt)))
     .returning();
   if (!updated) { res.status(404).json({ error: "Resource not found" }); return; }
+  req.log.info({ resourceId, adminId: adminUserId }, "[RESOURCE_APPROVE]");
   res.json(updated);
 };
 
 const rejectAdminResource: RequestHandler = async (req, res) => {
+  const adminUserId = req.session.userId!;
   const resourceId = parseInt(String(req.params.id));
   if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const body = req.body as AdminResourceRejectInput;
   const [updated] = await db.update(resources)
-    .set({ approvalStatus: "rejected", status: "draft", updatedAt: new Date() })
-    .where(eq(resources.id, resourceId))
+    .set({
+      approvalStatus: "rejected",
+      status: "draft",
+      updatedBy: adminUserId,
+      rejectionReason: body.rejectionReason?.trim() ?? null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(resources.id, resourceId), isNull(resources.deletedAt)))
     .returning();
   if (!updated) { res.status(404).json({ error: "Resource not found" }); return; }
+  req.log.info({ resourceId, adminId: adminUserId, reason: body.rejectionReason }, "[RESOURCE_REJECT]");
   res.json(updated);
 };
 
 const featureAdminResource: RequestHandler = async (req, res) => {
+  const adminUserId = req.session.userId!;
   const resourceId = parseInt(String(req.params.id));
   if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
-  const [existing] = await db.select({ featured: resources.featured }).from(resources).where(eq(resources.id, resourceId)).limit(1);
+  const [existing] = await db.select({ featured: resources.featured })
+    .from(resources).where(and(eq(resources.id, resourceId), isNull(resources.deletedAt))).limit(1);
   if (!existing) { res.status(404).json({ error: "Resource not found" }); return; }
   const [updated] = await db.update(resources)
-    .set({ featured: !existing.featured, updatedAt: new Date() })
-    .where(eq(resources.id, resourceId))
+    .set({ featured: !existing.featured, updatedBy: adminUserId, updatedAt: new Date() })
+    .where(and(eq(resources.id, resourceId), isNull(resources.deletedAt)))
     .returning();
   res.json(updated);
 };
 
+// GET /api/admin/resources/stats — aggregate counts for the admin dashboard
+const getAdminResourceStats: RequestHandler = async (_req, res) => {
+  const all = await db.select({
+    approvalStatus: resources.approvalStatus,
+    status: resources.status,
+    featured: resources.featured,
+  }).from(resources).where(isNull(resources.deletedAt));
+  res.json({
+    pendingCount:  all.filter((r) => r.approvalStatus === "pending").length,
+    approvedCount: all.filter((r) => r.approvalStatus === "approved").length,
+    rejectedCount: all.filter((r) => r.approvalStatus === "rejected").length,
+    featuredCount: all.filter((r) => r.featured).length,
+    draftCount:    all.filter((r) => r.status === "draft").length,
+  });
+};
+
+router.get("/admin/resources/stats", requireAdmin, getAdminResourceStats);
 router.get("/admin/resources", requireAdmin, listAdminResources);
 router.post("/admin/resources", requireAdmin, createAdminResource);
 router.put("/admin/resources/:id", requireAdmin, updateAdminResource);

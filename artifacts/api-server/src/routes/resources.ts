@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { resources } from "@workspace/db";
-import { eq, and, or, isNull, lte, gt } from "drizzle-orm";
+import { and, or, isNull, lte, gt, eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -14,6 +14,7 @@ const listApprovedResources: RequestHandler = async (_req, res) => {
     .from(resources)
     .where(
       and(
+        isNull(resources.deletedAt),
         eq(resources.status, "active"),
         eq(resources.approvalStatus, "approved"),
         or(isNull(resources.publishAt), lte(resources.publishAt!, now)),

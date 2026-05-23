@@ -271,6 +271,10 @@ export const resources = pgTable("resources", {
   iconColor: text("icon_color"),
   question: text("question"),
   answer: text("answer"),
+  updatedBy: integer("updated_by").references(() => users.id, { onDelete: "set null" }),
+  reviewNotes: text("review_notes"),
+  rejectionReason: text("rejection_reason"),
+  deletedAt: timestamp("deleted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
