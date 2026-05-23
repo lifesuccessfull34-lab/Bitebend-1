@@ -924,3 +924,361 @@ export const RequestUploadUrlResponse = zod.object({
 export const GetStorageObjectParams = zod.object({
   objectPath: zod.coerce.string(),
 });
+
+/**
+ * @summary List approved resources (public)
+ */
+export const ListApprovedResourcesResponseItem = zod.object({
+  id: zod.number(),
+  title: zod.string(),
+  description: zod.string().nullish(),
+  type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+  category: zod.string().nullish(),
+  thumbnail: zod.string().nullish(),
+  url: zod.string().nullish(),
+  fileUrl: zod.string().nullish(),
+  tags: zod.array(zod.string()),
+  featured: zod.boolean(),
+  displayOrder: zod.number(),
+  status: zod.enum(["draft", "active", "archived"]),
+  duration: zod.string().nullish(),
+  videoSource: zod.enum(["youtube", "external", "self-hosted"]).nullish(),
+  sizeLabel: zod.string().nullish(),
+  planName: zod.string().nullish(),
+  planPrice: zod.string().nullish(),
+  planPeriod: zod.string().nullish(),
+  planFeatures: zod.array(zod.string()).nullish(),
+  planHighlight: zod.boolean().nullish(),
+  planBadge: zod.string().nullish(),
+  planCta: zod.enum(["trial", "contact"]).nullish(),
+  iconName: zod.string().nullish(),
+  iconColor: zod.string().nullish(),
+  question: zod.string().nullish(),
+  answer: zod.string().nullish(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+export const ListApprovedResourcesResponse = zod.array(
+  ListApprovedResourcesResponseItem,
+);
+
+/**
+ * @summary List all resources (admin)
+ */
+export const ListAdminResourcesQueryParams = zod.object({
+  type: zod.coerce.string().optional(),
+  approvalStatus: zod.coerce.string().optional(),
+});
+
+export const ListAdminResourcesResponseItem = zod
+  .object({
+    id: zod.number(),
+    title: zod.string(),
+    description: zod.string().nullish(),
+    type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+    category: zod.string().nullish(),
+    thumbnail: zod.string().nullish(),
+    url: zod.string().nullish(),
+    fileUrl: zod.string().nullish(),
+    tags: zod.array(zod.string()),
+    featured: zod.boolean(),
+    displayOrder: zod.number(),
+    status: zod.enum(["draft", "active", "archived"]),
+    duration: zod.string().nullish(),
+    videoSource: zod.enum(["youtube", "external", "self-hosted"]).nullish(),
+    sizeLabel: zod.string().nullish(),
+    planName: zod.string().nullish(),
+    planPrice: zod.string().nullish(),
+    planPeriod: zod.string().nullish(),
+    planFeatures: zod.array(zod.string()).nullish(),
+    planHighlight: zod.boolean().nullish(),
+    planBadge: zod.string().nullish(),
+    planCta: zod.enum(["trial", "contact"]).nullish(),
+    iconName: zod.string().nullish(),
+    iconColor: zod.string().nullish(),
+    question: zod.string().nullish(),
+    answer: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      approvalStatus: zod.enum(["pending", "approved", "rejected"]),
+      visibleTo: zod.enum(["all", "owners"]),
+      createdBy: zod.number().nullish(),
+      approvedBy: zod.number().nullish(),
+      publishAt: zod.coerce.date().nullish(),
+      expireAt: zod.coerce.date().nullish(),
+    }),
+  );
+export const ListAdminResourcesResponse = zod.array(
+  ListAdminResourcesResponseItem,
+);
+
+/**
+ * @summary Create resource (admin)
+ */
+export const CreateAdminResourceBody = zod.object({
+  title: zod.string(),
+  description: zod.string().nullish(),
+  type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+  category: zod.string().nullish(),
+  url: zod.string().nullish(),
+  fileUrl: zod.string().nullish(),
+  tags: zod.array(zod.string()).optional(),
+  featured: zod.boolean().optional(),
+  displayOrder: zod.number().optional(),
+  status: zod.enum(["draft", "active", "archived"]).optional(),
+  approvalStatus: zod.enum(["pending", "approved", "rejected"]).optional(),
+  visibleTo: zod.enum(["all", "owners"]).optional(),
+  publishAt: zod.coerce.date().nullish(),
+  expireAt: zod.coerce.date().nullish(),
+  duration: zod.string().nullish(),
+  videoSource: zod.string().nullish(),
+  sizeLabel: zod.string().nullish(),
+  planName: zod.string().nullish(),
+  planPrice: zod.string().nullish(),
+  planPeriod: zod.string().nullish(),
+  planFeatures: zod.array(zod.string()).optional(),
+  planHighlight: zod.boolean().nullish(),
+  planBadge: zod.string().nullish(),
+  planCta: zod.string().nullish(),
+  iconName: zod.string().nullish(),
+  iconColor: zod.string().nullish(),
+  question: zod.string().nullish(),
+  answer: zod.string().nullish(),
+});
+
+/**
+ * @summary Update resource (admin)
+ */
+export const UpdateAdminResourceParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpdateAdminResourceBody = zod.object({
+  title: zod.string(),
+  description: zod.string().nullish(),
+  type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+  category: zod.string().nullish(),
+  url: zod.string().nullish(),
+  fileUrl: zod.string().nullish(),
+  tags: zod.array(zod.string()).optional(),
+  featured: zod.boolean().optional(),
+  displayOrder: zod.number().optional(),
+  status: zod.enum(["draft", "active", "archived"]).optional(),
+  approvalStatus: zod.enum(["pending", "approved", "rejected"]).optional(),
+  visibleTo: zod.enum(["all", "owners"]).optional(),
+  publishAt: zod.coerce.date().nullish(),
+  expireAt: zod.coerce.date().nullish(),
+  duration: zod.string().nullish(),
+  videoSource: zod.string().nullish(),
+  sizeLabel: zod.string().nullish(),
+  planName: zod.string().nullish(),
+  planPrice: zod.string().nullish(),
+  planPeriod: zod.string().nullish(),
+  planFeatures: zod.array(zod.string()).optional(),
+  planHighlight: zod.boolean().nullish(),
+  planBadge: zod.string().nullish(),
+  planCta: zod.string().nullish(),
+  iconName: zod.string().nullish(),
+  iconColor: zod.string().nullish(),
+  question: zod.string().nullish(),
+  answer: zod.string().nullish(),
+});
+
+export const UpdateAdminResourceResponse = zod
+  .object({
+    id: zod.number(),
+    title: zod.string(),
+    description: zod.string().nullish(),
+    type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+    category: zod.string().nullish(),
+    thumbnail: zod.string().nullish(),
+    url: zod.string().nullish(),
+    fileUrl: zod.string().nullish(),
+    tags: zod.array(zod.string()),
+    featured: zod.boolean(),
+    displayOrder: zod.number(),
+    status: zod.enum(["draft", "active", "archived"]),
+    duration: zod.string().nullish(),
+    videoSource: zod.enum(["youtube", "external", "self-hosted"]).nullish(),
+    sizeLabel: zod.string().nullish(),
+    planName: zod.string().nullish(),
+    planPrice: zod.string().nullish(),
+    planPeriod: zod.string().nullish(),
+    planFeatures: zod.array(zod.string()).nullish(),
+    planHighlight: zod.boolean().nullish(),
+    planBadge: zod.string().nullish(),
+    planCta: zod.enum(["trial", "contact"]).nullish(),
+    iconName: zod.string().nullish(),
+    iconColor: zod.string().nullish(),
+    question: zod.string().nullish(),
+    answer: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      approvalStatus: zod.enum(["pending", "approved", "rejected"]),
+      visibleTo: zod.enum(["all", "owners"]),
+      createdBy: zod.number().nullish(),
+      approvedBy: zod.number().nullish(),
+      publishAt: zod.coerce.date().nullish(),
+      expireAt: zod.coerce.date().nullish(),
+    }),
+  );
+
+/**
+ * @summary Delete resource (admin)
+ */
+export const DeleteAdminResourceParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+/**
+ * @summary Approve resource (admin)
+ */
+export const ApproveResourceParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ApproveResourceResponse = zod
+  .object({
+    id: zod.number(),
+    title: zod.string(),
+    description: zod.string().nullish(),
+    type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+    category: zod.string().nullish(),
+    thumbnail: zod.string().nullish(),
+    url: zod.string().nullish(),
+    fileUrl: zod.string().nullish(),
+    tags: zod.array(zod.string()),
+    featured: zod.boolean(),
+    displayOrder: zod.number(),
+    status: zod.enum(["draft", "active", "archived"]),
+    duration: zod.string().nullish(),
+    videoSource: zod.enum(["youtube", "external", "self-hosted"]).nullish(),
+    sizeLabel: zod.string().nullish(),
+    planName: zod.string().nullish(),
+    planPrice: zod.string().nullish(),
+    planPeriod: zod.string().nullish(),
+    planFeatures: zod.array(zod.string()).nullish(),
+    planHighlight: zod.boolean().nullish(),
+    planBadge: zod.string().nullish(),
+    planCta: zod.enum(["trial", "contact"]).nullish(),
+    iconName: zod.string().nullish(),
+    iconColor: zod.string().nullish(),
+    question: zod.string().nullish(),
+    answer: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      approvalStatus: zod.enum(["pending", "approved", "rejected"]),
+      visibleTo: zod.enum(["all", "owners"]),
+      createdBy: zod.number().nullish(),
+      approvedBy: zod.number().nullish(),
+      publishAt: zod.coerce.date().nullish(),
+      expireAt: zod.coerce.date().nullish(),
+    }),
+  );
+
+/**
+ * @summary Reject resource (admin)
+ */
+export const RejectResourceParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RejectResourceResponse = zod
+  .object({
+    id: zod.number(),
+    title: zod.string(),
+    description: zod.string().nullish(),
+    type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+    category: zod.string().nullish(),
+    thumbnail: zod.string().nullish(),
+    url: zod.string().nullish(),
+    fileUrl: zod.string().nullish(),
+    tags: zod.array(zod.string()),
+    featured: zod.boolean(),
+    displayOrder: zod.number(),
+    status: zod.enum(["draft", "active", "archived"]),
+    duration: zod.string().nullish(),
+    videoSource: zod.enum(["youtube", "external", "self-hosted"]).nullish(),
+    sizeLabel: zod.string().nullish(),
+    planName: zod.string().nullish(),
+    planPrice: zod.string().nullish(),
+    planPeriod: zod.string().nullish(),
+    planFeatures: zod.array(zod.string()).nullish(),
+    planHighlight: zod.boolean().nullish(),
+    planBadge: zod.string().nullish(),
+    planCta: zod.enum(["trial", "contact"]).nullish(),
+    iconName: zod.string().nullish(),
+    iconColor: zod.string().nullish(),
+    question: zod.string().nullish(),
+    answer: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      approvalStatus: zod.enum(["pending", "approved", "rejected"]),
+      visibleTo: zod.enum(["all", "owners"]),
+      createdBy: zod.number().nullish(),
+      approvedBy: zod.number().nullish(),
+      publishAt: zod.coerce.date().nullish(),
+      expireAt: zod.coerce.date().nullish(),
+    }),
+  );
+
+/**
+ * @summary Toggle featured flag (admin)
+ */
+export const FeatureResourceParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const FeatureResourceResponse = zod
+  .object({
+    id: zod.number(),
+    title: zod.string(),
+    description: zod.string().nullish(),
+    type: zod.enum(["video", "pdf", "link", "plan", "faq"]),
+    category: zod.string().nullish(),
+    thumbnail: zod.string().nullish(),
+    url: zod.string().nullish(),
+    fileUrl: zod.string().nullish(),
+    tags: zod.array(zod.string()),
+    featured: zod.boolean(),
+    displayOrder: zod.number(),
+    status: zod.enum(["draft", "active", "archived"]),
+    duration: zod.string().nullish(),
+    videoSource: zod.enum(["youtube", "external", "self-hosted"]).nullish(),
+    sizeLabel: zod.string().nullish(),
+    planName: zod.string().nullish(),
+    planPrice: zod.string().nullish(),
+    planPeriod: zod.string().nullish(),
+    planFeatures: zod.array(zod.string()).nullish(),
+    planHighlight: zod.boolean().nullish(),
+    planBadge: zod.string().nullish(),
+    planCta: zod.enum(["trial", "contact"]).nullish(),
+    iconName: zod.string().nullish(),
+    iconColor: zod.string().nullish(),
+    question: zod.string().nullish(),
+    answer: zod.string().nullish(),
+    createdAt: zod.coerce.date(),
+    updatedAt: zod.coerce.date(),
+  })
+  .and(
+    zod.object({
+      approvalStatus: zod.enum(["pending", "approved", "rejected"]),
+      visibleTo: zod.enum(["all", "owners"]),
+      createdBy: zod.number().nullish(),
+      approvedBy: zod.number().nullish(),
+      publishAt: zod.coerce.date().nullish(),
+      expireAt: zod.coerce.date().nullish(),
+    }),
+  );

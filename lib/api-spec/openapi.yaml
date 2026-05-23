@@ -791,6 +791,159 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # ─── Resources ──────────────────────────────────────────────────────────────
+
+  /resources:
+    get:
+      operationId: listApprovedResources
+      summary: List approved resources (public)
+      tags: [resources]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Resource"
+
+  /admin/resources:
+    get:
+      operationId: listAdminResources
+      summary: List all resources (admin)
+      tags: [admin]
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: approvalStatus
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminResource"
+    post:
+      operationId: createAdminResource
+      summary: Create resource (admin)
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+  /admin/resources/{id}:
+    put:
+      operationId: updateAdminResource
+      summary: Update resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+    delete:
+      operationId: deleteAdminResource
+      summary: Delete resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+
+  /admin/resources/{id}/approve:
+    post:
+      operationId: approveResource
+      summary: Approve resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+  /admin/resources/{id}/reject:
+    post:
+      operationId: rejectResource
+      summary: Reject resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+  /admin/resources/{id}/feature:
+    post:
+      operationId: featureResource
+      summary: Toggle featured flag (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
 components:
   schemas:
     HealthCheckResponse:
@@ -1462,3 +1615,210 @@ components:
           format: date-time
           nullable: true
       required: [plan, fee]
+
+    Resource:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [video, pdf, link, plan, faq]
+        category:
+          type: string
+          nullable: true
+        thumbnail:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        fileUrl:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        featured:
+          type: boolean
+        displayOrder:
+          type: integer
+        status:
+          type: string
+          enum: [draft, active, archived]
+        duration:
+          type: string
+          nullable: true
+        videoSource:
+          type: string
+          enum: [youtube, external, self-hosted]
+          nullable: true
+        sizeLabel:
+          type: string
+          nullable: true
+        planName:
+          type: string
+          nullable: true
+        planPrice:
+          type: string
+          nullable: true
+        planPeriod:
+          type: string
+          nullable: true
+        planFeatures:
+          type: array
+          items:
+            type: string
+          nullable: true
+        planHighlight:
+          type: boolean
+          nullable: true
+        planBadge:
+          type: string
+          nullable: true
+        planCta:
+          type: string
+          enum: [trial, contact]
+          nullable: true
+        iconName:
+          type: string
+          nullable: true
+        iconColor:
+          type: string
+          nullable: true
+        question:
+          type: string
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, type, tags, featured, displayOrder, status, createdAt, updatedAt]
+
+    AdminResource:
+      allOf:
+        - $ref: "#/components/schemas/Resource"
+        - type: object
+          properties:
+            approvalStatus:
+              type: string
+              enum: [pending, approved, rejected]
+            visibleTo:
+              type: string
+              enum: [all, owners]
+            createdBy:
+              type: integer
+              nullable: true
+            approvedBy:
+              type: integer
+              nullable: true
+            publishAt:
+              type: string
+              format: date-time
+              nullable: true
+            expireAt:
+              type: string
+              format: date-time
+              nullable: true
+          required: [approvalStatus, visibleTo]
+
+    ResourceInput:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [video, pdf, link, plan, faq]
+        category:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        fileUrl:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        featured:
+          type: boolean
+        displayOrder:
+          type: integer
+        status:
+          type: string
+          enum: [draft, active, archived]
+        approvalStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        visibleTo:
+          type: string
+          enum: [all, owners]
+        publishAt:
+          type: string
+          format: date-time
+          nullable: true
+        expireAt:
+          type: string
+          format: date-time
+          nullable: true
+        duration:
+          type: string
+          nullable: true
+        videoSource:
+          type: string
+          nullable: true
+        sizeLabel:
+          type: string
+          nullable: true
+        planName:
+          type: string
+          nullable: true
+        planPrice:
+          type: string
+          nullable: true
+        planPeriod:
+          type: string
+          nullable: true
+        planFeatures:
+          type: array
+          items:
+            type: string
+        planHighlight:
+          type: boolean
+          nullable: true
+        planBadge:
+          type: string
+          nullable: true
+        planCta:
+          type: string
+          nullable: true
+        iconName:
+          type: string
+          nullable: true
+        iconColor:
+          type: string
+          nullable: true
+        question:
+          type: string
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+      required: [title, type]

@@ -9,6 +9,7 @@ import subscriptionRouter from "./subscriptions";
 import storageRouter from "./storage";
 import imagesRouter from "./images";
 import paymentsRouter from "./payments";
+import resourcesRouter from "./resources";
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(subscriptionRouter);
 router.use(storageRouter);
 router.use(imagesRouter);
 router.use(paymentsRouter);
+router.use(resourcesRouter);
 
 export default router;

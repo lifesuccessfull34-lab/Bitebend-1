@@ -2,22 +2,21 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import {
   Search, Video, FileText, CreditCard, Link2, HelpCircle,
-  BookOpen, X, Heart, Settings,
+  BookOpen, X, Heart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  getResources,
   searchResources,
   getFavorites,
   toggleFavorite,
   getHistory,
   getNotifications,
   isRecent,
-  isNew,
   type Resource,
   type ResourceNotification,
   type HistoryEntry,
 } from "@/services/resourceService";
+import { apiFetch } from "@/lib/api";
 import { VideoCard } from "@/components/resources/VideoCard";
 import { PdfCard } from "@/components/resources/PdfCard";
 import { PlanCard } from "@/components/resources/PlanCard";
@@ -29,7 +28,6 @@ import { RecentlyAdded } from "@/components/resources/RecentlyAdded";
 import { ContinueLearning } from "@/components/resources/ContinueLearning";
 import { NotificationBanner } from "@/components/resources/NotificationBanner";
 import type { VideoResource, PdfResource, PlanResource, LinkResource, FaqResource } from "@/data/resources";
-import { Link } from "wouter";
 
 type FilterTab = "all" | "videos" | "pdfs" | "plans" | "links" | "faqs" | "saved";
 
@@ -46,19 +44,19 @@ const TABS: { id: FilterTab; label: string; icon: React.ElementType }[] = [
 // ── Resource → typed adapters ─────────────────────────────────────────────────
 
 function toVideo(r: Resource): VideoResource {
-  return { id: r.id, type: "video", title: r.title, description: r.description, url: r.url, thumbnailUrl: r.thumbnail, duration: r.duration, source: r.videoSource ?? "youtube" };
+  return { id: r.id, type: "video", title: r.title, description: r.description ?? "", url: r.url ?? "", thumbnailUrl: r.thumbnail ?? undefined, duration: r.duration ?? undefined, source: r.videoSource ?? "youtube" };
 }
 function toPdf(r: Resource): PdfResource {
-  return { id: r.id, type: "pdf", title: r.title, description: r.description, url: r.fileUrl ?? r.url, sizeLabel: r.sizeLabel };
+  return { id: r.id, type: "pdf", title: r.title, description: r.description ?? "", url: (r.fileUrl ?? r.url) ?? "", sizeLabel: r.sizeLabel ?? undefined };
 }
 function toPlan(r: Resource): PlanResource {
-  return { id: r.id, type: "plan", name: r.planName ?? r.title, price: r.planPrice ?? "", period: r.planPeriod, description: r.description, features: r.planFeatures ?? [], cta: r.planCta ?? "trial", highlight: r.planHighlight, badge: r.planBadge };
+  return { id: r.id, type: "plan", name: r.planName ?? r.title, price: r.planPrice ?? "", period: r.planPeriod ?? undefined, description: r.description ?? "", features: r.planFeatures ?? [], cta: r.planCta ?? "trial", highlight: r.planHighlight ?? undefined, badge: r.planBadge ?? undefined };
 }
 function toLink(r: Resource): LinkResource {
-  return { id: r.id, type: "link", title: r.title, description: r.description, url: r.url, iconName: r.iconName ?? "link", color: r.iconColor ?? "bg-gray-50 text-gray-600 border-gray-200" };
+  return { id: r.id, type: "link", title: r.title, description: r.description ?? "", url: r.url ?? "", iconName: r.iconName ?? "link", color: r.iconColor ?? "bg-gray-50 text-gray-600 border-gray-200" };
 }
 function toFaq(r: Resource): FaqResource {
-  return { id: r.id, type: "faq", question: r.question ?? r.title, answer: r.answer ?? r.description, category: r.category };
+  return { id: r.id, type: "faq", question: r.question ?? r.title, answer: (r.answer ?? r.description) ?? "", category: r.category ?? undefined };
 }
 
 export default function ResourcesCenter() {
@@ -67,8 +65,15 @@ export default function ResourcesCenter() {
   const [favorites, setFavorites] = useState<number[]>(() => getFavorites());
   const [notifications, setNotifications] = useState<ResourceNotification[]>(() => getNotifications());
   const [history] = useState<HistoryEntry[]>(() => getHistory());
+  const [allResources, setAllResources] = useState<Resource[]>([]);
+  const [apiLoading, setApiLoading] = useState(true);
 
-  const allResources = useMemo(() => getResources({ status: "active" }), []);
+  useEffect(() => {
+    apiFetch<Resource[]>("/resources")
+      .then((data) => setAllResources(data))
+      .catch(() => setAllResources([]))
+      .finally(() => setApiLoading(false));
+  }, []);
 
   useEffect(() => {
     setFavorites(getFavorites());
@@ -119,39 +124,47 @@ export default function ResourcesCenter() {
         ))}
 
         {/* Header */}
-        <div className="flex items-start justify-between mb-5">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
-                <BookOpen className="w-4 h-4 text-orange-600" />
-              </div>
-              <h1 className="text-xl font-bold text-foreground">Resources Center</h1>
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+              <BookOpen className="w-4 h-4 text-orange-600" />
             </div>
-            <p className="text-sm text-muted-foreground ml-10">
-              Everything you need to learn, setup, explore and grow with Bitebend.
-            </p>
+            <h1 className="text-xl font-bold text-foreground">Resources Center</h1>
           </div>
-          <Link
-            href="/restaurant/resources/manage"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors shrink-0"
-          >
-            <Settings className="w-3.5 h-3.5" />
-            Manage
-          </Link>
+          <p className="text-sm text-muted-foreground ml-10">
+            Everything you need to learn, setup, explore and grow with Bitebend.
+          </p>
         </div>
 
+        {/* Loading skeleton */}
+        {apiLoading && (
+          <div className="flex flex-col items-center py-20 text-muted-foreground">
+            <div className="w-8 h-8 border-2 border-orange-300 border-t-orange-500 rounded-full animate-spin mb-3" />
+            <p className="text-sm">Loading resources…</p>
+          </div>
+        )}
+
+        {/* Empty state — no approved resources yet */}
+        {!apiLoading && allResources.length === 0 && (
+          <div className="flex flex-col items-center py-20 text-muted-foreground">
+            <BookOpen className="w-10 h-10 mb-3 opacity-20" />
+            <p className="font-medium text-sm">No resources available yet</p>
+            <p className="text-xs mt-1">Check back soon — content is curated by the Bitebend team.</p>
+          </div>
+        )}
+
         {/* Featured carousel — only when no search and no non-all tab */}
-        {!q && activeTab === "all" && featuredResources.length > 0 && (
+        {!apiLoading && !q && activeTab === "all" && featuredResources.length > 0 && (
           <FeaturedCarousel resources={featuredResources} />
         )}
 
         {/* Continue Learning — only when no search, no tab filter, and has history */}
-        {!q && activeTab === "all" && history.length > 0 && (
+        {!apiLoading && !q && activeTab === "all" && history.length > 0 && (
           <ContinueLearning history={history} resources={allResources} />
         )}
 
         {/* Recently Added — only when no search and no non-all tab */}
-        {!q && activeTab === "all" && recentResources.length > 0 && (
+        {!apiLoading && !q && activeTab === "all" && recentResources.length > 0 && (
           <RecentlyAdded resources={recentResources.slice(0, 8)} />
         )}
 

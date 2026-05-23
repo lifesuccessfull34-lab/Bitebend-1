@@ -46,7 +46,7 @@ export function FeaturedCarousel({ resources }: Props) {
     trackResourceOpen(r.id);
     if (r.type === "video") {
     } else {
-      window.open(r.url, "_blank", "noopener,noreferrer");
+      window.open(r.url ?? undefined, "_blank", "noopener,noreferrer");
     }
   };
 

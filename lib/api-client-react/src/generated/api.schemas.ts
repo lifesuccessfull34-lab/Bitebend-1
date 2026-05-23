@@ -414,6 +414,169 @@ export interface AdminUpdateSubscriptionInput {
   expiresAt?: string | null;
 }
 
+export type ResourceType = (typeof ResourceType)[keyof typeof ResourceType];
+
+export const ResourceType = {
+  video: "video",
+  pdf: "pdf",
+  link: "link",
+  plan: "plan",
+  faq: "faq",
+} as const;
+
+export type ResourceStatus =
+  (typeof ResourceStatus)[keyof typeof ResourceStatus];
+
+export const ResourceStatus = {
+  draft: "draft",
+  active: "active",
+  archived: "archived",
+} as const;
+
+export type ResourceVideoSource =
+  | (typeof ResourceVideoSource)[keyof typeof ResourceVideoSource]
+  | null;
+
+export const ResourceVideoSource = {
+  youtube: "youtube",
+  external: "external",
+  "self-hosted": "self-hosted",
+} as const;
+
+export type ResourcePlanCta =
+  | (typeof ResourcePlanCta)[keyof typeof ResourcePlanCta]
+  | null;
+
+export const ResourcePlanCta = {
+  trial: "trial",
+  contact: "contact",
+} as const;
+
+export interface Resource {
+  id: number;
+  title: string;
+  description?: string | null;
+  type: ResourceType;
+  category?: string | null;
+  thumbnail?: string | null;
+  url?: string | null;
+  fileUrl?: string | null;
+  tags: string[];
+  featured: boolean;
+  displayOrder: number;
+  status: ResourceStatus;
+  duration?: string | null;
+  videoSource?: ResourceVideoSource;
+  sizeLabel?: string | null;
+  planName?: string | null;
+  planPrice?: string | null;
+  planPeriod?: string | null;
+  planFeatures?: string[] | null;
+  planHighlight?: boolean | null;
+  planBadge?: string | null;
+  planCta?: ResourcePlanCta;
+  iconName?: string | null;
+  iconColor?: string | null;
+  question?: string | null;
+  answer?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AdminResourceApprovalStatus =
+  (typeof AdminResourceApprovalStatus)[keyof typeof AdminResourceApprovalStatus];
+
+export const AdminResourceApprovalStatus = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+} as const;
+
+export type AdminResourceVisibleTo =
+  (typeof AdminResourceVisibleTo)[keyof typeof AdminResourceVisibleTo];
+
+export const AdminResourceVisibleTo = {
+  all: "all",
+  owners: "owners",
+} as const;
+
+export type AdminResource = Resource & {
+  approvalStatus: AdminResourceApprovalStatus;
+  visibleTo: AdminResourceVisibleTo;
+  createdBy?: number | null;
+  approvedBy?: number | null;
+  publishAt?: string | null;
+  expireAt?: string | null;
+};
+
+export type ResourceInputType =
+  (typeof ResourceInputType)[keyof typeof ResourceInputType];
+
+export const ResourceInputType = {
+  video: "video",
+  pdf: "pdf",
+  link: "link",
+  plan: "plan",
+  faq: "faq",
+} as const;
+
+export type ResourceInputStatus =
+  (typeof ResourceInputStatus)[keyof typeof ResourceInputStatus];
+
+export const ResourceInputStatus = {
+  draft: "draft",
+  active: "active",
+  archived: "archived",
+} as const;
+
+export type ResourceInputApprovalStatus =
+  (typeof ResourceInputApprovalStatus)[keyof typeof ResourceInputApprovalStatus];
+
+export const ResourceInputApprovalStatus = {
+  pending: "pending",
+  approved: "approved",
+  rejected: "rejected",
+} as const;
+
+export type ResourceInputVisibleTo =
+  (typeof ResourceInputVisibleTo)[keyof typeof ResourceInputVisibleTo];
+
+export const ResourceInputVisibleTo = {
+  all: "all",
+  owners: "owners",
+} as const;
+
+export interface ResourceInput {
+  title: string;
+  description?: string | null;
+  type: ResourceInputType;
+  category?: string | null;
+  url?: string | null;
+  fileUrl?: string | null;
+  tags?: string[];
+  featured?: boolean;
+  displayOrder?: number;
+  status?: ResourceInputStatus;
+  approvalStatus?: ResourceInputApprovalStatus;
+  visibleTo?: ResourceInputVisibleTo;
+  publishAt?: string | null;
+  expireAt?: string | null;
+  duration?: string | null;
+  videoSource?: string | null;
+  sizeLabel?: string | null;
+  planName?: string | null;
+  planPrice?: string | null;
+  planPeriod?: string | null;
+  planFeatures?: string[];
+  planHighlight?: boolean | null;
+  planBadge?: string | null;
+  planCta?: string | null;
+  iconName?: string | null;
+  iconColor?: string | null;
+  question?: string | null;
+  answer?: string | null;
+}
+
 export type Logout200 = {
   ok: boolean;
 };
@@ -435,3 +598,8 @@ export const ListOwnerOrdersStatus = {
   cancelled: "cancelled",
   all: "all",
 } as const;
+
+export type ListAdminResourcesParams = {
+  type?: string;
+  approvalStatus?: string;
+};

@@ -16,6 +16,7 @@ import {
   restaurantTables,
   platformSettings,
   billLinks,
+  resources,
 } from "@workspace/db";
 import { eq, sql, inArray, gte, lt, and, isNotNull } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/auth";
@@ -685,5 +686,191 @@ const getBuildInfo: RequestHandler = (_req, res) => {
 };
 
 router.get("/admin/build-info", requireAdmin, getBuildInfo);
+
+// ── Resources CRUD ────────────────────────────────────────────────────────────
+
+interface AdminResourceInput {
+  title?: string;
+  description?: string;
+  type?: string;
+  category?: string;
+  thumbnail?: string;
+  url?: string;
+  fileUrl?: string;
+  tags?: string[];
+  featured?: boolean;
+  displayOrder?: number;
+  status?: string;
+  approvalStatus?: string;
+  visibleTo?: string;
+  duration?: string;
+  videoSource?: string;
+  sizeLabel?: string;
+  planName?: string;
+  planPrice?: string;
+  planPeriod?: string;
+  planFeatures?: string[];
+  planHighlight?: boolean;
+  planBadge?: string;
+  planCta?: string;
+  iconName?: string;
+  iconColor?: string;
+  question?: string;
+  answer?: string;
+  publishAt?: string | null;
+  expireAt?: string | null;
+}
+
+const listAdminResources: RequestHandler = async (req, res) => {
+  const { type: typeFilter, approvalStatus: aStatusFilter } = req.query as { type?: string; approvalStatus?: string };
+  const allRows = await db.select().from(resources).orderBy(resources.displayOrder, resources.createdAt);
+  const filtered = allRows
+    .filter((r) => !typeFilter || r.type === typeFilter)
+    .filter((r) => !aStatusFilter || r.approvalStatus === aStatusFilter);
+  res.json(filtered);
+};
+
+const createAdminResource: RequestHandler = async (req, res) => {
+  const adminUserId = req.session.userId ?? null;
+  const body = req.body as AdminResourceInput;
+  if (!body.title?.trim() || !body.type) {
+    res.status(400).json({ error: "title and type are required" });
+    return;
+  }
+  type RType = typeof resources.$inferInsert;
+  const [row] = await db.insert(resources).values({
+    title: body.title.trim(),
+    description: body.description?.trim() ?? null,
+    type: body.type as RType["type"],
+    category: body.category?.trim() ?? null,
+    thumbnail: body.thumbnail?.trim() ?? null,
+    url: body.url?.trim() ?? null,
+    fileUrl: body.fileUrl?.trim() ?? null,
+    tags: body.tags ?? [],
+    featured: body.featured ?? false,
+    displayOrder: body.displayOrder ?? 0,
+    status: (body.status as RType["status"]) ?? "draft",
+    approvalStatus: (body.approvalStatus as RType["approvalStatus"]) ?? "pending",
+    visibleTo: (body.visibleTo as RType["visibleTo"]) ?? "all",
+    createdBy: adminUserId,
+    approvedBy: body.approvalStatus === "approved" ? adminUserId : null,
+    publishAt: body.publishAt ? new Date(body.publishAt) : null,
+    expireAt: body.expireAt ? new Date(body.expireAt) : null,
+    duration: body.duration?.trim() ?? null,
+    videoSource: (body.videoSource as RType["videoSource"]) ?? null,
+    sizeLabel: body.sizeLabel?.trim() ?? null,
+    planName: body.planName?.trim() ?? null,
+    planPrice: body.planPrice?.trim() ?? null,
+    planPeriod: body.planPeriod?.trim() ?? null,
+    planFeatures: body.planFeatures ?? [],
+    planHighlight: body.planHighlight ?? false,
+    planBadge: body.planBadge?.trim() ?? null,
+    planCta: (body.planCta as RType["planCta"]) ?? null,
+    iconName: body.iconName?.trim() ?? null,
+    iconColor: body.iconColor?.trim() ?? null,
+    question: body.question?.trim() ?? null,
+    answer: body.answer?.trim() ?? null,
+    updatedAt: new Date(),
+  }).returning();
+  res.status(201).json(row);
+};
+
+const updateAdminResource: RequestHandler = async (req, res) => {
+  const adminUserId = req.session.userId ?? null;
+  const resourceId = parseInt(String(req.params.id));
+  if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const body = req.body as AdminResourceInput;
+  const [existing] = await db.select().from(resources).where(eq(resources.id, resourceId)).limit(1);
+  if (!existing) { res.status(404).json({ error: "Resource not found" }); return; }
+  type RType = typeof resources.$inferInsert;
+  const updates: Partial<RType> = { updatedAt: new Date() };
+  if (body.title !== undefined) updates.title = body.title.trim();
+  if (body.description !== undefined) updates.description = body.description?.trim() ?? null;
+  if (body.type !== undefined) updates.type = body.type as RType["type"];
+  if (body.category !== undefined) updates.category = body.category?.trim() ?? null;
+  if (body.thumbnail !== undefined) updates.thumbnail = body.thumbnail?.trim() ?? null;
+  if (body.url !== undefined) updates.url = body.url?.trim() ?? null;
+  if (body.fileUrl !== undefined) updates.fileUrl = body.fileUrl?.trim() ?? null;
+  if (body.tags !== undefined) updates.tags = body.tags;
+  if (body.featured !== undefined) updates.featured = body.featured;
+  if (body.displayOrder !== undefined) updates.displayOrder = body.displayOrder;
+  if (body.status !== undefined) updates.status = body.status as RType["status"];
+  if (body.approvalStatus !== undefined) {
+    updates.approvalStatus = body.approvalStatus as RType["approvalStatus"];
+    if (body.approvalStatus === "approved" && existing.approvalStatus !== "approved") {
+      updates.approvedBy = adminUserId;
+    }
+  }
+  if (body.visibleTo !== undefined) updates.visibleTo = body.visibleTo as RType["visibleTo"];
+  if (body.publishAt !== undefined) updates.publishAt = body.publishAt ? new Date(body.publishAt) : null;
+  if (body.expireAt !== undefined) updates.expireAt = body.expireAt ? new Date(body.expireAt) : null;
+  if (body.duration !== undefined) updates.duration = body.duration?.trim() ?? null;
+  if (body.videoSource !== undefined) updates.videoSource = body.videoSource as RType["videoSource"];
+  if (body.sizeLabel !== undefined) updates.sizeLabel = body.sizeLabel?.trim() ?? null;
+  if (body.planName !== undefined) updates.planName = body.planName?.trim() ?? null;
+  if (body.planPrice !== undefined) updates.planPrice = body.planPrice?.trim() ?? null;
+  if (body.planPeriod !== undefined) updates.planPeriod = body.planPeriod?.trim() ?? null;
+  if (body.planFeatures !== undefined) updates.planFeatures = body.planFeatures;
+  if (body.planHighlight !== undefined) updates.planHighlight = body.planHighlight;
+  if (body.planBadge !== undefined) updates.planBadge = body.planBadge?.trim() ?? null;
+  if (body.planCta !== undefined) updates.planCta = body.planCta as RType["planCta"];
+  if (body.iconName !== undefined) updates.iconName = body.iconName?.trim() ?? null;
+  if (body.iconColor !== undefined) updates.iconColor = body.iconColor?.trim() ?? null;
+  if (body.question !== undefined) updates.question = body.question?.trim() ?? null;
+  if (body.answer !== undefined) updates.answer = body.answer?.trim() ?? null;
+  const [updated] = await db.update(resources).set(updates).where(eq(resources.id, resourceId)).returning();
+  res.json(updated);
+};
+
+const deleteAdminResource: RequestHandler = async (req, res) => {
+  const resourceId = parseInt(String(req.params.id));
+  if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const [deleted] = await db.delete(resources).where(eq(resources.id, resourceId)).returning({ id: resources.id });
+  if (!deleted) { res.status(404).json({ error: "Resource not found" }); return; }
+  res.json({ deleted: true });
+};
+
+const approveAdminResource: RequestHandler = async (req, res) => {
+  const adminUserId = req.session.userId ?? null;
+  const resourceId = parseInt(String(req.params.id));
+  if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const [updated] = await db.update(resources)
+    .set({ approvalStatus: "approved", status: "active", approvedBy: adminUserId, updatedAt: new Date() })
+    .where(eq(resources.id, resourceId))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Resource not found" }); return; }
+  res.json(updated);
+};
+
+const rejectAdminResource: RequestHandler = async (req, res) => {
+  const resourceId = parseInt(String(req.params.id));
+  if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const [updated] = await db.update(resources)
+    .set({ approvalStatus: "rejected", status: "draft", updatedAt: new Date() })
+    .where(eq(resources.id, resourceId))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Resource not found" }); return; }
+  res.json(updated);
+};
+
+const featureAdminResource: RequestHandler = async (req, res) => {
+  const resourceId = parseInt(String(req.params.id));
+  if (isNaN(resourceId)) { res.status(400).json({ error: "Invalid ID" }); return; }
+  const [existing] = await db.select({ featured: resources.featured }).from(resources).where(eq(resources.id, resourceId)).limit(1);
+  if (!existing) { res.status(404).json({ error: "Resource not found" }); return; }
+  const [updated] = await db.update(resources)
+    .set({ featured: !existing.featured, updatedAt: new Date() })
+    .where(eq(resources.id, resourceId))
+    .returning();
+  res.json(updated);
+};
+
+router.get("/admin/resources", requireAdmin, listAdminResources);
+router.post("/admin/resources", requireAdmin, createAdminResource);
+router.put("/admin/resources/:id", requireAdmin, updateAdminResource);
+router.delete("/admin/resources/:id", requireAdmin, deleteAdminResource);
+router.post("/admin/resources/:id/approve", requireAdmin, approveAdminResource);
+router.post("/admin/resources/:id/reject", requireAdmin, rejectAdminResource);
+router.post("/admin/resources/:id/feature", requireAdmin, featureAdminResource);
 
 export default router;

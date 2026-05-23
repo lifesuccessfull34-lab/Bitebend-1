@@ -18,7 +18,7 @@ import {
   LayoutDashboard, TrendingDown, KeyRound, Copy, Eye, EyeOff,
   Filter, ChevronDown, Smartphone, ShieldCheck, Pencil, Clock,
   FileText, ScrollText, ExternalLink, Download, FileSpreadsheet,
-  Receipt,
+  Receipt, BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATE_NAMES, getDistricts } from "@/data/india-states-districts";
@@ -184,6 +184,60 @@ export default function Admin() {
     last24h: { generated: number; opened: number };
   }
   const [billStats, setBillStats] = useState<BillStats | null>(null);
+
+  interface AdminResource {
+    id: number; title: string; description: string | null; type: string;
+    category: string | null; thumbnail: string | null; url: string | null;
+    fileUrl: string | null; tags: string[]; featured: boolean;
+    displayOrder: number; status: string; approvalStatus: string;
+    visibleTo: string; createdBy: number | null; approvedBy: number | null;
+    publishAt: string | null; expireAt: string | null;
+    duration: string | null; videoSource: string | null; sizeLabel: string | null;
+    planName: string | null; planPrice: string | null; planPeriod: string | null;
+    planFeatures: string[] | null; planHighlight: boolean | null;
+    planBadge: string | null; planCta: string | null;
+    iconName: string | null; iconColor: string | null;
+    question: string | null; answer: string | null;
+    createdAt: string; updatedAt: string;
+  }
+  interface AdminResourceFormState {
+    id: number | null; title: string; description: string; type: string;
+    category: string; url: string; fileUrl: string; tags: string;
+    featured: boolean; displayOrder: number; status: string; approvalStatus: string;
+    duration: string; videoSource: string; sizeLabel: string;
+    planName: string; planPrice: string; planPeriod: string;
+    planFeatures: string; planHighlight: boolean; planBadge: string; planCta: string;
+    iconName: string; iconColor: string; question: string; answer: string;
+  }
+  const emptyResForm = (): AdminResourceFormState => ({
+    id: null, title: "", description: "", type: "video", category: "",
+    url: "", fileUrl: "", tags: "", featured: false, displayOrder: 0,
+    status: "draft", approvalStatus: "pending",
+    duration: "", videoSource: "youtube", sizeLabel: "",
+    planName: "", planPrice: "", planPeriod: "", planFeatures: "",
+    planHighlight: false, planBadge: "", planCta: "",
+    iconName: "", iconColor: "", question: "", answer: "",
+  });
+  const resourceToForm = (r: AdminResource): AdminResourceFormState => ({
+    id: r.id, title: r.title, description: r.description ?? "",
+    type: r.type, category: r.category ?? "", url: r.url ?? "",
+    fileUrl: r.fileUrl ?? "", tags: (r.tags ?? []).join(", "),
+    featured: r.featured, displayOrder: r.displayOrder, status: r.status,
+    approvalStatus: r.approvalStatus,
+    duration: r.duration ?? "", videoSource: r.videoSource ?? "youtube",
+    sizeLabel: r.sizeLabel ?? "", planName: r.planName ?? "",
+    planPrice: r.planPrice ?? "", planPeriod: r.planPeriod ?? "",
+    planFeatures: (r.planFeatures ?? []).join("\n"),
+    planHighlight: r.planHighlight ?? false, planBadge: r.planBadge ?? "",
+    planCta: r.planCta ?? "", iconName: r.iconName ?? "",
+    iconColor: r.iconColor ?? "", question: r.question ?? "", answer: r.answer ?? "",
+  });
+  const [adminResources, setAdminResources] = useState<AdminResource[]>([]);
+  const [resFilter, setResFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
+  const [resForm, setResForm] = useState<AdminResourceFormState | null>(null);
+  const [resSaving, setResSaving] = useState(false);
+  const [resActionId, setResActionId] = useState<number | null>(null);
+
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [transactions, setTransactions] = useState<(SubscriptionTransaction & { restaurantName?: string })[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,7 +327,7 @@ export default function Admin() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [rests, s, custs, plns, txns, ps, bs] = await Promise.all([
+      const [rests, s, custs, plns, txns, ps, bs, rs] = await Promise.all([
         apiFetch<RestaurantWithOwner[]>("/admin/restaurants"),
         apiFetch<AdminStats>("/admin/stats"),
         apiFetch<AdminCustomer[]>("/admin/customers"),
@@ -281,6 +335,7 @@ export default function Admin() {
         apiFetch<(SubscriptionTransaction & { restaurantName?: string })[]>("/admin/transactions"),
         apiFetch<PaymentSettings>("/admin/payment-settings"),
         apiFetch<BillStats>("/admin/bill-stats"),
+        apiFetch<AdminResource[]>("/admin/resources"),
       ]);
       setRestaurants(rests);
       setStats(s);
@@ -290,6 +345,7 @@ export default function Admin() {
       setPaymentSettings(ps);
       setUpiIdEdit(ps.upiId);
       setBillStats(bs);
+      setAdminResources(rs);
     } catch (e) {
       handleAuthError(e);
     } finally {
@@ -465,6 +521,81 @@ export default function Admin() {
     finally { setNotifSending(false); }
   };
 
+  const handleSaveResource = useCallback(async () => {
+    if (!resForm) return;
+    setResSaving(true);
+    try {
+      const body = {
+        title: resForm.title.trim(), description: resForm.description.trim() || null,
+        type: resForm.type, category: resForm.category.trim() || null,
+        url: resForm.url.trim() || null, fileUrl: resForm.fileUrl.trim() || null,
+        tags: resForm.tags.split(",").map((t) => t.trim()).filter(Boolean),
+        featured: resForm.featured, displayOrder: resForm.displayOrder,
+        status: resForm.status, approvalStatus: resForm.approvalStatus,
+        duration: resForm.duration.trim() || null,
+        videoSource: resForm.videoSource || null,
+        sizeLabel: resForm.sizeLabel.trim() || null,
+        planName: resForm.planName.trim() || null,
+        planPrice: resForm.planPrice.trim() || null,
+        planPeriod: resForm.planPeriod.trim() || null,
+        planFeatures: resForm.planFeatures.split("\n").map((f) => f.trim()).filter(Boolean),
+        planHighlight: resForm.planHighlight,
+        planBadge: resForm.planBadge.trim() || null,
+        planCta: resForm.planCta || null,
+        iconName: resForm.iconName.trim() || null,
+        iconColor: resForm.iconColor.trim() || null,
+        question: resForm.question.trim() || null,
+        answer: resForm.answer.trim() || null,
+      };
+      if (resForm.id) {
+        const updated = await apiFetch<AdminResource>(`/admin/resources/${resForm.id}`, { method: "PUT", body: JSON.stringify(body) });
+        setAdminResources((prev) => prev.map((r) => r.id === resForm.id ? updated : r));
+      } else {
+        const created = await apiFetch<AdminResource>("/admin/resources", { method: "POST", body: JSON.stringify(body) });
+        setAdminResources((prev) => [...prev, created]);
+      }
+      setResForm(null);
+    } catch (e) { handleAuthError(e); }
+    finally { setResSaving(false); }
+  }, [resForm, handleAuthError]);
+
+  const handleResApprove = useCallback(async (id: number) => {
+    setResActionId(id);
+    try {
+      const updated = await apiFetch<AdminResource>(`/admin/resources/${id}/approve`, { method: "POST" });
+      setAdminResources((prev) => prev.map((r) => r.id === id ? updated : r));
+    } catch (e) { handleAuthError(e); }
+    finally { setResActionId(null); }
+  }, [handleAuthError]);
+
+  const handleResReject = useCallback(async (id: number) => {
+    setResActionId(id);
+    try {
+      const updated = await apiFetch<AdminResource>(`/admin/resources/${id}/reject`, { method: "POST" });
+      setAdminResources((prev) => prev.map((r) => r.id === id ? updated : r));
+    } catch (e) { handleAuthError(e); }
+    finally { setResActionId(null); }
+  }, [handleAuthError]);
+
+  const handleResFeature = useCallback(async (id: number) => {
+    setResActionId(id);
+    try {
+      const updated = await apiFetch<AdminResource>(`/admin/resources/${id}/feature`, { method: "POST" });
+      setAdminResources((prev) => prev.map((r) => r.id === id ? updated : r));
+    } catch (e) { handleAuthError(e); }
+    finally { setResActionId(null); }
+  }, [handleAuthError]);
+
+  const handleResDelete = useCallback(async (id: number) => {
+    if (!confirm("Delete this resource? This cannot be undone.")) return;
+    setResActionId(id);
+    try {
+      await apiFetch(`/admin/resources/${id}`, { method: "DELETE" });
+      setAdminResources((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) { handleAuthError(e); }
+    finally { setResActionId(null); }
+  }, [handleAuthError]);
+
   const availableDistricts = useMemo(
     () => (filterState === "all" ? [] : getDistricts(filterState)),
     [filterState]
@@ -483,6 +614,11 @@ export default function Admin() {
   const exhaustedRestsArr = useMemo(() => restaurants.filter((r) => r.subscriptionStatus === "exhausted"), [restaurants]);
   const activeRestsArr = useMemo(() => restaurants.filter((r) => r.subscriptionStatus === "active"), [restaurants]);
   const disabledRestsArr = useMemo(() => restaurants.filter((r) => !r.isActive), [restaurants]);
+  const filteredResources = useMemo(() =>
+    resFilter === "all" ? adminResources
+      : adminResources.filter((r) => r.approvalStatus === resFilter),
+    [adminResources, resFilter],
+  );
 
   const txnStates = useMemo(() =>
     [...new Set(transactions.map((t) => t.restaurantState).filter(Boolean) as string[])].sort(),
@@ -714,6 +850,7 @@ export default function Admin() {
     notifications: { title: "Send Notification", desc: "Broadcast to restaurants", icon: Bell },
     legal: { title: "Legal Pages", desc: "Terms & Conditions · Privacy Policy", icon: FileText },
     bills: { title: "Bill Metrics", desc: "Payment bill delivery analytics", icon: Receipt },
+    resources: { title: "Resources", desc: `${adminResources.length} resources · ${adminResources.filter((r) => r.approvalStatus === "pending").length} pending`, icon: BookOpen },
   };
   const current = PAGE_TITLES[tab];
 
@@ -2253,6 +2390,334 @@ export default function Admin() {
               </div>
               <p className="text-xl font-semibold text-slate-500">{billStats?.expired ?? "—"}</p>
             </div>
+          </div>
+        )}
+
+        {/* ── Resources ── */}
+        {tab === "resources" && (
+          <div className="space-y-5">
+            {/* Action bar */}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex gap-2 flex-wrap">
+                {(["all", "pending", "approved", "rejected"] as const).map((f) => {
+                  const count = f === "all" ? adminResources.length
+                    : adminResources.filter((r) => r.approvalStatus === f).length;
+                  return (
+                    <button key={f} onClick={() => setResFilter(f)}
+                      className={cn("px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors capitalize",
+                        resFilter === f
+                          ? f === "pending" ? "bg-amber-500 text-white border-amber-500"
+                            : f === "approved" ? "bg-emerald-600 text-white border-emerald-600"
+                            : f === "rejected" ? "bg-red-500 text-white border-red-500"
+                            : "bg-indigo-600 text-white border-indigo-600"
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      )}>
+                      {f === "all" ? "All" : f} <span className="ml-0.5 opacity-70">{count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <Button size="sm" onClick={() => setResForm(emptyResForm())}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Resource
+              </Button>
+            </div>
+
+            {/* Create / Edit form */}
+            {resForm && (
+              <div className="bg-white rounded-xl border border-indigo-200 shadow-sm p-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-800">{resForm.id ? "Edit Resource" : "New Resource"}</h3>
+                  <button onClick={() => setResForm(null)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Type *</Label>
+                    <select value={resForm.type}
+                      onChange={(e) => setResForm((f) => f ? { ...f, type: e.target.value } : f)}
+                      className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                      {(["video", "pdf", "link", "plan", "faq"] as const).map((t) => (
+                        <option key={t} value={t}>{t.toUpperCase()}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Status</Label>
+                    <select value={resForm.status}
+                      onChange={(e) => setResForm((f) => f ? { ...f, status: e.target.value } : f)}
+                      className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                      <option value="draft">Draft</option>
+                      <option value="active">Active</option>
+                      <option value="archived">Archived</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Approval</Label>
+                    <select value={resForm.approvalStatus}
+                      onChange={(e) => setResForm((f) => f ? { ...f, approvalStatus: e.target.value } : f)}
+                      className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Display Order</Label>
+                    <Input type="number" value={resForm.displayOrder}
+                      onChange={(e) => setResForm((f) => f ? { ...f, displayOrder: parseInt(e.target.value) || 0 } : f)} />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1">
+                    <Label className="text-xs">Title *</Label>
+                    <Input value={resForm.title}
+                      onChange={(e) => setResForm((f) => f ? { ...f, title: e.target.value } : f)}
+                      placeholder="Resource title" />
+                  </div>
+                  <div className="sm:col-span-2 space-y-1">
+                    <Label className="text-xs">Description</Label>
+                    <Input value={resForm.description}
+                      onChange={(e) => setResForm((f) => f ? { ...f, description: e.target.value } : f)}
+                      placeholder="Brief description" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Category</Label>
+                    <Input value={resForm.category}
+                      onChange={(e) => setResForm((f) => f ? { ...f, category: e.target.value } : f)}
+                      placeholder="e.g. Setup, Payments" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">URL</Label>
+                    <Input value={resForm.url}
+                      onChange={(e) => setResForm((f) => f ? { ...f, url: e.target.value } : f)}
+                      placeholder="https://" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tags (comma-separated)</Label>
+                    <Input value={resForm.tags}
+                      onChange={(e) => setResForm((f) => f ? { ...f, tags: e.target.value } : f)}
+                      placeholder="setup, tutorial, demo" />
+                  </div>
+                  <div className="flex items-center gap-2 pt-5">
+                    <input type="checkbox" id="res-featured" checked={resForm.featured}
+                      onChange={(e) => setResForm((f) => f ? { ...f, featured: e.target.checked } : f)}
+                      className="w-4 h-4 rounded accent-indigo-600" />
+                    <label htmlFor="res-featured" className="text-sm font-medium text-slate-700">Featured</label>
+                  </div>
+
+                  {/* Video-specific */}
+                  {resForm.type === "video" && (<>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Duration</Label>
+                      <Input value={resForm.duration}
+                        onChange={(e) => setResForm((f) => f ? { ...f, duration: e.target.value } : f)}
+                        placeholder="3:24" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Video Source</Label>
+                      <select value={resForm.videoSource}
+                        onChange={(e) => setResForm((f) => f ? { ...f, videoSource: e.target.value } : f)}
+                        className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300">
+                        <option value="youtube">YouTube</option>
+                        <option value="external">External</option>
+                        <option value="self-hosted">Self-hosted</option>
+                      </select>
+                    </div>
+                  </>)}
+
+                  {/* PDF-specific */}
+                  {resForm.type === "pdf" && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">File URL</Label>
+                      <Input value={resForm.fileUrl}
+                        onChange={(e) => setResForm((f) => f ? { ...f, fileUrl: e.target.value } : f)}
+                        placeholder="/docs/guide.pdf or https://..." />
+                    </div>
+                  )}
+
+                  {/* Plan-specific */}
+                  {resForm.type === "plan" && (<>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Plan Name</Label>
+                      <Input value={resForm.planName}
+                        onChange={(e) => setResForm((f) => f ? { ...f, planName: e.target.value } : f)}
+                        placeholder="Starter" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Price</Label>
+                      <Input value={resForm.planPrice}
+                        onChange={(e) => setResForm((f) => f ? { ...f, planPrice: e.target.value } : f)}
+                        placeholder="₹199" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Period</Label>
+                      <Input value={resForm.planPeriod}
+                        onChange={(e) => setResForm((f) => f ? { ...f, planPeriod: e.target.value } : f)}
+                        placeholder="per 500 customers" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Badge</Label>
+                      <Input value={resForm.planBadge}
+                        onChange={(e) => setResForm((f) => f ? { ...f, planBadge: e.target.value } : f)}
+                        placeholder="Most Popular" />
+                    </div>
+                    <div className="sm:col-span-2 space-y-1">
+                      <Label className="text-xs">Features (one per line)</Label>
+                      <textarea value={resForm.planFeatures}
+                        onChange={(e) => setResForm((f) => f ? { ...f, planFeatures: e.target.value } : f)}
+                        className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 h-24 resize-none"
+                        placeholder={"Up to 500 unique customers\nQR table ordering\nBasic menu management"} />
+                    </div>
+                  </>)}
+
+                  {/* Link-specific */}
+                  {resForm.type === "link" && (<>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Icon Name</Label>
+                      <Input value={resForm.iconName}
+                        onChange={(e) => setResForm((f) => f ? { ...f, iconName: e.target.value } : f)}
+                        placeholder="calendar, globe, mail..." />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Icon Color Classes</Label>
+                      <Input value={resForm.iconColor}
+                        onChange={(e) => setResForm((f) => f ? { ...f, iconColor: e.target.value } : f)}
+                        placeholder="bg-blue-50 text-blue-600 border-blue-200" />
+                    </div>
+                  </>)}
+
+                  {/* FAQ-specific */}
+                  {resForm.type === "faq" && (<>
+                    <div className="sm:col-span-2 space-y-1">
+                      <Label className="text-xs">Question</Label>
+                      <Input value={resForm.question}
+                        onChange={(e) => setResForm((f) => f ? { ...f, question: e.target.value } : f)}
+                        placeholder="How does QR ordering work?" />
+                    </div>
+                    <div className="sm:col-span-2 space-y-1">
+                      <Label className="text-xs">Answer</Label>
+                      <textarea value={resForm.answer}
+                        onChange={(e) => setResForm((f) => f ? { ...f, answer: e.target.value } : f)}
+                        className="w-full text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 h-24 resize-none"
+                        placeholder="Detailed answer..." />
+                    </div>
+                  </>)}
+                </div>
+
+                <div className="flex gap-2 justify-end pt-1">
+                  <Button variant="outline" size="sm" onClick={() => setResForm(null)}>
+                    <X className="w-3.5 h-3.5 mr-1" /> Cancel
+                  </Button>
+                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                    disabled={resSaving || !resForm.title.trim() || !resForm.type}
+                    onClick={handleSaveResource}>
+                    {resSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Save className="w-3.5 h-3.5 mr-1" />}
+                    {resForm.id ? "Update" : "Create"}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Resource list */}
+            {filteredResources.length === 0 ? (
+              <div className="text-center py-14 text-slate-400">
+                <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                <p className="font-medium text-sm">
+                  {resFilter === "all" ? "No resources yet" : `No ${resFilter} resources`}
+                </p>
+                {resFilter === "all" && (
+                  <p className="text-xs mt-1">Click "Add Resource" to create your first one</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredResources.map((r) => (
+                  <div key={r.id}
+                    className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex items-start gap-3 flex-1 min-w-0">
+                      <div className={cn(
+                        "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-[10px] font-bold uppercase",
+                        r.type === "video" ? "bg-red-100 text-red-600"
+                          : r.type === "pdf" ? "bg-blue-100 text-blue-600"
+                          : r.type === "link" ? "bg-green-100 text-green-600"
+                          : r.type === "plan" ? "bg-purple-100 text-purple-600"
+                          : "bg-amber-100 text-amber-600"
+                      )}>
+                        {r.type.slice(0, 3)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-sm text-slate-800 truncate">{r.title}</p>
+                          {r.featured && (
+                            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold">★ Featured</span>
+                          )}
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold",
+                            r.approvalStatus === "approved" ? "bg-emerald-100 text-emerald-700"
+                              : r.approvalStatus === "rejected" ? "bg-red-100 text-red-700"
+                              : "bg-amber-100 text-amber-700"
+                          )}>{r.approvalStatus}</span>
+                          <span className={cn("text-[10px] px-1.5 py-0.5 rounded font-semibold",
+                            r.status === "active" ? "bg-blue-100 text-blue-700"
+                              : r.status === "archived" ? "bg-slate-100 text-slate-500"
+                              : "bg-gray-100 text-gray-500"
+                          )}>{r.status}</span>
+                        </div>
+                        {r.description && (
+                          <p className="text-xs text-slate-500 truncate mt-0.5">{r.description}</p>
+                        )}
+                        {r.category && (
+                          <p className="text-[11px] text-slate-400 mt-0.5">{r.category}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-1.5 items-center shrink-0 flex-wrap">
+                      {r.approvalStatus === "pending" && (<>
+                        <Button size="sm" variant="outline"
+                          className="text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-7 px-2"
+                          disabled={resActionId === r.id}
+                          onClick={() => handleResApprove(r.id)}>
+                          {resActionId === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="outline"
+                          className="text-xs border-red-200 text-red-600 hover:bg-red-50 h-7 px-2"
+                          disabled={resActionId === r.id}
+                          onClick={() => handleResReject(r.id)}>
+                          <Ban className="w-3 h-3 mr-1" /> Reject
+                        </Button>
+                      </>)}
+                      {r.approvalStatus === "rejected" && (
+                        <Button size="sm" variant="outline"
+                          className="text-xs border-emerald-200 text-emerald-700 hover:bg-emerald-50 h-7 px-2"
+                          disabled={resActionId === r.id}
+                          onClick={() => handleResApprove(r.id)}>
+                          <CheckCircle className="w-3 h-3 mr-1" /> Re-approve
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost"
+                        className={cn("text-xs h-7 px-2 font-bold", r.featured ? "text-amber-500" : "text-slate-300 hover:text-amber-400")}
+                        disabled={resActionId === r.id}
+                        title="Toggle featured"
+                        onClick={() => handleResFeature(r.id)}>
+                        ★
+                      </Button>
+                      <Button size="sm" variant="outline"
+                        className="text-xs h-7 px-2 text-slate-500"
+                        onClick={() => setResForm(resourceToForm(r))}>
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                      <Button size="sm" variant="outline"
+                        className="text-xs border-red-200 text-red-500 hover:bg-red-50 h-7 px-2"
+                        disabled={resActionId === r.id}
+                        onClick={() => handleResDelete(r.id)}>
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
