@@ -1009,10 +1009,13 @@ components:
           type: string
         restaurantCity:
           type: string
+          description: "Actual city or town name; independent of district and must not be inferred or derived from it"
         restaurantState:
           type: string
+          description: "Indian state name (e.g. Maharashtra, Tamil Nadu)"
         restaurantDistrict:
           type: string
+          description: "Administrative district within the selected state (e.g. Pune, Coimbatore)"
         cuisineType:
           type: string
           enum:

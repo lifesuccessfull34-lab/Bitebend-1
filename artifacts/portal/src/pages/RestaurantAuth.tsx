@@ -345,7 +345,7 @@ function RegisterForm() {
             {STATE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </FieldRow>
-        <FieldRow label={form.state ? "District *" : "District"}>
+        <FieldRow label={form.state ? "District (Administrative Region) *" : "District (Administrative Region)"}>
           <select
             value={form.district}
             onChange={set("district")}
@@ -358,14 +358,17 @@ function RegisterForm() {
           </select>
         </FieldRow>
       </div>
-      <FieldRow label="City *">
+      <FieldRow label="City / Town *">
         <Input
-          placeholder="City / Town"
+          placeholder="e.g. Pune, Nashik, Coimbatore"
           value={form.city}
           onChange={set("city")}
           required
           className="focus-visible:ring-orange-400"
         />
+        <p className="text-xs text-gray-400 mt-1">
+          Enter the actual city or town name. This is independent of district.
+        </p>
       </FieldRow>
       <FieldRow label="Restaurant Address (optional)">
         <Input placeholder="123, MG Road, Near City Mall…" value={form.address}
