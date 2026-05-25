@@ -288,6 +288,10 @@ const placeOrder: RequestHandler = async (req, res) => {
   const tax = Math.round((subtotal * restaurant.taxPercent) / 100);
   const total = subtotal + tax;
 
+  // QR (upi) orders start as awaiting_verification — customer must scan and pay.
+  // Cash orders start as unpaid — staff collects at table.
+  const initialPaymentStatus = paymentMethod === "upi" ? "awaiting_verification" : "unpaid";
+
   const [order] = await db.insert(orders).values({
     restaurantId,
     tableId: tableId ?? null,
@@ -299,7 +303,7 @@ const placeOrder: RequestHandler = async (req, res) => {
     tax,
     total,
     status: "ordered",
-    paymentStatus: "unpaid",
+    paymentStatus: initialPaymentStatus,
     paymentMethod: paymentMethod ?? null,
     updatedAt: new Date(),
   }).returning();
@@ -541,6 +545,7 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
   const match = matchPayment(ocrResult, order.total);
   const newPaymentStatus = match.matched ? "paid" : "manual_review";
   const newVerificationStatus = match.matched ? "ai_verified" : "manual_review";
+  const now = new Date();
 
   await db
     .update(orders)
@@ -549,7 +554,8 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
       paymentOcrData: JSON.stringify(ocrResult),
       paymentVerificationStatus: newVerificationStatus,
       paymentStatus: newPaymentStatus,
-      updatedAt: new Date(),
+      ...(match.matched ? { verificationMethod: "ocr_ai", verifiedAt: now } : {}),
+      updatedAt: now,
     })
     .where(eq(orders.id, orderId));
 

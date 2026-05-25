@@ -1057,12 +1057,60 @@ const approvePayment: RequestHandler = async (req, res) => {
     .limit(1);
   if (!order) { res.status(404).json({ error: "Order not found" }); return; }
 
+  const now = new Date();
   await db
     .update(orders)
-    .set({ paymentStatus: "paid", paymentVerificationStatus: "approved", updatedAt: new Date() })
+    .set({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "approved",
+      verificationMethod: "manual_staff",
+      verifiedBy: user.id,
+      verifiedAt: now,
+      paidAt: now,
+      updatedAt: now,
+    })
     .where(eq(orders.id, orderId));
 
-  req.log.info({ orderId }, "Payment manually approved");
+  req.log.info({ orderId, userId: user.id }, "Payment manually approved");
+  res.json({ success: true });
+};
+
+// ─── POST /owner/orders/:orderId/confirm-staff-payment ───────────────────────
+// Staff confirms customer paid by showing payment confirmation at counter.
+// Works for awaiting_verification (Path B) and manual_review (low-confidence OCR).
+const confirmStaffPayment: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  const orderId = parseInt(String(req.params.orderId));
+  const { utr, notes } = req.body as { utr?: string; notes?: string };
+
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
+    .limit(1);
+  if (!order) { res.status(404).json({ error: "Order not found" }); return; }
+
+  if (order.paymentStatus === "paid") {
+    res.json({ success: true, alreadyPaid: true });
+    return;
+  }
+
+  const now = new Date();
+  await db
+    .update(orders)
+    .set({
+      paymentStatus: "paid",
+      paymentVerificationStatus: "approved",
+      verificationMethod: "manual_staff",
+      verifiedBy: user.id,
+      verifiedAt: now,
+      paidAt: now,
+      paymentOcrData: JSON.stringify({ source: "manual_staff", utr: utr ?? null, notes: notes ?? null }),
+      updatedAt: now,
+    })
+    .where(eq(orders.id, orderId));
+
+  req.log.info({ orderId, userId: user.id, utr }, "Payment confirmed by staff at counter");
   res.json({ success: true });
 };
 
@@ -1454,6 +1502,7 @@ router.get("/b/:shortId", serveBillShort);            // short URL in WhatsApp m
 router.post("/owner/orders/:orderId/verify-payment", requireOwner, verifyOrderPayment);
 router.patch("/owner/orders/:orderId/approve-payment", requireOwner, approvePayment);
 router.patch("/owner/orders/:orderId/reject-payment", requireOwner, rejectPayment);
+router.post("/owner/orders/:orderId/confirm-staff-payment", requireOwner, confirmStaffPayment);
 
 router.get("/owner/stats", requireOwner, getStats);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);

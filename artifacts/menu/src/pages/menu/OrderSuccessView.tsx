@@ -147,6 +147,28 @@ export function OrderSuccessView({
           </div>
         </div>
 
+        {/* ── QR payment — no screenshot hint ─────────────────── */}
+        {paymentMode === "online" && !proofResult && !uploadingProof && (
+          <div style={{
+            backgroundColor: "#fffbf5",
+            borderRadius: "16px",
+            border: "1px solid #fed7aa",
+            padding: "14px 16px",
+            marginBottom: "14px",
+            display: "flex", alignItems: "flex-start", gap: "10px",
+          }}>
+            <QrCode style={{ width: "16px", height: "16px", color: "#ea580c", flexShrink: 0, marginTop: "2px" }} />
+            <div>
+              <p style={{ fontSize: "13px", fontWeight: 700, color: "#92400e", marginBottom: "3px" }}>
+                Already paid but skipped screenshot upload?
+              </p>
+              <p style={{ fontSize: "12px", color: "#b45309", lineHeight: "1.5" }}>
+                Show your payment confirmation to restaurant staff for manual verification.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Optional payment screenshot (only for online mode) ── */}
         {paymentMode === "online" && !proofResult && (
           <div style={{

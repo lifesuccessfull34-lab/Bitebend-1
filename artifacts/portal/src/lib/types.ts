@@ -138,12 +138,15 @@ export interface Order {
   subtotal: number;
   tax: number;
   total: number;
-  paymentStatus: "unpaid" | "paid" | "manual_review";
+  paymentStatus: "unpaid" | "paid" | "manual_review" | "awaiting_verification";
   paymentMethod: string | null;
   notes: string | null;
   paymentScreenshotUrl: string | null;
   paymentOcrData: string | null;
   paymentVerificationStatus: string | null;
+  verificationMethod: string | null;
+  verifiedBy: number | null;
+  verifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
   items: OrderItem[];

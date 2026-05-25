@@ -1,0 +1,170 @@
+Need one operational addition before freezing CUSTOMER_PAYMENT_V2.
+
+Current flow supports:
+
+Customer
+→ QR payment
+→ upload screenshot
+→ OCR verifies
+
+But real restaurant operations also have this common flow:
+
+Customer pays
+→ does NOT upload screenshot
+→ walks to counter
+→ shows payment confirmation screen directly to restaurant staff
+→ restaurant verifies manually
+
+Add support for this.
+
+==================================================
+
+NEW PAYMENT STATE
+
+Add:
+
+paymentStatus:
+
+AWAITING_VERIFICATION
+
+Flow:
+
+Customer selects QR payment
+→ order created
+→ payment bill screen shown
+→ customer clicks Next without screenshot upload
+
+Status:
+
+AWAITING_VERIFICATION
+
+Not:
+
+paid
+pending
+manual_review
+
+Reason:
+
+Customer may already have paid externally.
+
+==================================================
+
+CUSTOMER SIDE
+
+On OrderSuccess page:
+
+If QR selected AND no screenshot uploaded:
+
+show:
+
+"Already paid but skipped screenshot upload?"
+
+Text:
+
+Show your payment confirmation to restaurant staff for manual verification.
+
+No forced upload.
+
+==================================================
+
+RESTAURANT DASHBOARD
+
+Add a clear badge:
+
+Awaiting Verification
+
+Display separately from:
+
+Pending
+Paid
+Completed
+
+==================================================
+
+ORDER DETAIL ACTIONS
+
+For orders with:
+
+AWAITING_VERIFICATION
+
+Restaurant staff sees:
+
+[ Verify Payment ]
+
+Click opens modal:
+
+Manual Payment Verification
+
+Options:
+
+UTR / Ref number (optional)
+Notes (optional)
+
+Buttons:
+
+Confirm Payment
+Cancel
+
+==================================================
+
+MANUAL VERIFY ACTION
+
+Confirm Payment:
+
+paymentStatus:
+
+PAID
+
+verificationMethod:
+
+manual_staff
+
+verifiedBy:
+
+restaurantOwnerId
+
+verifiedAt:
+
+timestamp
+
+==================================================
+
+AUDIT TRAIL
+
+Store:
+
+verification source:
+
+ocr_ai
+manual_staff
+cash
+legacy
+
+Need future reporting.
+
+==================================================
+
+IMPORTANT
+
+Do not remove OCR flow.
+
+Final supported paths:
+
+Path A:
+QR
+→ screenshot
+→ OCR auto verify
+
+Path B:
+QR
+→ no screenshot
+→ customer shows payment at counter
+→ staff verifies manually
+
+Path C:
+Cash payment
+
+All three are valid restaurant operations.
+
+Do not redesign architecture.

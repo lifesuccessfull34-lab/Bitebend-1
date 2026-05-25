@@ -173,7 +173,7 @@ export const orders = pgTable("orders", {
   subtotal: integer("subtotal").notNull(),
   tax: integer("tax").notNull().default(0),
   total: integer("total").notNull(),
-  paymentStatus: text("payment_status", { enum: ["unpaid", "paid", "manual_review"] })
+  paymentStatus: text("payment_status", { enum: ["unpaid", "paid", "manual_review", "awaiting_verification"] })
     .notNull()
     .default("unpaid"),
   paymentMethod: text("payment_method"),
@@ -181,6 +181,12 @@ export const orders = pgTable("orders", {
   paymentScreenshotUrl: text("payment_screenshot_url"),
   paymentOcrData: text("payment_ocr_data"),
   paymentVerificationStatus: text("payment_verification_status"),
+  /** Audit trail: how payment was confirmed — ocr_ai | manual_staff | cash | legacy */
+  verificationMethod: text("verification_method"),
+  /** Audit trail: owner user ID who manually confirmed payment */
+  verifiedBy: integer("verified_by"),
+  /** Audit trail: timestamp of payment confirmation */
+  verifiedAt: timestamp("verified_at"),
   razorpayOrderId: text("razorpay_order_id"),
   razorpayPaymentId: text("razorpay_payment_id"),
   paidAt: timestamp("paid_at"),
