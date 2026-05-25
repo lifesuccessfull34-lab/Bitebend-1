@@ -1110,7 +1110,10 @@ const confirmStaffPayment: RequestHandler = async (req, res) => {
     })
     .where(eq(orders.id, orderId));
 
-  req.log.info({ orderId, userId: user.id, utr }, "Payment confirmed by staff at counter");
+  req.log.info(
+    { event: "manual_payment_verified", orderId, userId: user.id, utr: utr ?? null },
+    "manual_payment_verified: staff confirmed payment at counter",
+  );
   res.json({ success: true });
 };
 
@@ -1131,7 +1134,10 @@ const rejectPayment: RequestHandler = async (req, res) => {
     .set({ paymentStatus: "unpaid", paymentVerificationStatus: "rejected", updatedAt: new Date() })
     .where(eq(orders.id, orderId));
 
-  req.log.info({ orderId }, "Payment rejected");
+  req.log.info(
+    { event: "manual_payment_rejected", orderId, userId: user.id },
+    "manual_payment_rejected: staff rejected payment screenshot",
+  );
   res.json({ success: true });
 };
 

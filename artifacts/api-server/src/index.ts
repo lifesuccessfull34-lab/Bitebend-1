@@ -102,10 +102,16 @@ if (existsSync(buildInfoPath)) {
 // ── Cleanup jobs ──────────────────────────────────────────────────────────────
 
 import { purgeExpiredBills } from "./lib/billService";
+import { purgeExpiredScreenshots } from "./lib/screenshotCleanup";
 
 // Run once on startup, then every 24 h — removes expired bill_links + their blobs
 purgeExpiredBills().catch(() => void 0);
 setInterval(() => { purgeExpiredBills().catch(() => void 0); }, 24 * 60 * 60 * 1000).unref();
+
+// Run once on startup, then every 24 h — removes screenshot blobs for paid/rejected orders
+// past the PAYMENT_SCREENSHOT_RETENTION_DAYS window (default: 30 days).
+purgeExpiredScreenshots().catch(() => void 0);
+setInterval(() => { purgeExpiredScreenshots().catch(() => void 0); }, 24 * 60 * 60 * 1000).unref();
 
 // ── Server ────────────────────────────────────────────────────────────────────
 

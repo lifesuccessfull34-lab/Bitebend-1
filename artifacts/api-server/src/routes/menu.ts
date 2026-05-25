@@ -162,6 +162,7 @@ const getCustomerOrders: RequestHandler = async (req, res) => {
       tableNumber: orders.tableNumber,
       status: orders.status,
       paymentStatus: orders.paymentStatus,
+      paymentVerificationStatus: orders.paymentVerificationStatus,
       paymentMethod: orders.paymentMethod,
       subtotal: orders.subtotal,
       tax: orders.tax,
@@ -536,6 +537,14 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
     return;
   }
 
+  // Guard: prevent accidental screenshot replacement.
+  // If screenshot already exists and forceReplace is not explicitly set, return 409.
+  const { forceReplace } = req.body as { screenshotBase64?: string; mimeType?: string; forceReplace?: boolean };
+  if (order.paymentScreenshotUrl && !forceReplace) {
+    res.status(409).json({ alreadyHasScreenshot: true });
+    return;
+  }
+
   // ENABLE_PAYMENT_OCR=false (default): store screenshot, set awaiting_verification,
   // let restaurant staff verify manually in the dashboard.
   if (!isPaymentOcrEnabled()) {
@@ -549,7 +558,10 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
         updatedAt: new Date(),
       })
       .where(eq(orders.id, orderId));
-    req.log.info({ orderId }, "Payment screenshot stored; OCR disabled — awaiting staff verification");
+    req.log.info(
+      { event: "screenshot_uploaded", orderId, restaurantId, forceReplace: !!forceReplace },
+      "screenshot_uploaded: payment screenshot stored for staff verification",
+    );
     res.json({ ocrConfigured: false, matched: false, confidence: 0 });
     return;
   }

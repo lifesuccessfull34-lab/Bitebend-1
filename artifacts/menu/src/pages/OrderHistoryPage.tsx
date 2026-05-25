@@ -22,6 +22,7 @@ interface CustomerOrder {
   tableNumber: string | null;
   status: string;
   paymentStatus: string;
+  paymentVerificationStatus: string | null;
   paymentMethod: string | null;
   subtotal: number;
   tax: number;
@@ -193,6 +194,24 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
               <span>₹{order.total}</span>
             </div>
           </div>
+
+          {order.paymentVerificationStatus === "rejected" && (
+            <div style={{
+              marginTop: "10px",
+              backgroundColor: "#fef2f2",
+              borderRadius: "8px",
+              border: "1px solid #fecaca",
+              padding: "10px 12px",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "8px",
+            }}>
+              <AlertCircle style={{ width: "14px", height: "14px", color: "#dc2626", flexShrink: 0, marginTop: "1px" }} />
+              <p style={{ fontSize: "12px", color: "#b91c1c", lineHeight: "1.5", margin: 0 }}>
+                Payment proof could not be verified. Please show payment confirmation to restaurant staff.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

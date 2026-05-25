@@ -42,6 +42,7 @@ interface ProofResult {
   utr?: string | null;
   amount?: number | null;
   error?: string;
+  alreadyHasScreenshot?: boolean;
 }
 
 export default function MenuPage() {
@@ -363,7 +364,7 @@ export default function MenuPage() {
     setView("success");
   };
 
-  const handleUploadProof = async (file: File) => {
+  const handleUploadProof = async (file: File, forceReplace = false) => {
     if (!orderId || !restaurant) return;
     setUploadStage("uploading");
     try {
@@ -379,9 +380,13 @@ export default function MenuPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type }),
+          body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type, forceReplace }),
         },
       );
+      if (res.status === 409) {
+        setProofResult({ ocrConfigured: false, alreadyHasScreenshot: true });
+        return;
+      }
       const data = await res.json();
       setProofResult(data as ProofResult);
     } catch {
@@ -390,6 +395,8 @@ export default function MenuPage() {
       setUploadStage("idle");
     }
   };
+
+  const handleReplaceProof = (file: File) => handleUploadProof(file, true);
 
   // ── View routing ────────────────────────────────────────────────────────────
 
@@ -431,6 +438,7 @@ export default function MenuPage() {
         uploadingProof={uploadStage !== "idle"}
         proofResult={proofResult}
         onUploadProof={handleUploadProof}
+        onReplaceProof={handleReplaceProof}
         paymentMode={paymentMode}
         onGoToMenu={() => {
           setView("menu");

@@ -218,6 +218,32 @@ Run with: `pnpm --filter @workspace/menu run test`
 | React error #310 in production | Same as above, wasn't caught by lint | Move hook; add/run regression test |
 | ESLint warning: `react-hooks/exhaustive-deps` | Missing dependency in useEffect/useCallback/useMemo | Add the dep, or suppress with a comment **and a justification** |
 
+## Payment Verification Architecture — FROZEN
+
+```
+CUSTOMER_PAYMENT_V2 = FROZEN
+PAYMENT_VERIFICATION_MODE = MANUAL
+ENABLE_PAYMENT_OCR = false (default, intentional)
+```
+
+**Primary flow (current architecture):**
+```
+QR code → customer uploads payment screenshot → restaurant staff verifies manually in dashboard
+```
+
+**Why OCR is disabled:** The `ENABLE_PAYMENT_OCR` flag defaults to `false`. OCR code (Google Vision + OpenAI) is retained in `artifacts/api-server/src/routes/menu.ts` but gated behind the flag. Do **not** re-enable without explicit product decision. To re-enable: set `ENABLE_PAYMENT_OCR=true` in env vars.
+
+**Screenshot retention:** Stored as base64 in `orders.paymentScreenshotUrl`. A cleanup job (`purgeExpiredScreenshots`) runs on startup and every 24 h. It NULLs the screenshot blob for orders that are `paid` or `rejected` and older than `PAYMENT_SCREENSHOT_RETENTION_DAYS` (default: 30 days). Audit metadata (`paymentVerificationStatus`, `verificationMethod`, `verifiedBy`, `verifiedAt`) is preserved.
+
+**Screenshot replacement guard:** Backend returns 409 if screenshot already exists and `forceReplace` is not `true`. Frontend shows "Screenshot already submitted" with a "Replace Screenshot" button that requires explicit confirmation before overwriting.
+
+**Rejection flow:** Staff rejects → `paymentStatus: "unpaid"`, `paymentVerificationStatus: "rejected"`. Customer sees: *"Payment proof could not be verified. Please show payment confirmation to restaurant staff."* in order history.
+
+**Analytics events** (structured log fields, queryable from server logs):
+- `screenshot_uploaded` — customer uploaded proof
+- `manual_payment_verified` — staff confirmed payment
+- `manual_payment_rejected` — staff rejected proof
+
 ## Important Notes
 
 - Express 5: `req.params.xxx` is `string | string[]` — routes cast with `parseInt(String(...))`

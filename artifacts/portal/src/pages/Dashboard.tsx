@@ -26,6 +26,9 @@ import {
   Send,
   UserCheck,
   Eye,
+  ZoomIn,
+  ZoomOut,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -329,10 +332,13 @@ export default function Dashboard() {
     }
   };
 
+  const [imageZoomed, setImageZoomed] = useState(false);
+
   const openConfirmPaymentModal = (orderId: number) => {
     setConfirmPaymentOrderId(orderId);
     setConfirmUtr("");
     setConfirmNotes("");
+    setImageZoomed(false);
   };
 
   const handleConfirmStaffPayment = async () => {
@@ -870,12 +876,45 @@ export default function Dashboard() {
                 {/* Screenshot preview */}
                 {hasScreenshot && (
                   <div className="rounded-lg border overflow-hidden">
-                    <p className="text-xs font-semibold px-3 py-2 bg-muted border-b text-muted-foreground">Payment Screenshot</p>
-                    <img
-                      src={`data:image/jpeg;base64,${modalOrder!.paymentScreenshotUrl}`}
-                      alt="Payment screenshot"
-                      className="w-full object-contain max-h-72"
-                    />
+                    <div className="flex items-center justify-between px-3 py-2 bg-muted border-b">
+                      <p className="text-xs font-semibold text-muted-foreground">Payment Screenshot</p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-6 px-2 text-xs gap-1"
+                          onClick={() => setImageZoomed((z) => !z)}
+                        >
+                          {imageZoomed
+                            ? <><ZoomOut className="w-3 h-3" /> Zoom Out</>
+                            : <><ZoomIn className="w-3 h-3" /> Zoom In</>}
+                        </Button>
+                        <Button
+                          size="sm" variant="ghost"
+                          className="h-6 px-2 text-xs gap-1"
+                          onClick={() => {
+                            const win = window.open("", "_blank");
+                            if (win) {
+                              win.document.write(
+                                `<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;justify-content:center"><img src="data:image/jpeg;base64,${modalOrder!.paymentScreenshotUrl}" style="max-width:100%;height:auto"></body></html>`,
+                              );
+                            }
+                          }}
+                        >
+                          <ExternalLink className="w-3 h-3" /> Full Screen
+                        </Button>
+                      </div>
+                    </div>
+                    <div className={imageZoomed ? "overflow-auto cursor-zoom-out" : "overflow-hidden cursor-zoom-in"}>
+                      <img
+                        src={`data:image/jpeg;base64,${modalOrder!.paymentScreenshotUrl}`}
+                        alt="Payment screenshot"
+                        className="w-full object-contain transition-transform duration-200"
+                        style={imageZoomed
+                          ? { maxHeight: "none", transform: "scale(2)", transformOrigin: "top center", marginBottom: "100%" }
+                          : { maxHeight: "288px" }}
+                        onClick={() => setImageZoomed((z) => !z)}
+                      />
+                    </div>
                   </div>
                 )}
 
