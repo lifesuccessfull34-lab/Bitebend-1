@@ -25,6 +25,7 @@ import {
   ScanLine,
   Send,
   UserCheck,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -166,11 +167,12 @@ export default function Dashboard() {
   const [approvingId, setApprovingId]                 = useState<number | null>(null);
   const [rejectingPaymentId, setRejectingPaymentId]   = useState<number | null>(null);
 
-  // Staff confirm-payment modal state (Path B: customer shows payment at counter)
+  // Staff confirm-payment modal state (screenshot viewer + manual verification)
   const [confirmPaymentOrderId, setConfirmPaymentOrderId] = useState<number | null>(null);
   const [confirmUtr, setConfirmUtr]                       = useState("");
   const [confirmNotes, setConfirmNotes]                   = useState("");
   const [isConfirmingPayment, setIsConfirmingPayment]     = useState(false);
+  const [isRejectingFromModal, setIsRejectingFromModal]   = useState(false);
 
   // Bill state — server generates the image; we just track loading per order
   const [billLoading, setBillLoading]     = useState<number | null>(null);
@@ -348,6 +350,21 @@ export default function Dashboard() {
       toast.error(err instanceof Error ? err.message : "Failed to confirm payment");
     } finally {
       setIsConfirmingPayment(false);
+    }
+  };
+
+  const handleRejectFromModal = async () => {
+    if (!confirmPaymentOrderId) return;
+    setIsRejectingFromModal(true);
+    try {
+      await apiFetch(`/owner/orders/${confirmPaymentOrderId}/reject-payment`, { method: "PATCH" });
+      toast.success("Payment rejected");
+      setConfirmPaymentOrderId(null);
+      await fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to reject payment");
+    } finally {
+      setIsRejectingFromModal(false);
     }
   };
 
@@ -592,8 +609,8 @@ export default function Dashboard() {
 
                         <StatusTracker status={order.status} />
 
-                        {/* Unpaid warning */}
-                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
+                        {/* Unpaid warning — not shown for awaiting_verification (has screenshot or showing at counter) */}
+                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && (
                           <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
                             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                             Payment pending — send payment bill to collect
@@ -700,13 +717,21 @@ export default function Dashboard() {
                           </Button>
                         </>)}
 
-                        {/* Verify Payment — for awaiting_verification (Path B: customer shows at counter) */}
+                        {/* Screenshot viewer / manual verify — for awaiting_verification */}
                         {isAwaitingVerification && (
-                          <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                            onClick={() => openConfirmPaymentModal(order.id)}>
-                            <UserCheck className="w-3 h-3 mr-1" />
-                            Verify Payment
-                          </Button>
+                          order.paymentScreenshotUrl ? (
+                            <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                              onClick={() => openConfirmPaymentModal(order.id)}>
+                              <Eye className="w-3 h-3 mr-1" />
+                              View Screenshot
+                            </Button>
+                          ) : (
+                            <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                              onClick={() => openConfirmPaymentModal(order.id)}>
+                              <UserCheck className="w-3 h-3 mr-1" />
+                              Verify Payment
+                            </Button>
+                          )
                         )}
 
                         {/* Approve / Reject for manual_review (screenshot uploaded, low OCR confidence) */}
@@ -735,7 +760,7 @@ export default function Dashboard() {
                         )}
 
                         {/* Upload screenshot for AI verification */}
-                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !ocrData && (
+                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && !ocrData && (
                           <Button size="sm" variant="outline"
                             className="w-full text-xs h-8 text-blue-700 border-blue-300 hover:bg-blue-50"
                             disabled={isUploadingProof}
@@ -795,73 +820,134 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ── Manual Payment Verification Modal ─────────────────────────── */}
-      <Dialog
-        open={confirmPaymentOrderId !== null}
-        onOpenChange={(open) => { if (!open) setConfirmPaymentOrderId(null); }}
-      >
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserCheck className="w-5 h-5 text-blue-600" />
-              Manual Payment Verification
-            </DialogTitle>
-          </DialogHeader>
+      {/* ── Payment Proof Modal (screenshot viewer + manual verification) ── */}
+      {(() => {
+        const modalOrder = confirmPaymentOrderId !== null
+          ? orders.find((o) => o.id === confirmPaymentOrderId) ?? null
+          : null;
+        const hasScreenshot = !!modalOrder?.paymentScreenshotUrl;
 
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              Customer has shown their payment confirmation. Enter the UTR / reference number if visible, then confirm.
-            </p>
+        return (
+          <Dialog
+            open={confirmPaymentOrderId !== null}
+            onOpenChange={(open) => { if (!open) setConfirmPaymentOrderId(null); }}
+          >
+            <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {hasScreenshot
+                    ? <><Eye className="w-5 h-5 text-blue-600" /> Payment Proof</>
+                    : <><UserCheck className="w-5 h-5 text-blue-600" /> Verify Payment</>}
+                </DialogTitle>
+              </DialogHeader>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm-utr" className="text-xs font-semibold">
-                UTR / Reference Number <span className="text-muted-foreground font-normal">(optional)</span>
-              </Label>
-              <Input
-                id="confirm-utr"
-                placeholder="e.g. 428912345678"
-                value={confirmUtr}
-                onChange={(e) => setConfirmUtr(e.target.value)}
-                className="text-sm h-9"
-              />
-            </div>
+              <div className="space-y-4 py-2">
 
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm-notes" className="text-xs font-semibold">
-                Notes <span className="text-muted-foreground font-normal">(optional)</span>
-              </Label>
-              <Input
-                id="confirm-notes"
-                placeholder="e.g. Verified via PhonePe"
-                value={confirmNotes}
-                onChange={(e) => setConfirmNotes(e.target.value)}
-                className="text-sm h-9"
-              />
-            </div>
-          </div>
+                {/* Order summary */}
+                {modalOrder && (
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Order</span>
+                      <span className="font-bold">#{modalOrder.id}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Customer</span>
+                      <span className="font-medium">{modalOrder.customerName}</span>
+                    </div>
+                    {modalOrder.tableNumber && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Table</span>
+                        <span className="font-medium">{modalOrder.tableNumber}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t pt-1 mt-1">
+                      <span className="text-muted-foreground font-semibold">Amount</span>
+                      <span className="font-bold text-foreground">₹{modalOrder.total}</span>
+                    </div>
+                  </div>
+                )}
 
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmPaymentOrderId(null)}
-              disabled={isConfirmingPayment}
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              className="bg-green-600 hover:bg-green-700 text-white"
-              onClick={() => void handleConfirmStaffPayment()}
-              disabled={isConfirmingPayment}
-            >
-              {isConfirmingPayment
-                ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Confirming...</>
-                : <><CheckCircle2 className="w-3 h-3 mr-1" /> Confirm Payment</>}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+                {/* Screenshot preview */}
+                {hasScreenshot && (
+                  <div className="rounded-lg border overflow-hidden">
+                    <p className="text-xs font-semibold px-3 py-2 bg-muted border-b text-muted-foreground">Payment Screenshot</p>
+                    <img
+                      src={`data:image/jpeg;base64,${modalOrder!.paymentScreenshotUrl}`}
+                      alt="Payment screenshot"
+                      className="w-full object-contain max-h-72"
+                    />
+                  </div>
+                )}
+
+                {!hasScreenshot && (
+                  <p className="text-sm text-muted-foreground">
+                    Customer will show their payment confirmation at the counter. Enter the UTR / reference number if visible, then confirm.
+                  </p>
+                )}
+
+                {/* UTR + Notes */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirm-utr" className="text-xs font-semibold">
+                    UTR / Reference Number <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="confirm-utr"
+                    placeholder="e.g. 428912345678"
+                    value={confirmUtr}
+                    onChange={(e) => setConfirmUtr(e.target.value)}
+                    className="text-sm h-9"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="confirm-notes" className="text-xs font-semibold">
+                    Notes <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="confirm-notes"
+                    placeholder="e.g. Verified via PhonePe"
+                    value={confirmNotes}
+                    onChange={(e) => setConfirmNotes(e.target.value)}
+                    className="text-sm h-9"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-red-600 border-red-300 hover:bg-red-50 sm:mr-auto"
+                  onClick={() => void handleRejectFromModal()}
+                  disabled={isConfirmingPayment || isRejectingFromModal}
+                >
+                  {isRejectingFromModal
+                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Rejecting...</>
+                    : <><XCircle className="w-3 h-3 mr-1" /> Reject</>}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConfirmPaymentOrderId(null)}
+                  disabled={isConfirmingPayment || isRejectingFromModal}
+                >
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => void handleConfirmStaffPayment()}
+                  disabled={isConfirmingPayment || isRejectingFromModal}
+                >
+                  {isConfirmingPayment
+                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Confirming...</>
+                    : <><CheckCircle2 className="w-3 h-3 mr-1" /> Confirm Payment</>}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
     </AppShell>
   );
 }

@@ -179,10 +179,10 @@ export function OrderSuccessView({
             marginBottom: "14px",
           }}>
             <p style={{ fontSize: "13px", fontWeight: 700, color: C.ink, marginBottom: "4px" }}>
-              Already paid? (Optional)
+              Already paid? Upload screenshot (Optional)
             </p>
             <p style={{ fontSize: "12px", color: C.muted, marginBottom: "12px", lineHeight: "1.5" }}>
-              Upload your UPI payment screenshot for instant verification.
+              Upload your UPI payment screenshot so restaurant staff can verify quickly.
             </p>
 
             <input
@@ -207,7 +207,7 @@ export function OrderSuccessView({
               }}
             >
               {uploadingProof ? (
-                <><Loader2 style={{ width: "16px", height: "16px" }} /> Verifying…</>
+                <><Loader2 style={{ width: "16px", height: "16px" }} /> Uploading…</>
               ) : (
                 <><Upload style={{ width: "16px", height: "16px" }} /> Upload Payment Screenshot</>
               )}
@@ -226,11 +226,14 @@ export function OrderSuccessView({
           }}>
             {!proofResult.ocrConfigured ? (
               <>
-                <p style={{ fontSize: "13px", fontWeight: 700, color: "#374151", marginBottom: "4px" }}>
-                  Screenshot saved
-                </p>
-                <p style={{ fontSize: "12px", color: C.muted }}>
-                  Staff will verify your payment manually.
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <BadgeCheck style={{ width: "18px", height: "18px", color: "#16a34a" }} />
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#15803d" }}>
+                    Payment screenshot uploaded successfully.
+                  </span>
+                </div>
+                <p style={{ fontSize: "12px", color: "#374151", lineHeight: "1.5" }}>
+                  Restaurant staff will verify your payment shortly.
                 </p>
               </>
             ) : proofResult.matched ? (

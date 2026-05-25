@@ -20,6 +20,15 @@ const router = Router();
 const isCustomerRazorpayEnabled = () => process.env["ENABLE_CUSTOMER_RAZORPAY"] === "true";
 
 /**
+ * Feature flag: ENABLE_PAYMENT_OCR
+ * When false (default): screenshot is stored and marked awaiting_verification;
+ *   restaurant staff verify manually via the dashboard.
+ * When true: Google Vision OCR + OpenAI extraction pipeline runs automatically.
+ * Set ENABLE_PAYMENT_OCR=true to re-enable AI verification in future.
+ */
+const isPaymentOcrEnabled = () => process.env["ENABLE_PAYMENT_OCR"] === "true";
+
+/**
  * Resolve a restaurant by either numeric ID (backward-compat) or slug.
  * Numeric IDs keep all existing QR codes working indefinitely.
  * Slug-based URLs are used for all new QR codes and shared links.
@@ -527,16 +536,37 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
     return;
   }
 
+  // ENABLE_PAYMENT_OCR=false (default): store screenshot, set awaiting_verification,
+  // let restaurant staff verify manually in the dashboard.
+  if (!isPaymentOcrEnabled()) {
+    await db
+      .update(orders)
+      .set({
+        paymentScreenshotUrl: screenshotBase64,
+        paymentVerificationStatus: "manual_review",
+        paymentStatus: "awaiting_verification",
+        verificationMethod: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId));
+    req.log.info({ orderId }, "Payment screenshot stored; OCR disabled — awaiting staff verification");
+    res.json({ ocrConfigured: false, matched: false, confidence: 0 });
+    return;
+  }
+
+  // ENABLE_PAYMENT_OCR=true path: run OCR pipeline (Google Vision + OpenAI).
   if (!isOcrConfigured()) {
     await db
       .update(orders)
       .set({
         paymentScreenshotUrl: screenshotBase64,
         paymentVerificationStatus: "manual_review",
-        paymentStatus: "manual_review",
+        paymentStatus: "awaiting_verification",
+        verificationMethod: null,
         updatedAt: new Date(),
       })
       .where(eq(orders.id, orderId));
+    req.log.info({ orderId }, "Payment screenshot stored; OCR API keys not configured");
     res.json({ ocrConfigured: false, matched: false, confidence: 0 });
     return;
   }
@@ -561,7 +591,7 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
 
   req.log.info(
     { orderId, matched: match.matched, confidence: ocrResult.confidence, utr: ocrResult.utr },
-    "Payment proof processed",
+    "Payment proof processed via OCR",
   );
 
   res.json({
