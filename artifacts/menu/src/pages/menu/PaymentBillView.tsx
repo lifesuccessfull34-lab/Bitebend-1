@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowLeft, ArrowRight, Loader2, Upload,
   BadgeCheck, AlertTriangle, QrCode,
   UtensilsCrossed, ShoppingBag, ReceiptText,
-  RefreshCw, Banknote,
+  Banknote,
 } from "lucide-react";
 import type { RestaurantData, OrderType, PlacedOrderItem } from "./types";
+import { generateUPILink } from "./utils";
 
 export type UploadStage = "idle" | "uploading" | "verifying";
 
@@ -67,28 +69,10 @@ export function PaymentBillView({
   const isTakeAway = orderType === "take_away";
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [qrImageData, setQrImageData] = useState<string | null>(null);
-  const [qrLoading, setQrLoading] = useState(true);
-  const [qrError, setQrError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
-
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setQrLoading(true);
-    setQrError(false);
-    setQrImageData(null);
-    fetch(`/api/menu/${restaurant.id}/payment-qr`)
-      .then((r) => {
-        if (!r.ok) throw new Error("QR not found");
-        return r.json() as Promise<{ qrImageData: string }>;
-      })
-      .then((data) => setQrImageData(data.qrImageData))
-      .catch(() => setQrError(true))
-      .finally(() => setQrLoading(false));
-  }, [restaurant.id, retryCount]);
-
+  // Revoke blob URL once OCR result arrives (image no longer needed)
   useEffect(() => {
     if (proofResult && previewUrl) {
       URL.revokeObjectURL(previewUrl);
@@ -96,6 +80,7 @@ export function PaymentBillView({
     }
   }, [proofResult, previewUrl]);
 
+  // Cleanup on unmount
   useEffect(() => {
     const url = previewUrl;
     return () => { if (url) URL.revokeObjectURL(url); };
@@ -124,6 +109,22 @@ export function PaymentBillView({
 
   const isUploading = uploadStage !== "idle";
 
+  // ── Dynamic UPI QR ─────────────────────────────────────────────────────────
+  // Resolve the active UPI ID: prefer QR-extracted VPA when a payment QR was
+  // uploaded; fall back to the manually entered UPI ID.
+  const activeUpiId = restaurant.hasPaymentQr
+    ? (restaurant.extractedUpiId ?? "").trim()
+    : (restaurant.upiId ?? "").trim();
+  const activeName = restaurant.hasPaymentQr
+    ? (restaurant.extractedMerchantName || restaurant.upiName || restaurant.name)
+    : (restaurant.upiName || restaurant.name);
+
+  // UPI deep-link: upi://pay?pa={vpa}&pn={name}&am={amount}&tn=Order-{id}
+  const upiLink = generateUPILink(activeUpiId, activeName, orderTotal, orderId);
+  const upiIdValid = activeUpiId.length > 0
+    && activeUpiId.includes("@")
+    && !activeUpiId.includes(" ");
+
   return (
     <div style={{ minHeight: "100dvh", backgroundColor: C.bg }}>
 
@@ -148,8 +149,8 @@ export function PaymentBillView({
             <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
           </button>
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontWeight: 700, fontSize: "17px", color: C.ink, lineHeight: 1 }}>Pay & Confirm</h1>
-            <p style={{ fontSize: "11px", color: C.muted, marginTop: "2px" }}>Scan QR to complete your payment</p>
+            <h1 style={{ fontWeight: 700, fontSize: "17px", color: C.ink, lineHeight: 1 }}>Payment Bill</h1>
+            <p style={{ fontSize: "11px", color: C.muted, marginTop: "2px" }}>{restaurant.name}</p>
           </div>
           <div style={{
             display: "flex", alignItems: "center", gap: "5px",
@@ -165,9 +166,10 @@ export function PaymentBillView({
       {/* ── Scrollable body ───────────────────────────────────────── */}
       <div style={{ padding: "16px", paddingBottom: "96px", maxWidth: "512px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "14px" }}>
 
-        {/* Bill card */}
+        {/* ── Order summary card ────────────────────────────────── */}
         <div style={{ backgroundColor: C.card, borderRadius: "16px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
 
+          {/* Restaurant + customer header */}
           <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, backgroundColor: "#fffbf5" }}>
             <p style={{ fontWeight: 800, fontSize: "16px", color: C.ink, marginBottom: "3px" }}>{restaurant.name}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: C.muted }}>
@@ -182,6 +184,7 @@ export function PaymentBillView({
             </div>
           </div>
 
+          {/* Item list */}
           <div style={{ padding: "12px 16px" }}>
             {orderItems.map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: i < orderItems.length - 1 ? "8px" : 0 }}>
@@ -201,6 +204,7 @@ export function PaymentBillView({
             ))}
           </div>
 
+          {/* Total row */}
           <div style={{
             padding: "12px 16px",
             borderTop: `1px solid ${C.border}`,
@@ -212,7 +216,7 @@ export function PaymentBillView({
           </div>
         </div>
 
-        {/* QR code card */}
+        {/* ── Dynamic QR card ───────────────────────────────────── */}
         <div style={{
           backgroundColor: C.card, borderRadius: "16px",
           border: `1px solid ${C.border}`, padding: "20px",
@@ -223,11 +227,45 @@ export function PaymentBillView({
             <p style={{ fontWeight: 700, fontSize: "15px", color: C.ink }}>Scan to Pay</p>
           </div>
 
-          {qrLoading ? (
-            <div style={{ height: "220px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Loader2 className="animate-spin" style={{ width: "32px", height: "32px", color: C.muted }} />
-            </div>
-          ) : qrError || !qrImageData ? (
+          {upiIdValid ? (
+            <>
+              {/* QR wraps the UPI deep-link: amount + restaurant + order ref pre-filled */}
+              <div style={{
+                display: "inline-block",
+                padding: "12px",
+                backgroundColor: "#fff",
+                borderRadius: "12px",
+                border: `1px solid ${C.border}`,
+              }}>
+                <QRCodeSVG
+                  value={upiLink}
+                  size={200}
+                  level="M"
+                  includeMargin={false}
+                />
+              </div>
+
+              {/* Amount confirmation beneath QR */}
+              <div style={{
+                marginTop: "12px",
+                display: "inline-flex", alignItems: "center", gap: "6px",
+                backgroundColor: "#fff7ed",
+                borderRadius: "9999px",
+                padding: "5px 14px",
+                border: "1px solid #fed7aa",
+              }}>
+                <span style={{ fontSize: "13px", fontWeight: 600, color: "#92400e" }}>₹{orderTotal.toFixed(2)}</span>
+                <span style={{ fontSize: "12px", color: "#b45309" }}>pre-filled in your UPI app</span>
+              </div>
+
+              <p style={{ fontSize: "12px", color: C.muted, marginTop: "10px", lineHeight: "1.6" }}>
+                Open GPay, PhonePe, Paytm or any UPI app and scan above.
+                <br />
+                The payment amount is automatically pre-filled.
+              </p>
+            </>
+          ) : (
+            /* No valid UPI ID configured — fallback to counter/cash */
             <div style={{
               padding: "24px 16px", display: "flex", flexDirection: "column",
               alignItems: "center", gap: "12px",
@@ -236,70 +274,32 @@ export function PaymentBillView({
               <QrCode style={{ width: "32px", height: "32px", color: C.muted }} />
               <div>
                 <p style={{ fontSize: "13px", fontWeight: 700, color: C.ink, marginBottom: "4px" }}>
-                  Restaurant payment QR unavailable
+                  UPI payment not configured
                 </p>
                 <p style={{ fontSize: "12px", color: C.muted }}>
                   Please ask staff for payment details or pay with cash.
                 </p>
               </div>
-              <div style={{ display: "flex", gap: "8px", width: "100%" }}>
-                <button
-                  type="button"
-                  onClick={() => setRetryCount((n) => n + 1)}
-                  style={{
-                    flex: 1, height: "40px", borderRadius: "10px",
-                    border: `1.5px solid ${C.border}`,
-                    backgroundColor: C.card, color: C.ink,
-                    fontWeight: 600, fontSize: "13px",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  <RefreshCw style={{ width: "14px", height: "14px" }} />
-                  Retry
-                </button>
-                <button
-                  type="button"
-                  onClick={onCashPayment}
-                  style={{
-                    flex: 1, height: "40px", borderRadius: "10px",
-                    border: "none",
-                    backgroundColor: C.orange, color: "#fff",
-                    fontWeight: 600, fontSize: "13px",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  <Banknote style={{ width: "14px", height: "14px" }} />
-                  Cash Payment
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={onCashPayment}
+                style={{
+                  width: "100%", height: "40px", borderRadius: "10px",
+                  border: "none",
+                  backgroundColor: C.orange, color: "#fff",
+                  fontWeight: 600, fontSize: "13px",
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                  cursor: "pointer",
+                }}
+              >
+                <Banknote style={{ width: "14px", height: "14px" }} />
+                Switch to Cash Payment
+              </button>
             </div>
-          ) : (
-            <img
-              src={qrImageData}
-              alt="Payment QR Code"
-              style={{
-                maxWidth: "min(240px, 100%)",
-                width: "100%",
-                height: "auto",
-                objectFit: "contain",
-                borderRadius: "12px",
-                border: `1px solid ${C.border}`,
-                margin: "0 auto",
-                display: "block",
-              }}
-            />
-          )}
-
-          {qrImageData && !qrError && (
-            <p style={{ fontSize: "12px", color: C.muted, marginTop: "12px", lineHeight: "1.6" }}>
-              Open GPay, PhonePe, Paytm or any UPI app and scan the QR above.
-            </p>
           )}
         </div>
 
-        {/* Screenshot upload */}
+        {/* ── Screenshot upload ─────────────────────────────────── */}
         {!proofResult && (
           <div style={{ backgroundColor: C.card, borderRadius: "16px", border: `1px solid ${C.border}`, padding: "16px" }}>
             <p style={{ fontWeight: 700, fontSize: "13px", color: C.ink, marginBottom: "3px" }}>
@@ -352,15 +352,15 @@ export function PaymentBillView({
               }}
             >
               {uploadStage === "uploading"
-                ? <><Loader2 className="animate-spin" style={{ width: "16px", height: "16px" }} /> Uploading...</>
+                ? <><Loader2 style={{ width: "16px", height: "16px" }} /> Uploading...</>
                 : uploadStage === "verifying"
-                ? <><Loader2 className="animate-spin" style={{ width: "16px", height: "16px" }} /> Verifying payment...</>
+                ? <><Loader2 style={{ width: "16px", height: "16px" }} /> Verifying payment...</>
                 : <><Upload style={{ width: "16px", height: "16px" }} /> Upload Payment Screenshot</>}
             </button>
           </div>
         )}
 
-        {/* OCR result card */}
+        {/* ── Upload result card ────────────────────────────────── */}
         {proofResult && (
           <div style={{
             backgroundColor: C.card,
@@ -372,10 +372,10 @@ export function PaymentBillView({
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
                   <BadgeCheck style={{ width: "18px", height: "18px", color: "#94a3b8" }} />
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#374151" }}>Verification Pending</span>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#374151" }}>Screenshot Uploaded</span>
                 </div>
                 <p style={{ fontSize: "12px", color: C.muted }}>
-                  Automatic verification unavailable — staff will verify your payment manually.
+                  Restaurant staff will verify your payment shortly.
                 </p>
               </>
             ) : proofResult.matched ? (
