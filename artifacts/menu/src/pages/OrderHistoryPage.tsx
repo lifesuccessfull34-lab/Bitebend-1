@@ -236,7 +236,7 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
           onUploadProof={handleUploadProof}
           onPrevious={() => { setShowBill(false); onRefresh(); }}
           onNext={() => { setShowBill(false); onRefresh(); }}
-          onCashPayment={() => setShowBill(false)}
+          onCashPayment={() => { setShowBill(false); onRefresh(); }}
         />
       </div>
     );
