@@ -3,8 +3,11 @@ import {
   ArrowLeft, ArrowRight, Loader2, Upload,
   BadgeCheck, AlertTriangle, QrCode,
   UtensilsCrossed, ShoppingBag, ReceiptText,
+  RefreshCw, Banknote,
 } from "lucide-react";
 import type { RestaurantData, OrderType, PlacedOrderItem } from "./types";
+
+export type UploadStage = "idle" | "uploading" | "verifying";
 
 interface ProofResult {
   ocrConfigured: boolean;
@@ -23,11 +26,12 @@ interface Props {
   manualTableNumber: string;
   customerName: string;
   orderItems: PlacedOrderItem[];
-  uploadingProof: boolean;
+  uploadStage: UploadStage;
   proofResult: ProofResult | null;
   onUploadProof: (file: File) => void;
   onPrevious: () => void;
   onNext: () => void;
+  onCashPayment: () => void;
 }
 
 const C = {
@@ -42,6 +46,9 @@ const C = {
   red: "#dc2626",
 } as const;
 
+const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png"];
+const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
 export function PaymentBillView({
   orderId,
   orderTotal,
@@ -50,19 +57,28 @@ export function PaymentBillView({
   manualTableNumber,
   customerName,
   orderItems,
-  uploadingProof,
+  uploadStage,
   proofResult,
   onUploadProof,
   onPrevious,
   onNext,
+  onCashPayment,
 }: Props) {
   const isTakeAway = orderType === "take_away";
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [qrImageData, setQrImageData] = useState<string | null>(null);
   const [qrLoading, setQrLoading] = useState(true);
   const [qrError, setQrError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => {
+    setQrLoading(true);
+    setQrError(false);
+    setQrImageData(null);
     fetch(`/api/menu/${restaurant.id}/payment-qr`)
       .then((r) => {
         if (!r.ok) throw new Error("QR not found");
@@ -71,13 +87,42 @@ export function PaymentBillView({
       .then((data) => setQrImageData(data.qrImageData))
       .catch(() => setQrError(true))
       .finally(() => setQrLoading(false));
-  }, [restaurant.id]);
+  }, [restaurant.id, retryCount]);
+
+  useEffect(() => {
+    if (proofResult && previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+  }, [proofResult, previewUrl]);
+
+  useEffect(() => {
+    const url = previewUrl;
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [previewUrl]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) onUploadProof(file);
     e.target.value = "";
+    if (!file) return;
+
+    setFileError(null);
+
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      setFileError("Only JPG and PNG files are accepted.");
+      return;
+    }
+    if (file.size > MAX_SIZE_BYTES) {
+      setFileError("File size must be under 10 MB.");
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    onUploadProof(file);
   };
+
+  const isUploading = uploadStage !== "idle";
 
   return (
     <div style={{ minHeight: "100dvh", backgroundColor: C.bg }}>
@@ -123,7 +168,6 @@ export function PaymentBillView({
         {/* Bill card */}
         <div style={{ backgroundColor: C.card, borderRadius: "16px", border: `1px solid ${C.border}`, overflow: "hidden" }}>
 
-          {/* Restaurant + context */}
           <div style={{ padding: "14px 16px", borderBottom: `1px solid ${C.border}`, backgroundColor: "#fffbf5" }}>
             <p style={{ fontWeight: 800, fontSize: "16px", color: C.ink, marginBottom: "3px" }}>{restaurant.name}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: C.muted }}>
@@ -138,7 +182,6 @@ export function PaymentBillView({
             </div>
           </div>
 
-          {/* Items list */}
           <div style={{ padding: "12px 16px" }}>
             {orderItems.map((item, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: i < orderItems.length - 1 ? "8px" : 0 }}>
@@ -158,7 +201,6 @@ export function PaymentBillView({
             ))}
           </div>
 
-          {/* Amount to pay */}
           <div style={{
             padding: "12px 16px",
             borderTop: `1px solid ${C.border}`,
@@ -183,24 +225,64 @@ export function PaymentBillView({
 
           {qrLoading ? (
             <div style={{ height: "220px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Loader2 style={{ width: "32px", height: "32px", color: C.muted }} />
+              <Loader2 className="animate-spin" style={{ width: "32px", height: "32px", color: C.muted }} />
             </div>
           ) : qrError || !qrImageData ? (
             <div style={{
-              height: "160px", display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: "10px",
+              padding: "24px 16px", display: "flex", flexDirection: "column",
+              alignItems: "center", gap: "12px",
               backgroundColor: C.mutedBg, borderRadius: "12px",
             }}>
               <QrCode style={{ width: "32px", height: "32px", color: C.muted }} />
-              <p style={{ fontSize: "13px", color: C.muted }}>QR code unavailable</p>
-              <p style={{ fontSize: "11px", color: C.muted }}>Please ask staff for payment details</p>
+              <div>
+                <p style={{ fontSize: "13px", fontWeight: 700, color: C.ink, marginBottom: "4px" }}>
+                  Restaurant payment QR unavailable
+                </p>
+                <p style={{ fontSize: "12px", color: C.muted }}>
+                  Please ask staff for payment details or pay with cash.
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "8px", width: "100%" }}>
+                <button
+                  type="button"
+                  onClick={() => setRetryCount((n) => n + 1)}
+                  style={{
+                    flex: 1, height: "40px", borderRadius: "10px",
+                    border: `1.5px solid ${C.border}`,
+                    backgroundColor: C.card, color: C.ink,
+                    fontWeight: 600, fontSize: "13px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <RefreshCw style={{ width: "14px", height: "14px" }} />
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  onClick={onCashPayment}
+                  style={{
+                    flex: 1, height: "40px", borderRadius: "10px",
+                    border: "none",
+                    backgroundColor: C.orange, color: "#fff",
+                    fontWeight: 600, fontSize: "13px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Banknote style={{ width: "14px", height: "14px" }} />
+                  Cash Payment
+                </button>
+              </div>
             </div>
           ) : (
             <img
               src={qrImageData}
               alt="Payment QR Code"
               style={{
-                width: "220px", height: "220px",
+                maxWidth: "min(240px, 100%)",
+                width: "100%",
+                height: "auto",
                 objectFit: "contain",
                 borderRadius: "12px",
                 border: `1px solid ${C.border}`,
@@ -210,9 +292,11 @@ export function PaymentBillView({
             />
           )}
 
-          <p style={{ fontSize: "12px", color: C.muted, marginTop: "12px", lineHeight: "1.6" }}>
-            Open GPay, PhonePe, Paytm or any UPI app and scan the QR above.
-          </p>
+          {qrImageData && !qrError && (
+            <p style={{ fontSize: "12px", color: C.muted, marginTop: "12px", lineHeight: "1.6" }}>
+              Open GPay, PhonePe, Paytm or any UPI app and scan the QR above.
+            </p>
+          )}
         </div>
 
         {/* Screenshot upload */}
@@ -222,32 +306,55 @@ export function PaymentBillView({
               Upload Payment Screenshot
             </p>
             <p style={{ fontSize: "12px", color: C.muted, marginBottom: "12px", lineHeight: "1.5" }}>
-              After paying, upload your UPI screenshot. Staff will verify if automatic verification is unavailable.
+              After paying, take a screenshot of your UPI success screen and upload it here. JPG or PNG, max 10 MB.
             </p>
+
+            {previewUrl && (
+              <div style={{ marginBottom: "10px", borderRadius: "10px", overflow: "hidden", border: `1px solid ${C.border}` }}>
+                <img
+                  src={previewUrl}
+                  alt="Payment screenshot preview"
+                  style={{
+                    width: "100%", height: "auto", maxHeight: "200px",
+                    objectFit: "contain", display: "block",
+                    backgroundColor: C.mutedBg,
+                  }}
+                />
+              </div>
+            )}
+
+            {fileError && (
+              <p style={{ fontSize: "12px", color: C.red, marginBottom: "8px" }}>
+                {fileError}
+              </p>
+            )}
+
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept=".jpg,.jpeg,.png"
               style={{ display: "none" }}
               onChange={handleFileChange}
             />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadingProof}
+              onClick={() => { setFileError(null); fileInputRef.current?.click(); }}
+              disabled={isUploading}
               style={{
                 width: "100%", height: "44px",
                 borderRadius: "10px",
-                border: `1.5px dashed ${uploadingProof ? "#d1c9bf" : C.orange}`,
-                backgroundColor: uploadingProof ? "#faf9f6" : "#fff7ed",
-                color: uploadingProof ? C.muted : C.orange,
+                border: `1.5px dashed ${isUploading ? "#d1c9bf" : C.orange}`,
+                backgroundColor: isUploading ? "#faf9f6" : "#fff7ed",
+                color: isUploading ? C.muted : C.orange,
                 fontWeight: 600, fontSize: "13px",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-                cursor: uploadingProof ? "not-allowed" : "pointer",
+                cursor: isUploading ? "not-allowed" : "pointer",
               }}
             >
-              {uploadingProof
-                ? <><Loader2 style={{ width: "16px", height: "16px" }} /> Verifying…</>
+              {uploadStage === "uploading"
+                ? <><Loader2 className="animate-spin" style={{ width: "16px", height: "16px" }} /> Uploading...</>
+                : uploadStage === "verifying"
+                ? <><Loader2 className="animate-spin" style={{ width: "16px", height: "16px" }} /> Verifying payment...</>
                 : <><Upload style={{ width: "16px", height: "16px" }} /> Upload Payment Screenshot</>}
             </button>
           </div>
@@ -263,9 +370,10 @@ export function PaymentBillView({
           }}>
             {!proofResult.ocrConfigured ? (
               <>
-                <p style={{ fontSize: "13px", fontWeight: 700, color: "#374151", marginBottom: "4px" }}>
-                  Screenshot saved
-                </p>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <BadgeCheck style={{ width: "18px", height: "18px", color: "#94a3b8" }} />
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#374151" }}>Verification Pending</span>
+                </div>
                 <p style={{ fontSize: "12px", color: C.muted }}>
                   Automatic verification unavailable — staff will verify your payment manually.
                 </p>
@@ -274,7 +382,7 @@ export function PaymentBillView({
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
                   <BadgeCheck style={{ width: "20px", height: "20px", color: C.green }} />
-                  <span style={{ fontSize: "14px", fontWeight: 700, color: "#15803d" }}>Payment Verified ✓</span>
+                  <span style={{ fontSize: "14px", fontWeight: 700, color: "#15803d" }}>Payment Verified</span>
                 </div>
                 {proofResult.utr && (
                   <p style={{ fontSize: "12px", color: "#166534" }}>UTR: {proofResult.utr}</p>
@@ -287,7 +395,7 @@ export function PaymentBillView({
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
                   <AlertTriangle style={{ width: "16px", height: "16px", color: "#d97706" }} />
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>Manual Review Required</span>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#92400e" }}>Verification Pending</span>
                 </div>
                 <p style={{ fontSize: "12px", color: "#92400e" }}>
                   Staff will verify your payment shortly.
@@ -322,7 +430,7 @@ export function PaymentBillView({
           }}
         >
           <ArrowLeft style={{ width: "16px", height: "16px" }} />
-          Back to Menu
+          Previous
         </button>
         <button
           type="button"
@@ -337,7 +445,7 @@ export function PaymentBillView({
             cursor: "pointer",
           }}
         >
-          Done
+          Next
           <ArrowRight style={{ width: "16px", height: "16px" }} />
         </button>
       </div>

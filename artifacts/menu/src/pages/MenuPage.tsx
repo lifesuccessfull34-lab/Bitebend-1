@@ -21,6 +21,7 @@ import { CheckoutView } from "./menu/CheckoutView";
 import { CartView } from "./menu/CartView";
 import { MenuView } from "./menu/MenuView";
 import { PaymentBillView } from "./menu/PaymentBillView";
+import type { UploadStage } from "./menu/PaymentBillView";
 // Legacy Razorpay — only imported when VITE_ENABLE_CUSTOMER_RAZORPAY=true
 import { RazorpayCheckout } from "./menu/RazorpayCheckout";
 import type { RazorpayResponse } from "./menu/RazorpayCheckout";
@@ -78,7 +79,7 @@ export default function MenuPage() {
   const [orderTotal, setOrderTotal] = useState(0);
 
   // Payment proof upload state
-  const [uploadingProof, setUploadingProof] = useState(false);
+  const [uploadStage, setUploadStage] = useState<UploadStage>("idle");
   const [proofResult, setProofResult] = useState<ProofResult | null>(null);
 
   // Items from the placed order — used by PaymentBillView
@@ -364,7 +365,7 @@ export default function MenuPage() {
 
   const handleUploadProof = async (file: File) => {
     if (!orderId || !restaurant) return;
-    setUploadingProof(true);
+    setUploadStage("uploading");
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -372,6 +373,7 @@ export default function MenuPage() {
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+      setUploadStage("verifying");
       const res = await fetch(
         `${BASE}/api/menu/${restaurant.id}/orders/${orderId}/payment-proof`,
         {
@@ -385,7 +387,7 @@ export default function MenuPage() {
     } catch {
       setProofResult({ ocrConfigured: false, error: "Upload failed. Please try again." });
     } finally {
-      setUploadingProof(false);
+      setUploadStage("idle");
     }
   };
 
@@ -426,7 +428,7 @@ export default function MenuPage() {
         orderType={orderType}
         restaurant={restaurant}
         manualTableNumber={manualTableNumber}
-        uploadingProof={uploadingProof}
+        uploadingProof={uploadStage !== "idle"}
         proofResult={proofResult}
         onUploadProof={handleUploadProof}
         paymentMode={paymentMode}
@@ -503,7 +505,7 @@ export default function MenuPage() {
         manualTableNumber={manualTableNumber}
         customerName={customerName.trim()}
         orderItems={placedOrderItems}
-        uploadingProof={uploadingProof}
+        uploadStage={uploadStage}
         proofResult={proofResult}
         onUploadProof={handleUploadProof}
         onPrevious={() => {
@@ -514,6 +516,10 @@ export default function MenuPage() {
           setProofResult(null);
         }}
         onNext={() => setView("success")}
+        onCashPayment={() => {
+          setPaymentMode("cash");
+          setView("success");
+        }}
       />
     );
   }
