@@ -1,11 +1,17 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
-  ArrowLeft, ShoppingBag, Loader2, AlertCircle,
-  Receipt, ChevronDown, ChevronUp,
+  ArrowLeft, ShoppingCart, Loader2, AlertCircle,
+  ShoppingBag, ChevronDown, ChevronUp, QrCode, Upload,
+  BadgeCheck, AlertTriangle,
 } from "lucide-react";
+import { PaymentBillView } from "./menu/PaymentBillView";
+import type { UploadStage } from "./menu/PaymentBillView";
+import type { RestaurantData, PlacedOrderItem, OrderType } from "./menu/types";
 import { lsGet } from "./menu/utils";
 
 const BASE = "";
+const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png"];
+const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
 interface OrderItem {
   id: number;
@@ -19,6 +25,7 @@ interface CustomerOrder {
   id: number;
   restaurantId: number;
   restaurantName: string;
+  customerName: string;
   tableNumber: string | null;
   status: string;
   paymentStatus: string;
@@ -29,6 +36,22 @@ interface CustomerOrder {
   total: number;
   createdAt: string;
   items: OrderItem[];
+  restaurantUpiId: string | null;
+  restaurantUpiName: string | null;
+  restaurantPersonalUpiEnabled: boolean;
+  restaurantHasPaymentQr: boolean;
+  restaurantExtractedUpiId: string | null;
+  restaurantExtractedMerchantName: string | null;
+  restaurantSeatingLabel: string | null;
+}
+
+interface ProofResult {
+  ocrConfigured: boolean;
+  matched?: boolean;
+  confidence?: number;
+  utr?: string | null;
+  alreadyHasScreenshot?: boolean;
+  error?: string;
 }
 
 const C = {
@@ -41,6 +64,7 @@ const C = {
   mutedBg: "#f5f0eb",
   green: "#16a34a",
   greenBg: "#f0fdf4",
+  red: "#dc2626",
   inputBorder: "#d1c9bf",
 } as const;
 
@@ -78,9 +102,147 @@ interface OrderCardProps {
   order: CustomerOrder;
   expanded: boolean;
   onToggle: () => void;
+  onRefresh: () => void;
 }
 
-function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
+function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
+  // ── All hooks before any conditional return ───────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+
+  const [showBill, setShowBill] = useState(false);
+  const [uploadStage, setUploadStage] = useState<UploadStage>("idle");
+  const [proofResult, setProofResult] = useState<ProofResult | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  // Revoke blob URL once proof result arrives
+  useEffect(() => {
+    if (proofResult && previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
+  }, [proofResult, previewUrl]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    const url = previewUrl;
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [previewUrl]);
+
+  // ── Payment recovery conditions ───────────────────────────────────────────
+  const canViewPaymentQr = order.paymentMethod === "upi" && order.paymentStatus !== "paid";
+  const canUploadScreenshot =
+    order.paymentMethod === "upi" &&
+    (order.paymentStatus === "awaiting_verification" || order.paymentStatus === "unpaid") &&
+    order.paymentVerificationStatus !== "approved";
+
+  const isUploading = uploadStage !== "idle";
+
+  // ── Upload handler (mirrors MenuPage.handleUploadProof exactly) ───────────
+  const handleUploadProof = useCallback(async (file: File, forceReplace = false) => {
+    setUploadStage("uploading");
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      setUploadStage("verifying");
+      const res = await fetch(
+        `${BASE}/api/menu/${order.restaurantId}/orders/${order.id}/payment-proof`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type, forceReplace }),
+        },
+      );
+      if (res.status === 409) {
+        setProofResult({ ocrConfigured: false, alreadyHasScreenshot: true });
+        return;
+      }
+      const data = await res.json() as ProofResult;
+      setProofResult(data);
+      onRefresh();
+    } catch {
+      setProofResult({ ocrConfigured: false, error: "Upload failed. Please try again." });
+    } finally {
+      setUploadStage("idle");
+    }
+  }, [order.restaurantId, order.id, onRefresh]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, forceReplace: boolean) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setFileError(null);
+    if (!ACCEPTED_TYPES.includes(file.type)) {
+      setFileError("Only JPG and PNG files are accepted.");
+      return;
+    }
+    if (file.size > MAX_SIZE_BYTES) {
+      setFileError("File size must be under 10 MB.");
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    void handleUploadProof(file, forceReplace);
+  };
+
+  // ── Construct RestaurantData for PaymentBillView ───────────────────────────
+  const restaurantForBill: RestaurantData = {
+    id: order.restaurantId,
+    name: order.restaurantName,
+    description: null,
+    cuisineType: "",
+    logoUrl: null,
+    address: "",
+    city: "",
+    phone: "",
+    taxPercent: 0,
+    upiId: order.restaurantUpiId,
+    upiName: order.restaurantUpiName,
+    personalUpiEnabled: order.restaurantPersonalUpiEnabled,
+    hasPaymentQr: order.restaurantHasPaymentQr,
+    extractedUpiId: order.restaurantExtractedUpiId,
+    extractedMerchantName: order.restaurantExtractedMerchantName,
+    seatingLabel: order.restaurantSeatingLabel,
+  };
+
+  const orderItems: PlacedOrderItem[] = order.items.map((i) => ({
+    name: i.name,
+    quantity: i.quantity,
+    unitPrice: i.unitPrice,
+    isVeg: i.isVeg,
+  }));
+
+  const inferredOrderType: OrderType = order.tableNumber ? "dine_in" : "take_away";
+
+  // ── Payment bill overlay — rendered after all hooks ───────────────────────
+  if (showBill) {
+    return (
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}>
+        <PaymentBillView
+          orderId={order.id}
+          orderTotal={order.total}
+          restaurant={restaurantForBill}
+          orderType={inferredOrderType}
+          manualTableNumber={order.tableNumber ?? ""}
+          customerName={order.customerName}
+          orderItems={orderItems}
+          uploadStage={uploadStage}
+          proofResult={proofResult}
+          onUploadProof={handleUploadProof}
+          onPrevious={() => { setShowBill(false); onRefresh(); }}
+          onNext={() => { setShowBill(false); onRefresh(); }}
+          onCashPayment={() => setShowBill(false)}
+        />
+      </div>
+    );
+  }
+
+  // ── Normal order card ─────────────────────────────────────────────────────
   const { label: statusText, color: statusColor, bg: statusBg } = statusInfo(order.status);
   const date = new Date(order.createdAt).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
@@ -103,6 +265,7 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
           textAlign: "left",
           backgroundColor: "transparent",
           cursor: "pointer",
+          border: "none",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -159,13 +322,15 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
           padding: "12px 16px",
           backgroundColor: "#faf9f6",
         }}>
+
+          {/* ── Item list ──────────────────────────────────────── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "12px" }}>
             {order.items.map((item) => (
               <div key={item.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <div style={{
                     width: "7px", height: "7px", borderRadius: "2px", flexShrink: 0,
-                    backgroundColor: item.isVeg ? C.green : "#dc2626",
+                    backgroundColor: item.isVeg ? C.green : C.red,
                   }} />
                   <span style={{ fontSize: "13px", color: C.ink }}>
                     {item.quantity}× {item.name}
@@ -178,6 +343,7 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
             ))}
           </div>
 
+          {/* ── Totals ─────────────────────────────────────────── */}
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: "8px", display: "flex", flexDirection: "column", gap: "4px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: C.muted }}>
               <span>Subtotal</span>
@@ -195,6 +361,7 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
             </div>
           </div>
 
+          {/* ── Rejection alert ─────────────────────────────────── */}
           {order.paymentVerificationStatus === "rejected" && (
             <div style={{
               marginTop: "10px",
@@ -206,12 +373,155 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
               alignItems: "flex-start",
               gap: "8px",
             }}>
-              <AlertCircle style={{ width: "14px", height: "14px", color: "#dc2626", flexShrink: 0, marginTop: "1px" }} />
+              <AlertCircle style={{ width: "14px", height: "14px", color: C.red, flexShrink: 0, marginTop: "1px" }} />
               <p style={{ fontSize: "12px", color: "#b91c1c", lineHeight: "1.5", margin: 0 }}>
                 Payment proof could not be verified. Please show payment confirmation to restaurant staff.
               </p>
             </div>
           )}
+
+          {/* ── Payment recovery actions ────────────────────────── */}
+          {(canViewPaymentQr || canUploadScreenshot) && (
+            <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+
+              {/* View Payment QR — re-opens PaymentBillView for this order */}
+              {canViewPaymentQr && (
+                <button
+                  type="button"
+                  onClick={() => { setProofResult(null); setShowBill(true); }}
+                  style={{
+                    width: "100%", height: "40px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${C.orange}`,
+                    backgroundColor: "#fff7ed", color: C.orange,
+                    fontWeight: 600, fontSize: "13px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <QrCode style={{ width: "15px", height: "15px" }} />
+                  View Payment QR
+                </button>
+              )}
+
+              {/* Upload screenshot — only when not already uploaded this session */}
+              {canUploadScreenshot && !proofResult && (
+                <>
+                  {previewUrl && (
+                    <div style={{ borderRadius: "8px", overflow: "hidden", border: `1px solid ${C.border}` }}>
+                      <img
+                        src={previewUrl}
+                        alt="Payment screenshot preview"
+                        style={{ width: "100%", height: "auto", maxHeight: "160px", objectFit: "contain", display: "block", backgroundColor: C.mutedBg }}
+                      />
+                    </div>
+                  )}
+                  {fileError && (
+                    <p style={{ fontSize: "12px", color: C.red, margin: 0 }}>{fileError}</p>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleFileChange(e, false)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setFileError(null); fileInputRef.current?.click(); }}
+                    disabled={isUploading}
+                    style={{
+                      width: "100%", height: "40px",
+                      borderRadius: "10px",
+                      border: `1.5px dashed ${isUploading ? "#d1c9bf" : C.orange}`,
+                      backgroundColor: isUploading ? "#faf9f6" : "#fff7ed",
+                      color: isUploading ? C.muted : C.orange,
+                      fontWeight: 600, fontSize: "13px",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                      cursor: isUploading ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {uploadStage === "uploading"
+                      ? <><Loader2 style={{ width: "14px", height: "14px" }} /> Uploading...</>
+                      : uploadStage === "verifying"
+                      ? <><Loader2 style={{ width: "14px", height: "14px" }} /> Verifying...</>
+                      : <><Upload style={{ width: "14px", height: "14px" }} /> Upload Payment Screenshot</>}
+                  </button>
+                </>
+              )}
+
+              {/* Screenshot already submitted — offer replace */}
+              {proofResult?.alreadyHasScreenshot && (
+                <>
+                  <div style={{
+                    padding: "10px 12px", borderRadius: "8px",
+                    backgroundColor: "#fffbeb", border: "1px solid #fde68a",
+                    fontSize: "12px", color: "#92400e",
+                  }}>
+                    Screenshot already submitted. You can replace it below.
+                  </div>
+                  <input
+                    ref={replaceInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleFileChange(e, true)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setFileError(null); replaceInputRef.current?.click(); }}
+                    disabled={isUploading}
+                    style={{
+                      width: "100%", height: "40px",
+                      borderRadius: "10px",
+                      border: `1.5px dashed ${isUploading ? "#d1c9bf" : "#d97706"}`,
+                      backgroundColor: isUploading ? "#faf9f6" : "#fffbeb",
+                      color: isUploading ? C.muted : "#92400e",
+                      fontWeight: 600, fontSize: "13px",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                      cursor: isUploading ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {isUploading
+                      ? <><Loader2 style={{ width: "14px", height: "14px" }} /> Uploading...</>
+                      : <><Upload style={{ width: "14px", height: "14px" }} /> Replace Screenshot</>}
+                  </button>
+                </>
+              )}
+
+              {/* Upload result */}
+              {proofResult && !proofResult.alreadyHasScreenshot && !proofResult.error && (
+                <div style={{
+                  padding: "10px 12px", borderRadius: "8px",
+                  border: `1px solid ${proofResult.matched ? "#bbf7d0" : "#e2e8f0"}`,
+                  backgroundColor: proofResult.matched ? "#f0fdf4" : "#f8fafc",
+                  display: "flex", alignItems: "flex-start", gap: "8px",
+                }}>
+                  {proofResult.matched
+                    ? <BadgeCheck style={{ width: "15px", height: "15px", color: C.green, flexShrink: 0, marginTop: "1px" }} />
+                    : <AlertTriangle style={{ width: "15px", height: "15px", color: "#d97706", flexShrink: 0, marginTop: "1px" }} />}
+                  <p style={{ fontSize: "12px", color: proofResult.matched ? "#15803d" : "#92400e", margin: 0, lineHeight: "1.5" }}>
+                    {proofResult.matched
+                      ? "Payment screenshot uploaded and verified."
+                      : "Screenshot uploaded. Staff will verify your payment shortly."}
+                  </p>
+                </div>
+              )}
+
+              {/* Upload error */}
+              {proofResult?.error && (
+                <div style={{
+                  padding: "10px 12px", borderRadius: "8px",
+                  backgroundColor: "#fef2f2", border: "1px solid #fecaca",
+                  fontSize: "12px", color: C.red,
+                }}>
+                  {proofResult.error}
+                </div>
+              )}
+
+            </div>
+          )}
+
         </div>
       )}
     </div>
@@ -226,15 +536,7 @@ export default function OrderHistoryPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [searched, setSearched] = useState(false);
 
-  useEffect(() => {
-    const saved = lsGet("ts_phone");
-    if (saved) {
-      fetchOrders(saved);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetchOrders = async (phone: string) => {
+  const fetchOrders = useCallback(async (phone: string) => {
     if (!phone.trim()) return;
     setLoading(true);
     setError("");
@@ -249,12 +551,25 @@ export default function OrderHistoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const saved = lsGet("ts_phone");
+    if (saved) {
+      fetchOrders(saved);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     fetchOrders(inputPhone);
   };
+
+  const handleRefresh = useCallback(() => {
+    const phone = lsGet("ts_phone") || inputPhone;
+    if (phone) fetchOrders(phone);
+  }, [fetchOrders, inputPhone]);
 
   return (
     <div style={{ minHeight: "100dvh", backgroundColor: C.bg }}>
@@ -274,13 +589,13 @@ export default function OrderHistoryPage() {
               width: "36px", height: "36px", borderRadius: "50%",
               backgroundColor: C.mutedBg,
               display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0,
+              flexShrink: 0, border: "none", cursor: "pointer",
             }}
           >
             <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
           </button>
           <h1 style={{ flex: 1, fontWeight: 700, fontSize: "17px", color: C.ink }}>My Orders</h1>
-          <Receipt style={{ width: "20px", height: "20px", color: C.muted }} />
+          <ShoppingCart style={{ width: "20px", height: "20px", color: C.muted }} />
         </div>
       </div>
 
@@ -322,6 +637,7 @@ export default function OrderHistoryPage() {
                 color: "#fff",
                 fontWeight: 600, fontSize: "13px",
                 display: "flex", alignItems: "center", justifyContent: "center",
+                border: "none", cursor: inputPhone.length >= 10 ? "pointer" : "not-allowed",
               }}
             >
               {loading ? <Loader2 style={{ width: "16px", height: "16px" }} /> : "Search"}
@@ -341,7 +657,7 @@ export default function OrderHistoryPage() {
           <div style={{
             backgroundColor: "#fef2f2", border: "1px solid #fecaca",
             borderRadius: "12px", padding: "12px 16px",
-            fontSize: "13px", color: "#dc2626",
+            fontSize: "13px", color: C.red,
             display: "flex", alignItems: "center", gap: "8px",
           }}>
             <AlertCircle style={{ width: "16px", height: "16px", flexShrink: 0 }} />
@@ -369,6 +685,7 @@ export default function OrderHistoryPage() {
             order={order}
             expanded={expandedId === order.id}
             onToggle={() => setExpandedId(expandedId === order.id ? null : order.id)}
+            onRefresh={handleRefresh}
           />
         ))}
       </div>

@@ -159,6 +159,7 @@ const getCustomerOrders: RequestHandler = async (req, res) => {
       id: orders.id,
       restaurantId: orders.restaurantId,
       restaurantName: restaurants.name,
+      customerName: orders.customerName,
       tableNumber: orders.tableNumber,
       status: orders.status,
       paymentStatus: orders.paymentStatus,
@@ -168,6 +169,14 @@ const getCustomerOrders: RequestHandler = async (req, res) => {
       tax: orders.tax,
       total: orders.total,
       createdAt: orders.createdAt,
+      // Restaurant UPI fields — needed for payment QR recovery in order history
+      restaurantUpiId: restaurants.upiId,
+      restaurantUpiName: restaurants.upiName,
+      restaurantPersonalUpiEnabled: restaurants.personalUpiEnabled,
+      restaurantHasPaymentQr: restaurants.paymentQrEnabled,
+      restaurantExtractedUpiId: restaurants.qrExtractedUpiId,
+      restaurantExtractedMerchantName: restaurants.qrMerchantName,
+      restaurantSeatingLabel: restaurants.seatingLabel,
     })
     .from(orders)
     .innerJoin(restaurants, eq(orders.restaurantId, restaurants.id))
