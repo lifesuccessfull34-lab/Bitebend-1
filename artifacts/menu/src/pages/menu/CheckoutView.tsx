@@ -7,8 +7,12 @@ import {
   Phone,
   Loader2,
   CheckCircle2,
+  Banknote,
+  QrCode,
 } from "lucide-react";
 import type { RestaurantData, CartItem, OrderType } from "./types";
+
+export type PaymentMode = "cash" | "online";
 
 interface Props {
   restaurant: RestaurantData;
@@ -26,10 +30,10 @@ interface Props {
   total: number;
   placing: boolean;
   placeError: string;
+  paymentMode: PaymentMode | null;
+  onPaymentModeChange: (mode: PaymentMode) => void;
   onSubmit: (e: FormEvent) => void;
   onBack: () => void;
-  /** When true, the submit button says "Proceed to Pay via Razorpay" */
-  razorpayConfigured?: boolean;
 }
 
 const C = {
@@ -79,6 +83,54 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+interface PaymentCardProps {
+  selected: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}
+
+function PaymentCard({ selected, onClick, icon, title, description }: PaymentCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "12px",
+        width: "100%",
+        padding: "14px",
+        borderRadius: "12px",
+        border: `2px solid ${selected ? C.orange : C.border}`,
+        backgroundColor: selected ? "#fff7ed" : C.card,
+        textAlign: "left",
+        cursor: "pointer",
+      }}
+    >
+      <div style={{
+        width: "42px", height: "42px",
+        borderRadius: "10px",
+        backgroundColor: selected ? "#fed7aa" : C.mutedBg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        flexShrink: 0,
+      }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontWeight: 700, fontSize: "14px", color: C.ink }}>{title}</span>
+          {selected && <CheckCircle2 style={{ width: "18px", height: "18px", color: C.orange, flexShrink: 0 }} />}
+        </div>
+        <span style={{ fontSize: "12px", color: C.muted, lineHeight: "1.45", display: "block", marginTop: "2px" }}>
+          {description}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 export function CheckoutView({
   restaurant,
   cart,
@@ -95,9 +147,10 @@ export function CheckoutView({
   total,
   placing,
   placeError,
+  paymentMode,
+  onPaymentModeChange,
   onSubmit,
   onBack,
-  razorpayConfigured = false,
 }: Props) {
   const inputStyle: React.CSSProperties = {
     width: "100%", height: "44px",
@@ -120,49 +173,49 @@ export function CheckoutView({
         borderBottom: `1px solid ${C.border}`,
         paddingTop: "env(safe-area-inset-top, 0px)",
       }}>
-      <div style={{
-        height: "56px",
-        padding: "0 16px",
-        display: "flex", alignItems: "center", gap: "12px",
-      }}>
-        <button
-          onClick={onBack}
-          aria-label="Back to cart"
-          style={{
-            width: "36px", height: "36px", borderRadius: "50%",
-            backgroundColor: C.mutedBg,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
-        </button>
-
-        <h1 style={{ flex: 1, fontWeight: 700, fontSize: "17px", color: C.ink }}>
-          Your Details
-        </h1>
-
         <div style={{
-          display: "flex", alignItems: "center", gap: "5px",
-          backgroundColor: C.mutedBg,
-          borderRadius: "9999px",
-          padding: "4px 10px",
-          fontSize: "12px", fontWeight: 600, color: C.muted,
-          flexShrink: 0,
+          height: "56px",
+          padding: "0 16px",
+          display: "flex", alignItems: "center", gap: "12px",
         }}>
-          {orderType === "take_away" ? (
-            <>
-              <ShoppingBag style={{ width: "12px", height: "12px" }} />
-              Take Away
-            </>
-          ) : (
-            <>
-              <UtensilsCrossed style={{ width: "12px", height: "12px" }} />
-              {restaurant.seatingLabel} {manualTableNumber}
-            </>
-          )}
+          <button
+            onClick={onBack}
+            aria-label="Back to cart"
+            style={{
+              width: "36px", height: "36px", borderRadius: "50%",
+              backgroundColor: C.mutedBg,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
+          </button>
+
+          <h1 style={{ flex: 1, fontWeight: 700, fontSize: "17px", color: C.ink }}>
+            Checkout
+          </h1>
+
+          <div style={{
+            display: "flex", alignItems: "center", gap: "5px",
+            backgroundColor: C.mutedBg,
+            borderRadius: "9999px",
+            padding: "4px 10px",
+            fontSize: "12px", fontWeight: 600, color: C.muted,
+            flexShrink: 0,
+          }}>
+            {orderType === "take_away" ? (
+              <>
+                <ShoppingBag style={{ width: "12px", height: "12px" }} />
+                Take Away
+              </>
+            ) : (
+              <>
+                <UtensilsCrossed style={{ width: "12px", height: "12px" }} />
+                {restaurant.seatingLabel} {manualTableNumber}
+              </>
+            )}
+          </div>
         </div>
-      </div>
       </div>
 
       <form onSubmit={onSubmit} style={{ padding: "16px", paddingBottom: "24px", maxWidth: "512px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "14px" }}>
@@ -279,6 +332,27 @@ export function CheckoutView({
           </div>
         </SectionCard>
 
+        {/* ── Payment Method ────────────────────────────────────── */}
+        <SectionCard>
+          <SectionLabel>Choose Payment Method</SectionLabel>
+          <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
+            <PaymentCard
+              selected={paymentMode === "cash"}
+              onClick={() => onPaymentModeChange("cash")}
+              icon={<Banknote style={{ width: "20px", height: "20px", color: paymentMode === "cash" ? C.orange : C.muted }} />}
+              title="Cash Payment"
+              description="Pay directly at restaurant counter/table"
+            />
+            <PaymentCard
+              selected={paymentMode === "online"}
+              onClick={() => onPaymentModeChange("online")}
+              icon={<QrCode style={{ width: "20px", height: "20px", color: paymentMode === "online" ? C.orange : C.muted }} />}
+              title="Scan QR & Pay"
+              description="Scan QR and complete payment before placing order"
+            />
+          </div>
+        </SectionCard>
+
         {/* Error */}
         {placeError && (
           <div style={{
@@ -293,16 +367,16 @@ export function CheckoutView({
         {/* ── Place Order CTA ────────────────────────────────────── */}
         <button
           type="submit"
-          disabled={placing}
+          disabled={placing || !paymentMode}
           style={{
             width: "100%", height: "52px",
             borderRadius: "14px",
-            backgroundColor: C.orange,
+            backgroundColor: !paymentMode ? "#d1c9bf" : C.orange,
             color: "#fff",
             fontWeight: 700, fontSize: "16px",
             display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
             opacity: placing ? 0.65 : 1,
-            boxShadow: "0 4px 16px rgba(234,88,12,0.30)",
+            boxShadow: !paymentMode ? "none" : "0 4px 16px rgba(234,88,12,0.30)",
           }}
         >
           {placing ? (
@@ -312,8 +386,8 @@ export function CheckoutView({
           )}
           {placing
             ? "Placing Order…"
-            : razorpayConfigured
-              ? `Proceed to Pay · ₹${total.toFixed(2)}`
+            : !paymentMode
+              ? "Select a payment method"
               : `Place Order · ₹${total.toFixed(2)}`
           }
         </button>

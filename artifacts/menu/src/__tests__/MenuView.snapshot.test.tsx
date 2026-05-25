@@ -45,6 +45,7 @@ vi.mock("wouter", () => ({
     restaurantId: "99",
     tableId: undefined,
   })),
+  useLocation: vi.fn(() => ["/99", vi.fn()]),
 }));
 
 // ── Fixture data ──────────────────────────────────────────────────────────────

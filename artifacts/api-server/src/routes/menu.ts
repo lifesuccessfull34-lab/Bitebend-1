@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { restaurants, menuCategories, menuItems, restaurantTables, orders, orderItems, notifications } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { RequestHandler } from "express";
 import Razorpay from "razorpay";
@@ -123,6 +123,60 @@ function normalizePhone(raw: string): string | null {
   if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
   return null;
 }
+
+// GET /api/menu/customer/orders — customer order history by phone number
+const getCustomerOrders: RequestHandler = async (req, res) => {
+  const phone = String(req.query.phone ?? "");
+  if (!phone) {
+    res.status(400).json({ error: "phone query parameter is required" });
+    return;
+  }
+  const normalizedPhone = normalizePhone(phone);
+  if (!normalizedPhone) {
+    res.status(400).json({ error: "Invalid phone number" });
+    return;
+  }
+
+  const rows = await db
+    .select({
+      id: orders.id,
+      restaurantId: orders.restaurantId,
+      restaurantName: restaurants.name,
+      tableNumber: orders.tableNumber,
+      status: orders.status,
+      paymentStatus: orders.paymentStatus,
+      paymentMethod: orders.paymentMethod,
+      subtotal: orders.subtotal,
+      tax: orders.tax,
+      total: orders.total,
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .innerJoin(restaurants, eq(orders.restaurantId, restaurants.id))
+    .where(eq(orders.customerPhone, normalizedPhone))
+    .orderBy(desc(orders.createdAt))
+    .limit(50);
+
+  if (rows.length === 0) {
+    res.json([]);
+    return;
+  }
+
+  const ids = rows.map((r) => r.id);
+  const allItems = await db
+    .select()
+    .from(orderItems)
+    .where(inArray(orderItems.orderId, ids));
+
+  const itemsByOrder = new Map<number, typeof allItems>();
+  for (const item of allItems) {
+    const arr = itemsByOrder.get(item.orderId) ?? [];
+    arr.push(item);
+    itemsByOrder.set(item.orderId, arr);
+  }
+
+  res.json(rows.map((r) => ({ ...r, items: itemsByOrder.get(r.id) ?? [] })));
+};
 
 // POST /menu/:restaurantId/orders — customer places order (accepts numeric ID or slug)
 const placeOrder: RequestHandler = async (req, res) => {
@@ -585,6 +639,7 @@ const verifyRazorpayPayment: RequestHandler = async (req, res) => {
 router.get("/menu/:restaurantId", getPublicMenu);
 router.get("/menu/:restaurantId/payment-qr", getPaymentQr);
 router.post("/menu/:restaurantId/razorpay-order", createRazorpayOrder);
+router.get("/menu/customer/orders", getCustomerOrders);
 router.post("/menu/:restaurantId/orders", placeOrder);
 router.get("/menu/:restaurantId/orders/:orderId", getOrderStatus);
 router.patch("/menu/:restaurantId/orders/:orderId/confirm-payment", confirmPayment);

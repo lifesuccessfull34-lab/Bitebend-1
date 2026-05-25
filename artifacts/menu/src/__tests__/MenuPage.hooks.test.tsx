@@ -35,6 +35,7 @@ vi.mock("wouter", () => ({
     restaurantId: "valley-view",
     tableId: undefined,
   })),
+  useLocation: vi.fn(() => ["/valley-view", vi.fn()]),
 }));
 
 // ── Fixture data ─────────────────────────────────────────────────────────────

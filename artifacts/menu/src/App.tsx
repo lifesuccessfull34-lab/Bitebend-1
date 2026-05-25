@@ -2,6 +2,7 @@ import { Component, type ReactNode } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import MenuPage from "@/pages/MenuPage";
+import OrderHistoryPage from "@/pages/OrderHistoryPage";
 import NotFound from "@/pages/not-found";
 
 // ─── Client-side error telemetry ──────────────────────────────────────────────
@@ -151,6 +152,8 @@ function Router() {
     <>
       <LocationLogger />
       <Switch>
+        <Route path="/my-orders/" component={OrderHistoryPage} />
+        <Route path="/my-orders" component={OrderHistoryPage} />
         <Route path="/:restaurantId/table/:tableId/" component={MenuPage} />
         <Route path="/:restaurantId/table/:tableId" component={MenuPage} />
         <Route path="/:restaurantId/" component={MenuPage} />

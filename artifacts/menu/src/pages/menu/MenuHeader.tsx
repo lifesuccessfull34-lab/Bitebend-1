@@ -1,4 +1,5 @@
-import { MapPin, UtensilsCrossed } from "lucide-react";
+import { MapPin, UtensilsCrossed, Receipt } from "lucide-react";
+import { useLocation } from "wouter";
 import type { RestaurantData, OrderType } from "./types";
 
 interface Props {
@@ -16,6 +17,7 @@ export function MenuHeader({
   takeAwayOnly,
   onChangeMode,
 }: Props) {
+  const [, setLocation] = useLocation();
   const modeLabel =
     orderType === "take_away"
       ? "Take Away"
@@ -123,6 +125,24 @@ export function MenuHeader({
             )}
           </div>
         </div>
+
+        {/* My Orders button */}
+        <button
+          onClick={() => setLocation("/my-orders")}
+          aria-label="My Orders"
+          title="My Orders"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: "36px", height: "36px",
+            borderRadius: "10px",
+            backgroundColor: "rgba(255,255,255,0.18)",
+            flexShrink: 0,
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          <Receipt style={{ width: "18px", height: "18px", color: "#fff" }} />
+        </button>
       </div>
     </div>
   );

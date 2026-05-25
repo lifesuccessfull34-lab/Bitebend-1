@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams } from "wouter";
+import { useParams, useLocation } from "wouter";
 import { normalizeRestaurantParam } from "@workspace/url-utils";
 import { lsGet, lsSet } from "./menu/utils";
 import type {
@@ -73,6 +73,8 @@ export default function MenuPage() {
 
   // Razorpay checkout state — non-null when the Razorpay modal should be open
   const [razorpayCheckout, setRazorpayCheckout] = useState<(RazorpayCheckoutState & { customerName: string; customerPhone: string }) | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"cash" | "online" | null>(null);
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
     if (!rawParam) {
@@ -231,7 +233,7 @@ export default function MenuPage() {
         tableNumber: tableNum,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
-        paymentMethod: null,
+        paymentMethod: paymentMode === "cash" ? "cash" : paymentMode === "online" ? "upi" : null,
         notes:
           [
             orderType === "take_away" ? "Take Away" : null,
@@ -255,6 +257,10 @@ export default function MenuPage() {
       setPlaceError("Enter a valid 10-digit Indian mobile number");
       return;
     }
+    if (!paymentMode) {
+      setPlaceError("Please select a payment method to continue");
+      return;
+    }
     setPlacing(true);
     setPlaceError("");
     try {
@@ -264,8 +270,8 @@ export default function MenuPage() {
       setCart([]);
       setProofResult(null);
 
-      // If the restaurant has Razorpay configured, open the payment gateway
-      if (restaurant?.razorpayKeyId) {
+      // Only trigger Razorpay when online payment is selected and Razorpay is configured
+      if (paymentMode === "online" && restaurant?.razorpayKeyId) {
         const rzpRes = await fetch(`${BASE}/api/menu/${restaurant.id}/razorpay-order`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -396,13 +402,15 @@ export default function MenuPage() {
         uploadingProof={uploadingProof}
         proofResult={proofResult}
         onUploadProof={handleUploadProof}
-        onRedirectToMenu={() => {
+        paymentMode={paymentMode}
+        onGoToMenu={() => {
           setView("menu");
           setOrderId(null);
           setNotes("");
           setPlaceError("");
           setProofResult(null);
         }}
+        onGoToOrders={() => setLocation("/my-orders")}
       />
     );
   }
@@ -484,7 +492,8 @@ export default function MenuPage() {
         placeError={placeError}
         onSubmit={handlePlaceOrder}
         onBack={() => setView("cart")}
-        razorpayConfigured={!!restaurant.razorpayKeyId}
+        paymentMode={paymentMode}
+        onPaymentModeChange={setPaymentMode}
       />
     );
   }

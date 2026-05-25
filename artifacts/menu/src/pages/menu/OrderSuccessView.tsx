@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ShoppingBag, UtensilsCrossed, Upload, Loader2, BadgeCheck, AlertTriangle } from "lucide-react";
+import { useRef } from "react";
+import {
+  CheckCircle2, ShoppingBag, UtensilsCrossed,
+  Upload, Loader2, BadgeCheck, AlertTriangle,
+  ArrowLeft, ArrowRight, Banknote, QrCode,
+} from "lucide-react";
 import type { RestaurantData, OrderType } from "./types";
+import type { PaymentMode } from "./CheckoutView";
 
 interface ProofResult {
   ocrConfigured: boolean;
@@ -17,10 +22,12 @@ interface Props {
   orderType: OrderType | null;
   restaurant: RestaurantData;
   manualTableNumber: string;
+  paymentMode: PaymentMode | null;
   uploadingProof: boolean;
   proofResult: ProofResult | null;
   onUploadProof: (file: File) => void;
-  onRedirectToMenu: () => void;
+  onGoToMenu: () => void;
+  onGoToOrders: () => void;
 }
 
 const C = {
@@ -30,6 +37,7 @@ const C = {
   border: "#ede8e3",
   ink: "#1a0a00",
   muted: "#6b7280",
+  mutedBg: "#f5f0eb",
   green: "#16a34a",
   greenBg: "#f0fdf4",
   greenBorder: "#bbf7d0",
@@ -41,39 +49,27 @@ export function OrderSuccessView({
   orderType,
   restaurant,
   manualTableNumber,
+  paymentMode,
   uploadingProof,
   proofResult,
   onUploadProof,
-  onRedirectToMenu,
+  onGoToMenu,
+  onGoToOrders,
 }: Props) {
   const isTakeAway = orderType === "take_away";
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const onRedirectRef = useRef(onRedirectToMenu);
-  const [countdown, setCountdown] = useState(4);
-
-  useEffect(() => { onRedirectRef.current = onRedirectToMenu; });
-
-  // Auto-redirect countdown — pauses while uploading or after proof uploaded
-  useEffect(() => {
-    if (uploadingProof || proofResult) return;
-    const interval = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          clearInterval(interval);
-          onRedirectRef.current();
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [uploadingProof, proofResult]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) onUploadProof(file);
     e.target.value = "";
   };
+
+  const paymentNote = paymentMode === "cash"
+    ? `Staff will collect payment at your ${isTakeAway ? "counter" : "table"}.`
+    : "Please scan the restaurant's QR code to complete your payment.";
+
+  const PaymentIcon = paymentMode === "online" ? QrCode : Banknote;
 
   return (
     <div style={{
@@ -140,14 +136,19 @@ export function OrderSuccessView({
               <span style={{ fontSize: "13px", fontWeight: 600, color: "#15803d" }}>Total</span>
               <span style={{ fontSize: "18px", fontWeight: 800, color: "#15803d" }}>₹{orderTotal.toFixed(2)}</span>
             </div>
-            <p style={{ fontSize: "12px", color: "#166534", lineHeight: "1.45" }}>
-              Staff will collect payment at your {isTakeAway ? "counter" : "table"}.
-            </p>
+
+            {/* Payment mode note */}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: "6px", marginTop: "2px" }}>
+              <PaymentIcon style={{ width: "13px", height: "13px", color: "#166534", flexShrink: 0, marginTop: "1px" }} />
+              <p style={{ fontSize: "12px", color: "#166534", lineHeight: "1.45", margin: 0 }}>
+                {paymentNote}
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* ── Optional payment screenshot ───────────────────────── */}
-        {!proofResult && (
+        {/* ── Optional payment screenshot (only for online mode) ── */}
+        {paymentMode === "online" && !proofResult && (
           <div style={{
             backgroundColor: C.card,
             borderRadius: "16px",
@@ -242,22 +243,39 @@ export function OrderSuccessView({
           </div>
         )}
 
-        {/* ── Redirect CTA / countdown ──────────────────────────── */}
-        <button
-          onClick={onRedirectToMenu}
-          style={{
-            width: "100%", height: "50px",
-            borderRadius: "14px",
-            backgroundColor: C.orange, color: "#fff",
-            fontWeight: 700, fontSize: "15px",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 4px 16px rgba(234,88,12,0.28)",
-          }}
-        >
-          {!uploadingProof && !proofResult && countdown > 0
-            ? `Back to Menu (${countdown})`
-            : "Back to Menu"}
-        </button>
+        {/* ── Previous / Next nav ───────────────────────────────── */}
+        <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+          <button
+            onClick={onGoToMenu}
+            style={{
+              flex: 1, height: "50px",
+              borderRadius: "14px",
+              border: `2px solid ${C.border}`,
+              backgroundColor: C.card,
+              color: C.ink,
+              fontWeight: 600, fontSize: "14px",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+            }}
+          >
+            <ArrowLeft style={{ width: "16px", height: "16px" }} />
+            Back to Menu
+          </button>
+
+          <button
+            onClick={onGoToOrders}
+            style={{
+              flex: 1, height: "50px",
+              borderRadius: "14px",
+              backgroundColor: C.orange, color: "#fff",
+              fontWeight: 700, fontSize: "14px",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+              boxShadow: "0 4px 16px rgba(234,88,12,0.28)",
+            }}
+          >
+            My Orders
+            <ArrowRight style={{ width: "16px", height: "16px" }} />
+          </button>
+        </div>
 
         <p style={{ textAlign: "center", fontSize: "12px", color: C.muted, marginTop: "14px" }}>
           Thank you for ordering from {restaurant.name} 🙏
