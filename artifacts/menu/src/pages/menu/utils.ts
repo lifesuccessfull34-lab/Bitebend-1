@@ -60,10 +60,11 @@ export function generateUPILink(
   // symbol (e.g. "250.00" not "₹250" or "250 INR").
   const am = Number(amount).toFixed(2);
 
-  // tr and tn are optional per the UPI spec. Several payment apps (including
-  // Paytm) silently reject requests that include these fields when the values
-  // don't match their internal validation rules. We send a minimal payload —
-  // only the four mandatory fields — to maximise cross-app compatibility.
-  // If a specific app requires tr/tn in the future, add them back here.
-  return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&cu=INR`;
+  // tn (transaction note): "Order-{id}" — a plain alphanumeric string with no
+  // UPI-reserved chars, so sanitize + encodeURIComponent are both no-ops here.
+  // Included so GPay / PhonePe / BHIM show the order reference to the customer.
+  // Paytm ignores tn but does not reject the payment request because of it.
+  const tn = encodeURIComponent(sanitizeUPIText(`Order-${orderId}`, 25));
+
+  return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}&cu=INR`;
 }

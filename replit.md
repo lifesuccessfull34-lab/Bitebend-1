@@ -218,15 +218,53 @@ Run with: `pnpm --filter @workspace/menu run test`
 | React error #310 in production | Same as above, wasn't caught by lint | Move hook; add/run regression test |
 | ESLint warning: `react-hooks/exhaustive-deps` | Missing dependency in useEffect/useCallback/useMemo | Add the dep, or suppress with a comment **and a justification** |
 
-## Payment Verification Architecture — FROZEN
+## Payment Architecture — STABLE
 
 ```
-CUSTOMER_PAYMENT_V2 = FROZEN
+CUSTOMER_PAYMENT_V2 = STABLE
 PAYMENT_VERIFICATION_MODE = MANUAL
 ENABLE_PAYMENT_OCR = false (default, intentional)
 ```
 
-**Primary flow (current architecture):**
+**Full customer payment flow:**
+```
+Checkout → Scan QR & Pay → PaymentBillView → OrderSuccessView
+```
+
+### PaymentBillView — Dynamic QR (FROZEN)
+
+`artifacts/menu/src/pages/menu/PaymentBillView.tsx`
+
+**Do NOT** render the restaurant's uploaded QR image directly. The `/payment-qr` API endpoint is not used by this view.
+
+**QR generation:** `QRCodeSVG` (from `qrcode.react`) renders a dynamically generated UPI deep-link per order. The link is built by `generateUPILink()` in `utils.ts`:
+
+```
+upi://pay?pa={vpa}&pn={sanitized+encoded name}&am={N.toFixed(2)}&tn=Order-{orderId}&cu=INR
+```
+
+**Field rules (validated, do not change):**
+| Field | Value | Encoding |
+|---|---|---|
+| `pa` | UPI VPA (`extractedUpiId` or `upiId`) | NOT encoded — `@` must be literal |
+| `pn` | Merchant name (max 50 chars) | `sanitizeUPIText` strips `& \| / # ? = % : ; \`, then `encodeURIComponent` |
+| `am` | Order total | `Number(total).toFixed(2)` — always 2 decimal places |
+| `tn` | `Order-{orderId}` (max 25 chars) | `sanitizeUPIText` + `encodeURIComponent` (no-op for plain alphanumeric) |
+| `cu` | `INR` | Literal — no encoding |
+
+**Amount precision contract:** `249.1` → `"249.10"`, `249.999999` → `"250.00"`. Never `₹249.1` or `₹249.999999` in the QR payload.
+
+**UPI ID resolution:** `restaurant.hasPaymentQr ? extractedUpiId : upiId`. Fallback to cash-payment UI when no valid VPA (`activeUpiId` must contain `@` and no spaces).
+
+**Scan behaviour:** QR is passive — no force-open, no `window.location.href`, no `intent://`. Customer scans from any UPI app (GPay, PhonePe, Paytm, BHIM). Amount and merchant are pre-filled; customer taps Pay only.
+
+**Production scan validation (confirmed):**
+- GPay: merchant populated, amount prefilled, note visible ✅
+- PhonePe: merchant populated, amount prefilled, note visible ✅
+- BHIM: merchant populated, amount prefilled, note visible ✅
+- Paytm: merchant populated, amount prefilled (ignores `tn` silently, does not reject) ✅
+
+**Primary verification flow (current architecture):**
 ```
 QR code → customer uploads payment screenshot → restaurant staff verifies manually in dashboard
 ```

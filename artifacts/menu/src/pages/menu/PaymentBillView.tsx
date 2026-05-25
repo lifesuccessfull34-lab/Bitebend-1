@@ -119,7 +119,9 @@ export function PaymentBillView({
     ? (restaurant.extractedMerchantName || restaurant.upiName || restaurant.name)
     : (restaurant.upiName || restaurant.name);
 
-  // UPI deep-link: upi://pay?pa={vpa}&pn={name}&am={amount}&tn=Order-{id}
+  // Generated deep-link: upi://pay?pa={vpa}&pn={name}&am={amount}&tn=Order-{id}&cu=INR
+  // pa = literal VPA (@ must not be encoded), pn/tn = sanitized + %20-encoded,
+  // am = Number(total).toFixed(2), tn = "Order-{orderId}" (order reference).
   const upiLink = generateUPILink(activeUpiId, activeName, orderTotal, orderId);
   const upiIdValid = activeUpiId.length > 0
     && activeUpiId.includes("@")
