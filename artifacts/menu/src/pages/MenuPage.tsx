@@ -11,6 +11,7 @@ import type {
   OrderType,
   ViewState,
   RazorpayCheckoutState,
+  PlacedOrderItem,
 } from "./menu/types";
 import { LoadingView } from "./menu/LoadingView";
 import { ErrorView } from "./menu/ErrorView";
@@ -19,8 +20,17 @@ import { OrderSuccessView } from "./menu/OrderSuccessView";
 import { CheckoutView } from "./menu/CheckoutView";
 import { CartView } from "./menu/CartView";
 import { MenuView } from "./menu/MenuView";
+import { PaymentBillView } from "./menu/PaymentBillView";
+// Legacy Razorpay — only imported when VITE_ENABLE_CUSTOMER_RAZORPAY=true
 import { RazorpayCheckout } from "./menu/RazorpayCheckout";
 import type { RazorpayResponse } from "./menu/RazorpayCheckout";
+
+/**
+ * Feature flag: VITE_ENABLE_CUSTOMER_RAZORPAY
+ * false (default) — new QR bill flow active.
+ * true            — legacy per-restaurant Razorpay checkout available.
+ */
+const CUSTOMER_RAZORPAY_ENABLED = import.meta.env["VITE_ENABLE_CUSTOMER_RAZORPAY"] === "true";
 
 const BASE = "";
 
@@ -71,7 +81,10 @@ export default function MenuPage() {
   const [uploadingProof, setUploadingProof] = useState(false);
   const [proofResult, setProofResult] = useState<ProofResult | null>(null);
 
-  // Razorpay checkout state — non-null when the Razorpay modal should be open
+  // Items from the placed order — used by PaymentBillView
+  const [placedOrderItems, setPlacedOrderItems] = useState<PlacedOrderItem[]>([]);
+
+  // Legacy Razorpay checkout state — non-null only when CUSTOMER_RAZORPAY_ENABLED=true
   const [razorpayCheckout, setRazorpayCheckout] = useState<(RazorpayCheckoutState & { customerName: string; customerPhone: string }) | null>(null);
   const [paymentMode, setPaymentMode] = useState<"cash" | "online" | null>(null);
   const [, setLocation] = useLocation();
@@ -267,38 +280,52 @@ export default function MenuPage() {
       const data = await doPlaceOrder();
       setOrderId(data.id);
       setOrderTotal(total);
+      // Capture items before clearing cart — PaymentBillView needs them
+      setPlacedOrderItems(
+        (data.items as Array<{ name: string; quantity: number; unitPrice: number; isVeg: boolean }> ?? []).map((i) => ({
+          name: i.name,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          isVeg: i.isVeg,
+        })),
+      );
       setCart([]);
       setProofResult(null);
 
-      // Only trigger Razorpay when online payment is selected and Razorpay is configured
-      if (paymentMode === "online" && restaurant?.razorpayKeyId) {
-        const rzpRes = await fetch(`${BASE}/api/menu/${restaurant.id}/razorpay-order`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId: data.id,
-            amount: total,
+      if (paymentMode === "online") {
+        // Legacy Razorpay path — only when flag is on and restaurant has Razorpay key
+        if (CUSTOMER_RAZORPAY_ENABLED && restaurant?.razorpayKeyId) {
+          const rzpRes = await fetch(`${BASE}/api/menu/${restaurant.id}/razorpay-order`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              orderId: data.id,
+              amount: total,
+              customerName: customerName.trim(),
+              customerPhone: customerPhone.trim(),
+            }),
+          });
+          const rzpData = await rzpRes.json() as {
+            razorpayOrderId: string;
+            keyId: string;
+            amount: number;
+            restaurantName: string;
+            error?: string;
+          };
+          if (!rzpRes.ok) throw new Error(rzpData.error ?? "Failed to create payment");
+          setRazorpayCheckout({
+            keyId: rzpData.keyId,
+            razorpayOrderId: rzpData.razorpayOrderId,
+            amountPaise: rzpData.amount,
+            restaurantName: rzpData.restaurantName,
             customerName: customerName.trim(),
             customerPhone: customerPhone.trim(),
-          }),
-        });
-        const rzpData = await rzpRes.json() as {
-          razorpayOrderId: string;
-          keyId: string;
-          amount: number;
-          restaurantName: string;
-          error?: string;
-        };
-        if (!rzpRes.ok) throw new Error(rzpData.error ?? "Failed to create payment");
-        setRazorpayCheckout({
-          keyId: rzpData.keyId,
-          razorpayOrderId: rzpData.razorpayOrderId,
-          amountPaise: rzpData.amount,
-          restaurantName: rzpData.restaurantName,
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim(),
-        });
-        setView("razorpay_checkout");
+          });
+          setView("razorpay_checkout");
+        } else {
+          // New QR bill flow — show order bill + restaurant QR + screenshot upload
+          setView("payment_bill");
+        }
       } else {
         setView("success");
       }
@@ -466,6 +493,31 @@ export default function MenuPage() {
     );
   }
 
+  if (view === "payment_bill" && orderId) {
+    return (
+      <PaymentBillView
+        orderId={orderId}
+        orderTotal={orderTotal}
+        restaurant={restaurant}
+        orderType={orderType}
+        manualTableNumber={manualTableNumber}
+        customerName={customerName.trim()}
+        orderItems={placedOrderItems}
+        uploadingProof={uploadingProof}
+        proofResult={proofResult}
+        onUploadProof={handleUploadProof}
+        onPrevious={() => {
+          setView("menu");
+          setOrderId(null);
+          setNotes("");
+          setPlaceError("");
+          setProofResult(null);
+        }}
+        onNext={() => setView("success")}
+      />
+    );
+  }
+
   if (view === "form") {
     return (
       <CheckoutView
@@ -494,6 +546,7 @@ export default function MenuPage() {
         onBack={() => setView("cart")}
         paymentMode={paymentMode}
         onPaymentModeChange={setPaymentMode}
+        hasPaymentQr={restaurant.hasPaymentQr}
       />
     );
   }

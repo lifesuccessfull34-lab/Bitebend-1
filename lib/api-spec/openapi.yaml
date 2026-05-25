@@ -173,37 +173,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
-  /menu/{restaurantId}/razorpay-order:
-    post:
-      operationId: createRazorpayOrder
-      summary: Create a Razorpay order for the customer to pay
-      tags: [menu]
-      parameters:
-        - in: path
-          name: restaurantId
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateRazorpayOrderInput"
-      responses:
-        "200":
-          description: Razorpay order created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RazorpayOrderResponse"
-        "400":
-          description: Bad request
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
   /menu/{restaurantId}/orders/{orderId}:
     get:
       operationId: getOrderStatus
@@ -1117,9 +1086,6 @@ components:
           nullable: true
         taxPercent:
           type: integer
-        razorpayKeyId:
-          type: string
-          nullable: true
         approvalStatus:
           type: string
           enum: [pending, approved, rejected]
@@ -1199,40 +1165,6 @@ components:
           nullable: true
         taxPercent:
           type: integer
-        razorpayKeyId:
-          type: string
-          nullable: true
-        razorpayKeySecret:
-          type: string
-          nullable: true
-
-    CreateRazorpayOrderInput:
-      type: object
-      properties:
-        amount:
-          type: integer
-          description: Amount in paise (e.g. 50000 = ₹500)
-        customerName:
-          type: string
-        customerPhone:
-          type: string
-      required: [amount, customerName, customerPhone]
-
-    RazorpayOrderResponse:
-      type: object
-      properties:
-        razorpayOrderId:
-          type: string
-        keyId:
-          type: string
-        amount:
-          type: integer
-        currency:
-          type: string
-        restaurantName:
-          type: string
-      required: [razorpayOrderId, keyId, amount, currency, restaurantName]
-
     # ─── Menu ─────────────────────────────────────────────────────────────────
 
     MenuCategory:

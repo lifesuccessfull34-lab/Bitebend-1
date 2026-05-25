@@ -66,8 +66,10 @@ const MOCK_RESTAURANT = {
   upiId: null,
   upiName: null,
   personalUpiEnabled: false,
+  hasPaymentQr: false,
+  extractedUpiId: null,
+  extractedMerchantName: null,
   seatingLabel: null, // take-away only — skips landing, renders menu directly
-  razorpayKeyId: null,
 };
 
 const MOCK_CATEGORIES = [

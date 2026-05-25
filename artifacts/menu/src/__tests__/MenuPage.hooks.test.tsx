@@ -52,8 +52,10 @@ const MOCK_RESTAURANT = {
   upiId: null,
   upiName: null,
   personalUpiEnabled: false,
+  hasPaymentQr: false,
+  extractedUpiId: null,
+  extractedMerchantName: null,
   seatingLabel: "Table",
-  razorpayKeyId: null,
 };
 
 const MOCK_API_RESPONSE = {

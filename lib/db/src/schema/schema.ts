@@ -62,8 +62,11 @@ export const restaurants = pgTable("restaurants", {
   whatsappNumber: text("whatsapp_number"),
   taxPercent: integer("tax_percent").notNull().default(5),
   seatingLabel: text("seating_label"),
+  /** @deprecated — Restaurant Razorpay removed. Columns retained for historical data only. Do not write new values. */
   razorpayKeyId: text("razorpay_key_id"),
+  /** @deprecated — see razorpayKeyId */
   razorpayKeySecret: text("razorpay_key_secret"),
+  /** @deprecated — see razorpayKeyId */
   razorpayWebhookSecret: text("razorpay_webhook_secret"),
   approvalStatus: text("approval_status", { enum: ["pending", "approved", "rejected"] }).notNull().default("approved"),
   approvalNote: text("approval_note"),

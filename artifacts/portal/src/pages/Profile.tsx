@@ -6,7 +6,7 @@ import type { Restaurant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, CheckCircle2, Eye, EyeOff, ExternalLink, KeyRound, Smartphone, Zap, Upload, ScanLine, ShieldCheck } from "lucide-react";
+import { Loader2, Save, CheckCircle2, Eye, EyeOff, KeyRound, Smartphone, Zap, Upload, ScanLine, ShieldCheck } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import jsQR from "jsqr";
 
@@ -243,9 +243,6 @@ export default function Profile() {
     paymentQrEnabled: false,
     whatsappNumber: "",
     taxPercent: "5",
-    razorpayKeyId: "",
-    razorpayKeySecret: "",
-    razorpayWebhookSecret: "",
   });
 
   // Login credentials state
@@ -292,9 +289,6 @@ export default function Profile() {
           paymentQrEnabled: r.paymentQrEnabled ?? false,
           whatsappNumber: r.whatsappNumber ?? "",
           taxPercent: String(r.taxPercent ?? 5),
-          razorpayKeyId: (r as any).razorpayKeyId ?? "",
-          razorpayKeySecret: (r as any).razorpayKeySecret ?? "",
-          razorpayWebhookSecret: (r as any).razorpayWebhookSecret ?? "",
         });
       })
       .catch((err) => {
@@ -392,9 +386,6 @@ export default function Profile() {
         qrExtractedUpiId: form.qrExtractedUpiId || null,
         whatsappNumber: form.whatsappNumber || null,
         taxPercent: parseInt(form.taxPercent),
-        razorpayKeyId: form.razorpayKeyId || null,
-        razorpayKeySecret: form.razorpayKeySecret || null,
-        razorpayWebhookSecret: form.razorpayWebhookSecret || null,
       };
       console.log("[SAVE PAYMENT QR]", {
         paymentQrEnabled: payload.paymentQrEnabled,
@@ -484,8 +475,6 @@ export default function Profile() {
       </AppShell>
     );
   }
-
-  const razorpayConfigured = !!(form.razorpayKeyId && form.razorpayKeySecret);
 
   return (
     <AppShell>
@@ -804,95 +793,6 @@ export default function Profile() {
               )}
             </div>
 
-            {/* Razorpay */}
-            <div className="border-t border-border pt-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold">Razorpay Payment Gateway</p>
-                    {razorpayConfigured && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 border border-green-200">
-                        ACTIVE
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Accept card, UPI, netbanking & wallets online — customers pay before the order is confirmed
-                  </p>
-                </div>
-                <a
-                  href="https://dashboard.razorpay.com/app/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium mt-0.5"
-                >
-                  Get Keys <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Key ID <span className="text-muted-foreground font-normal">(starts with rzp_)</span></Label>
-                  <Input
-                    value={form.razorpayKeyId}
-                    onChange={set("razorpayKeyId")}
-                    placeholder="rzp_live_XXXXXXXXXXXXXX"
-                    className="font-mono text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Key Secret</Label>
-                  <div className="relative">
-                    <Input
-                      type={showSecret ? "text" : "password"}
-                      value={form.razorpayKeySecret}
-                      onChange={set("razorpayKeySecret")}
-                      placeholder="Your Razorpay key secret"
-                      className="font-mono text-sm pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSecret((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Stored securely — never shared with customers</p>
-                </div>
-              </div>
-
-              {razorpayConfigured && (
-                <div className="space-y-1.5">
-                  <Label>Webhook Secret <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-                  <div className="relative">
-                    <Input
-                      type={showSecret ? "text" : "password"}
-                      value={form.razorpayWebhookSecret}
-                      onChange={set("razorpayWebhookSecret")}
-                      placeholder="From Razorpay Dashboard → Webhooks"
-                      className="font-mono text-sm pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowSecret((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Used to verify payment webhooks from Razorpay — auto-marks orders paid on success</p>
-                </div>
-              )}
-
-              {!razorpayConfigured && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-                  <p className="text-xs text-amber-700">
-                    Without Razorpay, customers can still choose Cash, UPI (deep link), or Card at checkout — but no online payment is collected.
-                  </p>
-                </div>
-              )}
-            </div>
           </div>
 
           {error && (

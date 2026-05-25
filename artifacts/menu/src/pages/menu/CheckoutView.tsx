@@ -32,6 +32,7 @@ interface Props {
   placeError: string;
   paymentMode: PaymentMode | null;
   onPaymentModeChange: (mode: PaymentMode) => void;
+  hasPaymentQr: boolean;
   onSubmit: (e: FormEvent) => void;
   onBack: () => void;
 }
@@ -149,6 +150,7 @@ export function CheckoutView({
   placeError,
   paymentMode,
   onPaymentModeChange,
+  hasPaymentQr,
   onSubmit,
   onBack,
 }: Props) {
@@ -343,13 +345,38 @@ export function CheckoutView({
               title="Cash Payment"
               description="Pay directly at restaurant counter/table"
             />
-            <PaymentCard
-              selected={paymentMode === "online"}
-              onClick={() => onPaymentModeChange("online")}
-              icon={<QrCode style={{ width: "20px", height: "20px", color: paymentMode === "online" ? C.orange : C.muted }} />}
-              title="Scan QR & Pay"
-              description="Scan QR and complete payment before placing order"
-            />
+            {hasPaymentQr ? (
+              <PaymentCard
+                selected={paymentMode === "online"}
+                onClick={() => onPaymentModeChange("online")}
+                icon={<QrCode style={{ width: "20px", height: "20px", color: paymentMode === "online" ? C.orange : C.muted }} />}
+                title="Scan QR & Pay"
+                description="Scan the restaurant QR and upload your payment screenshot"
+              />
+            ) : (
+              <div style={{
+                display: "flex", alignItems: "flex-start", gap: "12px",
+                width: "100%", padding: "14px", borderRadius: "12px",
+                border: `2px solid ${C.border}`,
+                backgroundColor: "#f9fafb",
+                opacity: 0.6,
+              }}>
+                <div style={{
+                  width: "42px", height: "42px", borderRadius: "10px",
+                  backgroundColor: C.mutedBg,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0,
+                }}>
+                  <QrCode style={{ width: "20px", height: "20px", color: C.muted }} />
+                </div>
+                <div>
+                  <span style={{ fontWeight: 700, fontSize: "14px", color: C.muted }}>Scan QR & Pay</span>
+                  <span style={{ fontSize: "12px", color: C.muted, display: "block", marginTop: "2px" }}>
+                    Online payment unavailable for this restaurant
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </SectionCard>
 

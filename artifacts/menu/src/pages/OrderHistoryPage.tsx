@@ -138,7 +138,7 @@ function OrderCard({ order, expanded, onToggle }: OrderCardProps) {
               fontSize: "11px", padding: "2px 8px", borderRadius: "20px",
               color: C.muted, backgroundColor: C.mutedBg,
             }}>
-              {order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "razorpay" ? "Razorpay" : "UPI"}
+              {order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "razorpay" ? "QR · Online Payment" : "UPI"}
             </span>
           )}
           {order.tableNumber && (

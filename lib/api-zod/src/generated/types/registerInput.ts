@@ -17,8 +17,11 @@ export interface RegisterInput {
   restaurantName: string;
   restaurantPhone: string;
   restaurantAddress: string;
+  /** Actual city or town name; independent of district and must not be inferred or derived from it */
   restaurantCity: string;
+  /** Indian state name (e.g. Maharashtra, Tamil Nadu) */
   restaurantState?: string;
+  /** Administrative district within the selected state (e.g. Pune, Coimbatore) */
   restaurantDistrict?: string;
   cuisineType: RegisterInputCuisineType;
 }

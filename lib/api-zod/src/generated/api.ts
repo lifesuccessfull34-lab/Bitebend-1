@@ -27,9 +27,21 @@ export const RegisterBody = zod.object({
   restaurantName: zod.string().min(1),
   restaurantPhone: zod.string(),
   restaurantAddress: zod.string(),
-  restaurantCity: zod.string(),
-  restaurantState: zod.string().optional(),
-  restaurantDistrict: zod.string().optional(),
+  restaurantCity: zod
+    .string()
+    .describe(
+      "Actual city or town name; independent of district and must not be inferred or derived from it",
+    ),
+  restaurantState: zod
+    .string()
+    .optional()
+    .describe("Indian state name (e.g. Maharashtra, Tamil Nadu)"),
+  restaurantDistrict: zod
+    .string()
+    .optional()
+    .describe(
+      "Administrative district within the selected state (e.g. Pune, Coimbatore)",
+    ),
   cuisineType: zod.enum([
     "north_indian",
     "south_indian",
@@ -106,7 +118,6 @@ export const GetPublicMenuResponse = zod.object({
     upiId: zod.string().nullish(),
     whatsappNumber: zod.string().nullish(),
     taxPercent: zod.number(),
-    razorpayKeyId: zod.string().nullish(),
     approvalStatus: zod.enum(["pending", "approved", "rejected"]),
     approvalNote: zod.string().nullish(),
     subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -161,27 +172,6 @@ export const PlaceOrderBody = zod.object({
       }),
     )
     .min(1),
-});
-
-/**
- * @summary Create a Razorpay order for the customer to pay
- */
-export const CreateRazorpayOrderParams = zod.object({
-  restaurantId: zod.coerce.number(),
-});
-
-export const CreateRazorpayOrderBody = zod.object({
-  amount: zod.number().describe("Amount in paise (e.g. 50000 = ₹500)"),
-  customerName: zod.string(),
-  customerPhone: zod.string(),
-});
-
-export const CreateRazorpayOrderResponse = zod.object({
-  razorpayOrderId: zod.string(),
-  keyId: zod.string(),
-  amount: zod.number(),
-  currency: zod.string(),
-  restaurantName: zod.string(),
 });
 
 /**
@@ -253,7 +243,6 @@ export const GetOwnerRestaurantResponse = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number(),
-  razorpayKeyId: zod.string().nullish(),
   approvalStatus: zod.enum(["pending", "approved", "rejected"]),
   approvalNote: zod.string().nullish(),
   subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -290,8 +279,6 @@ export const UpdateOwnerRestaurantBody = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number().optional(),
-  razorpayKeyId: zod.string().nullish(),
-  razorpayKeySecret: zod.string().nullish(),
 });
 
 export const UpdateOwnerRestaurantResponse = zod.object({
@@ -310,7 +297,6 @@ export const UpdateOwnerRestaurantResponse = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number(),
-  razorpayKeyId: zod.string().nullish(),
   approvalStatus: zod.enum(["pending", "approved", "rejected"]),
   approvalNote: zod.string().nullish(),
   subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -701,7 +687,6 @@ export const AdminListRestaurantsResponseItem = zod
     upiId: zod.string().nullish(),
     whatsappNumber: zod.string().nullish(),
     taxPercent: zod.number(),
-    razorpayKeyId: zod.string().nullish(),
     approvalStatus: zod.enum(["pending", "approved", "rejected"]),
     approvalNote: zod.string().nullish(),
     subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -744,7 +729,6 @@ export const AdminToggleRestaurantResponse = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number(),
-  razorpayKeyId: zod.string().nullish(),
   approvalStatus: zod.enum(["pending", "approved", "rejected"]),
   approvalNote: zod.string().nullish(),
   subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -800,7 +784,6 @@ export const AdminApproveRestaurantResponse = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number(),
-  razorpayKeyId: zod.string().nullish(),
   approvalStatus: zod.enum(["pending", "approved", "rejected"]),
   approvalNote: zod.string().nullish(),
   subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -836,7 +819,6 @@ export const AdminRejectRestaurantResponse = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number(),
-  razorpayKeyId: zod.string().nullish(),
   approvalStatus: zod.enum(["pending", "approved", "rejected"]),
   approvalNote: zod.string().nullish(),
   subscriptionPlan: zod.enum(["free", "basic", "premium"]),
@@ -874,7 +856,6 @@ export const AdminUpdateSubscriptionResponse = zod.object({
   upiId: zod.string().nullish(),
   whatsappNumber: zod.string().nullish(),
   taxPercent: zod.number(),
-  razorpayKeyId: zod.string().nullish(),
   approvalStatus: zod.enum(["pending", "approved", "rejected"]),
   approvalNote: zod.string().nullish(),
   subscriptionPlan: zod.enum(["free", "basic", "premium"]),

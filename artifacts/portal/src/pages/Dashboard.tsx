@@ -536,8 +536,8 @@ export default function Dashboard() {
                                 ? "bg-blue-50 text-blue-700 border-blue-200"
                                 : "bg-muted text-muted-foreground border-border capitalize",
                             )}>
-                              {order.paymentMethod === "upi" ? "UPI"
-                                : order.paymentMethod === "razorpay" ? "Razorpay · Online"
+                              {order.paymentMethod === "upi" ? "QR · Online Payment"
+                                : order.paymentMethod === "razorpay" ? "QR · Online Payment"
                                 : order.paymentMethod}
                             </span>
                           )}

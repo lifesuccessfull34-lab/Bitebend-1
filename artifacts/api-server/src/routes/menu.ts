@@ -12,6 +12,14 @@ import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/o
 const router = Router();
 
 /**
+ * Feature flag: ENABLE_CUSTOMER_RAZORPAY
+ * When false (default): Razorpay customer checkout is disabled.
+ * When true: legacy per-restaurant Razorpay checkout is available.
+ * Set ENABLE_CUSTOMER_RAZORPAY=true in env to re-enable for rollback.
+ */
+const isCustomerRazorpayEnabled = () => process.env["ENABLE_CUSTOMER_RAZORPAY"] === "true";
+
+/**
  * Resolve a restaurant by either numeric ID (backward-compat) or slug.
  * Numeric IDs keep all existing QR codes working indefinitely.
  * Slug-based URLs are used for all new QR codes and shared links.
@@ -223,10 +231,6 @@ const placeOrder: RequestHandler = async (req, res) => {
     res.status(400).json({ error: "UPI payment is not configured for this restaurant." });
     return;
   }
-  if (paymentMethod === "razorpay" && !restaurant.razorpayKeyId) {
-    res.status(400).json({ error: "Online payment is not configured for this restaurant." });
-    return;
-  }
 
   // ── Subscription / quota checks ────────────────────────────────────────────
   if (!restaurant.isActive || restaurant.subscriptionStatus === "suspended") {
@@ -382,8 +386,12 @@ const getOrderStatus: RequestHandler = async (req, res) => {
 };
 
 // POST /menu/:restaurantId/razorpay-order — create Razorpay order (accepts numeric ID or slug)
-// Also accepts optional `orderId` (platform order) to link payment back to the order via webhook.
+// @deprecated — disabled by default. Set ENABLE_CUSTOMER_RAZORPAY=true to re-enable for rollback.
 const createRazorpayOrder: RequestHandler = async (req, res) => {
+  if (!isCustomerRazorpayEnabled()) {
+    res.status(404).json({ error: "Razorpay customer checkout is not enabled on this platform." });
+    return;
+  }
   const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
   if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
   const restaurantId = restaurant.id;
@@ -562,10 +570,12 @@ const submitPaymentProof: RequestHandler = async (req, res) => {
 };
 
 // POST /menu/:restaurantId/orders/:orderId/verify-razorpay
-// Client-side payment verification: customer sends back razorpay_payment_id + signature.
-// We verify the HMAC and mark the order paid. The webhook does the same but this gives
-// immediate feedback to the customer without relying on webhook delivery timing.
+// @deprecated — disabled by default. Set ENABLE_CUSTOMER_RAZORPAY=true to re-enable for rollback.
 const verifyRazorpayPayment: RequestHandler = async (req, res) => {
+  if (!isCustomerRazorpayEnabled()) {
+    res.status(404).json({ error: "Razorpay customer checkout is not enabled on this platform." });
+    return;
+  }
   const restaurant = await resolveRestaurantByParam(req, String(req.params.restaurantId));
   if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
   if (!restaurant.razorpayKeySecret) { res.status(400).json({ error: "Razorpay not configured" }); return; }

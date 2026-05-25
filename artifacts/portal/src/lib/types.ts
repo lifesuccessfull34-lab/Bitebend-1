@@ -71,7 +71,8 @@ export interface Restaurant {
   qrExtractedUpiId: string | null;
   paymentQrEnabled: boolean;
   whatsappNumber: string | null;
-  razorpayKeyId: string | null;
+  /** @deprecated — restaurant Razorpay removed. Column retained for historical data only. */
+  razorpayKeyId?: string | null;
   taxPercent: number;
   seatingLabel: string | null;
   approvalStatus: "pending" | "approved" | "rejected";

@@ -24,7 +24,6 @@ export interface Restaurant {
   upiId?: string | null;
   whatsappNumber?: string | null;
   taxPercent: number;
-  razorpayKeyId?: string | null;
   approvalStatus: RestaurantApprovalStatus;
   approvalNote?: string | null;
   subscriptionPlan: RestaurantSubscriptionPlan;

@@ -26,7 +26,6 @@ import type {
   AuthResponse,
   CreateMenuCategoryInput,
   CreateMenuItemInput,
-  CreateRazorpayOrderInput,
   CreateTableInput,
   DashboardStats,
   ErrorResponse,
@@ -40,7 +39,6 @@ import type {
   OrderWithItems,
   PlaceOrderInput,
   PublicMenuResponse,
-  RazorpayOrderResponse,
   RegisterInput,
   RequestUploadUrlBody,
   RequestUploadUrlResponse,
@@ -627,97 +625,6 @@ export const usePlaceOrder = <
   TContext
 > => {
   return useMutation(getPlaceOrderMutationOptions(options));
-};
-
-/**
- * @summary Create a Razorpay order for the customer to pay
- */
-export const getCreateRazorpayOrderUrl = (restaurantId: number) => {
-  return `/api/menu/${restaurantId}/razorpay-order`;
-};
-
-export const createRazorpayOrder = async (
-  restaurantId: number,
-  createRazorpayOrderInput: CreateRazorpayOrderInput,
-  options?: RequestInit,
-): Promise<RazorpayOrderResponse> => {
-  return customFetch<RazorpayOrderResponse>(
-    getCreateRazorpayOrderUrl(restaurantId),
-    {
-      ...options,
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...options?.headers },
-      body: JSON.stringify(createRazorpayOrderInput),
-    },
-  );
-};
-
-export const getCreateRazorpayOrderMutationOptions = <
-  TError = ErrorType<ErrorResponse>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof createRazorpayOrder>>,
-    TError,
-    { restaurantId: number; data: BodyType<CreateRazorpayOrderInput> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof createRazorpayOrder>>,
-  TError,
-  { restaurantId: number; data: BodyType<CreateRazorpayOrderInput> },
-  TContext
-> => {
-  const mutationKey = ["createRazorpayOrder"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof createRazorpayOrder>>,
-    { restaurantId: number; data: BodyType<CreateRazorpayOrderInput> }
-  > = (props) => {
-    const { restaurantId, data } = props ?? {};
-
-    return createRazorpayOrder(restaurantId, data, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type CreateRazorpayOrderMutationResult = NonNullable<
-  Awaited<ReturnType<typeof createRazorpayOrder>>
->;
-export type CreateRazorpayOrderMutationBody =
-  BodyType<CreateRazorpayOrderInput>;
-export type CreateRazorpayOrderMutationError = ErrorType<ErrorResponse>;
-
-/**
- * @summary Create a Razorpay order for the customer to pay
- */
-export const useCreateRazorpayOrder = <
-  TError = ErrorType<ErrorResponse>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof createRazorpayOrder>>,
-    TError,
-    { restaurantId: number; data: BodyType<CreateRazorpayOrderInput> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof createRazorpayOrder>>,
-  TError,
-  { restaurantId: number; data: BodyType<CreateRazorpayOrderInput> },
-  TContext
-> => {
-  return useMutation(getCreateRazorpayOrderMutationOptions(options));
 };
 
 /**

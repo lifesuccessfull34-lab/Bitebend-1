@@ -33,7 +33,8 @@ export interface RestaurantData {
   extractedUpiId: string | null;
   extractedMerchantName: string | null;
   seatingLabel: string | null;
-  razorpayKeyId: string | null;
+  /** @deprecated — restaurant Razorpay removed. Only present when VITE_ENABLE_CUSTOMER_RAZORPAY=true. */
+  razorpayKeyId?: string | null;
 }
 
 export interface TableData {
@@ -55,13 +56,23 @@ export type ViewState =
   | "cart"
   | "form"
   | "pending_upi_payment"
-  | "razorpay_checkout"
-  | "success";
+  | "payment_bill"
+  | "success"
+  /** @deprecated — only active when VITE_ENABLE_CUSTOMER_RAZORPAY=true */
+  | "razorpay_checkout";
 
+/** @deprecated — only used when VITE_ENABLE_CUSTOMER_RAZORPAY=true */
 export interface RazorpayCheckoutState {
   keyId: string;
   razorpayOrderId: string;
   /** Amount in paise (integer) */
   amountPaise: number;
   restaurantName: string;
+}
+
+export interface PlacedOrderItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  isVeg: boolean;
 }

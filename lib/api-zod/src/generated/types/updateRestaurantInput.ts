@@ -19,6 +19,4 @@ export interface UpdateRestaurantInput {
   upiId?: string | null;
   whatsappNumber?: string | null;
   taxPercent?: number;
-  razorpayKeyId?: string | null;
-  razorpayKeySecret?: string | null;
 }

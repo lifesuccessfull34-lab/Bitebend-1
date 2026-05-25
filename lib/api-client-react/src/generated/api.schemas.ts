@@ -54,8 +54,11 @@ export interface RegisterInput {
   restaurantName: string;
   restaurantPhone: string;
   restaurantAddress: string;
+  /** Actual city or town name; independent of district and must not be inferred or derived from it */
   restaurantCity: string;
+  /** Indian state name (e.g. Maharashtra, Tamil Nadu) */
   restaurantState?: string;
+  /** Administrative district within the selected state (e.g. Pune, Coimbatore) */
   restaurantDistrict?: string;
   cuisineType: RegisterInputCuisineType;
 }
@@ -118,7 +121,6 @@ export interface Restaurant {
   upiId?: string | null;
   whatsappNumber?: string | null;
   taxPercent: number;
-  razorpayKeyId?: string | null;
   approvalStatus: RestaurantApprovalStatus;
   approvalNote?: string | null;
   subscriptionPlan: RestaurantSubscriptionPlan;
@@ -162,23 +164,6 @@ export interface UpdateRestaurantInput {
   upiId?: string | null;
   whatsappNumber?: string | null;
   taxPercent?: number;
-  razorpayKeyId?: string | null;
-  razorpayKeySecret?: string | null;
-}
-
-export interface CreateRazorpayOrderInput {
-  /** Amount in paise (e.g. 50000 = ₹500) */
-  amount: number;
-  customerName: string;
-  customerPhone: string;
-}
-
-export interface RazorpayOrderResponse {
-  razorpayOrderId: string;
-  keyId: string;
-  amount: number;
-  currency: string;
-  restaurantName: string;
 }
 
 export interface MenuCategory {
