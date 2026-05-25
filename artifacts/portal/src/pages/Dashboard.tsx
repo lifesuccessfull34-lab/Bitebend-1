@@ -832,6 +832,12 @@ export default function Dashboard() {
           ? orders.find((o) => o.id === confirmPaymentOrderId) ?? null
           : null;
         const hasScreenshot = !!modalOrder?.paymentScreenshotUrl;
+        // Backward-compat: stored value is always the full data URL from FileReader.readAsDataURL()
+        // (e.g. "data:image/jpeg;base64,/9j/..."). Legacy rows that somehow contain raw base64
+        // only (no "data:" prefix) are handled by the fallback branch.
+        const screenshotSrc = modalOrder?.paymentScreenshotUrl?.startsWith("data:")
+          ? modalOrder.paymentScreenshotUrl
+          : `data:image/jpeg;base64,${modalOrder?.paymentScreenshotUrl}`;
 
         return (
           <Dialog
@@ -895,7 +901,7 @@ export default function Dashboard() {
                             const win = window.open("", "_blank");
                             if (win) {
                               win.document.write(
-                                `<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;justify-content:center"><img src="data:image/jpeg;base64,${modalOrder!.paymentScreenshotUrl}" style="max-width:100%;height:auto"></body></html>`,
+                                `<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;justify-content:center"><img src="${screenshotSrc}" style="max-width:100%;height:auto"></body></html>`,
                               );
                             }
                           }}
@@ -906,7 +912,7 @@ export default function Dashboard() {
                     </div>
                     <div className={imageZoomed ? "overflow-auto cursor-zoom-out" : "overflow-hidden cursor-zoom-in"}>
                       <img
-                        src={`data:image/jpeg;base64,${modalOrder!.paymentScreenshotUrl}`}
+                        src={screenshotSrc}
                         alt="Payment screenshot"
                         className="w-full object-contain transition-transform duration-200"
                         style={imageZoomed
