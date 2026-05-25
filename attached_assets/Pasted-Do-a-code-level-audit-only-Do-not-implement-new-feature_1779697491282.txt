@@ -1,0 +1,84 @@
+Do a code-level audit only. Do not implement new features yet.
+
+Problem:
+Payment screenshots uploaded by customers are not loading in the dashboard. A customer can place multiple orders, so I need to verify that screenshots are attached to the exact order where the upload occurred and that the dashboard reads the same order row.
+
+Audit these exact paths:
+
+1. Upload flow trace
+
+* Trace My Orders → Upload Screenshot → submitPaymentProof endpoint
+* Confirm which identifiers are sent:
+
+  * orderId
+  * restaurantId
+  * customer phone
+  * token/session values
+* Verify upload uses the specific order.id and not customer-level matching.
+
+2. Backend storage audit
+   Trace submitPaymentProof completely:
+
+* SELECT query used before update
+* WHERE conditions
+* Which row gets updated
+* Confirm:
+  UPDATE orders
+  SET paymentScreenshotUrl = ...
+  WHERE id = ?
+
+Check whether any query uses:
+
+* customerPhone
+* customerName
+* latest order
+* ORDER BY createdAt DESC
+* LIMIT 1
+
+These would break multi-order scenarios.
+
+3. Dashboard retrieval audit
+   Trace dashboard order fetch:
+
+* Confirm paymentScreenshotUrl is selected
+* Confirm it comes from the exact order row
+* Confirm no transformation drops the field
+* Verify modal uses selectedOrder.paymentScreenshotUrl
+
+4. Base64 / storage validation
+   Check:
+
+* Is screenshot stored as full data:image/png;base64,...
+  or raw base64 only?
+* Confirm dashboard img src format matches storage format
+* Verify large payload truncation is not occurring
+
+5. Multi-order scenario simulation
+
+Simulate:
+
+Customer creates:
+Order #101
+Order #102
+Order #103
+
+Upload screenshot only for #102
+
+Expected:
+#101 → no screenshot
+#102 → screenshot visible
+#103 → no screenshot
+
+Trace exact DB writes and reads.
+
+6. Produce final report:
+   PASS/FAIL table:
+
+Upload targets exact order row
+Dashboard reads same row
+No customer-level matching
+No latest-order overwrite
+Base64 intact
+Multiple orders isolated correctly
+
+No code changes until audit completes.
