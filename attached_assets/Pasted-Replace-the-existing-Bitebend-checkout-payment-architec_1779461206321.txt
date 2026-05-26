@@ -1,0 +1,270 @@
+Replace the existing Bitebend checkout + payment architecture completely and migrate to a new platform-payment system using Razorpay Route / Split Settlement architecture.
+
+NEW PAYMENT FLOW:
+
+PHASE 1 — SUPER ADMIN AS PAYMENT OWNER
+
+1. Super Admin owns the master Razorpay account.
+2. Restaurants are onboarded under the Super Admin account as linked/sub-accounts.
+3. Every restaurant profile must store:
+
+   * restaurantId
+   * linkedAccountId (Razorpay Route account)
+   * settlement configuration
+   * restaurant revenue %
+   * Bitebend commission %
+   * payout status
+
+Database example:
+
+Restaurant:
+
+* id
+* name
+* razorpayLinkedAccountId
+* commissionPercent
+* restaurantPercent
+* settlementStatus
+
+Example:
+Order Amount = ₹1000
+
+Restaurant receives:
+₹950
+
+Bitebend receives:
+₹50
+
+Revenue split must happen automatically through Razorpay Route split transfers.
+
+No manual commission calculation later.
+
+---
+
+PHASE 2 — CUSTOMER CHECKOUT FLOW
+
+Remove current checkout/payment architecture entirely:
+
+REMOVE:
+
+* payment screenshot upload
+* OCR verification
+* payment proof processing
+* manual QR upload logic
+* old bill payment flow
+* pending screenshot verification logic
+
+Replace with:
+
+Customer Flow:
+
+Menu → Cart → Checkout → Razorpay Payment Gateway
+
+At checkout:
+
+1. Customer clicks "Pay Now"
+2. Open Razorpay Standard Checkout
+3. Payment methods:
+
+* UPI
+* GPay
+* PhonePe
+* Paytm
+* Cards
+* Net Banking
+* Wallets
+
+Customer pays through any supported app.
+
+After payment success:
+
+Razorpay webhook automatically confirms payment.
+
+No screenshot upload required.
+
+---
+
+PHASE 3 — WEBHOOK BASED ORDER CONFIRMATION
+
+Create secure Razorpay webhook endpoint:
+
+POST /api/payments/webhook
+
+Handle:
+
+payment.captured
+payment.authorized
+order.paid
+
+Webhook flow:
+
+If payment successful:
+
+1. Mark order = PAID
+
+2. Save:
+
+   * paymentId
+   * razorpayOrderId
+   * amount
+   * status
+   * restaurantId
+   * timestamp
+
+3. Notify restaurant instantly
+
+4. Trigger order confirmation
+
+If payment fails:
+
+order remains pending
+
+Restaurant can accept CASH payment manually.
+
+---
+
+PHASE 4 — REALTIME RESTAURANT NOTIFICATION
+
+Restaurant dashboard should auto-update.
+
+After payment success:
+
+Show:
+
+"New Paid Order Received"
+
+Display:
+
+* customer name
+* table no
+* order items
+* amount
+* payment status = Paid
+
+Use:
+
+WebSocket / Socket.io realtime events
+
+No dashboard refresh required.
+
+---
+
+PHASE 5 — CASH FALLBACK MODE
+
+If customer refuses online payment:
+
+Dashboard should allow:
+
+"Mark as Cash Payment"
+
+Flow:
+
+Pending Order
+→ Accept Cash
+→ Mark Paid
+
+Store:
+
+paymentMode:
+
+* ONLINE
+* CASH
+
+Restaurant notified accordingly.
+
+---
+
+PHASE 6 — WHATSAPP BILL FLOW
+
+After successful payment OR cash confirmation:
+
+Dashboard → Send WhatsApp Bill
+
+WhatsApp bill should include:
+
+Restaurant Name
+Order Number
+Items
+Total
+Payment Mode
+Payment Status
+Date
+Table Number
+
+Generate proper PDF bill.
+
+Send bill directly from dashboard.
+
+Use current WhatsApp sharing mechanism.
+
+No payment QR inside bill because payment already completed.
+
+---
+
+PHASE 7 — DATABASE MIGRATION
+
+Create payment table:
+
+Payments:
+
+* id
+* orderId
+* restaurantId
+* amount
+* paymentMode
+* razorpayPaymentId
+* razorpayOrderId
+* status
+* transferId
+* commissionAmount
+* restaurantAmount
+* createdAt
+
+Update Orders table:
+
+add:
+
+* paymentStatus
+* paymentMode
+* paidAt
+
+---
+
+PHASE 8 — ADMIN PANEL
+
+Super Admin dashboard:
+
+Show:
+
+Total platform revenue
+Total restaurant payouts
+Pending settlements
+Transaction history
+Commission earnings
+Restaurant revenue analytics
+
+---
+
+PHASE 9 — SECURITY
+
+Verify Razorpay webhook signature.
+
+Never trust frontend payment success.
+
+Payments become successful ONLY after webhook verification.
+
+---
+
+IMPORTANT:
+
+Migrate old architecture safely.
+
+Do not break restaurant menu ordering.
+
+Preserve current UI design.
+
+Only replace payment architecture and billing flow.
+
+End goal:
+
+Customer pays instantly through Razorpay → payment verified automatically → revenue split between Bitebend + restaurant → restaurant gets instant notification → WhatsApp bill sent automatically.

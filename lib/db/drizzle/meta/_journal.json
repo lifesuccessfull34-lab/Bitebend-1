@@ -1,0 +1,83 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1778837306391,
+      "tag": "0000_wonderful_medusa",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1748000000000,
+      "tag": "0001_personal_upi",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1748086400000,
+      "tag": "0002_upi_verified",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1748172800000,
+      "tag": "0003_payment_qr",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1748259200000,
+      "tag": "0004_payment_qr_enabled",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1748345600000,
+      "tag": "0005_qr_extracted_upi_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1748432000000,
+      "tag": "0006_payment_verification",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1748518400000,
+      "tag": "0007_razorpay_order_payment",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1748604800000,
+      "tag": "0008_razorpay_webhook_secret",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1748691200000,
+      "tag": "0009_bill_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1748777600000,
+      "tag": "0010_bill_links_v2",
+      "breakpoints": true
+    }
+  ]
+}

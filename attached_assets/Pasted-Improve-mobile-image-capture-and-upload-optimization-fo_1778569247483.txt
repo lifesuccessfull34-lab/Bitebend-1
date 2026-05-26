@@ -1,0 +1,137 @@
+Improve mobile image capture and upload optimization for Dashboard → Menu → Add Item → Upload Photo.
+
+Problem:
+Images captured directly from mobile phones are often:
+
+* Too large in resolution
+* Too high in file size
+* Slow to upload
+* Failing during upload
+* Causing memory/performance issues
+
+Please optimize the complete mobile image upload flow.
+
+==================================================
+REQUIRED MOBILE IMAGE OPTIMIZATION
+==================================
+
+1. AUTO IMAGE RESIZE BEFORE UPLOAD
+   When user captures/selects image from mobile:
+
+Automatically resize/compress image before upload.
+
+Target output:
+
+* Recommended width: 800px to 1200px
+* Maintain aspect ratio
+* Convert oversized images efficiently
+* Keep good visual quality for food/menu photos
+
+==================================================
+2. MOBILE CAMERA SUPPORT
+========================
+
+Ensure file input supports:
+
+* Android camera capture
+* iPhone camera capture
+* Gallery selection
+
+Use proper input configuration:
+
+* accept="image/*"
+* mobile camera capture support
+
+==================================================
+3. IMAGE COMPRESSION
+====================
+
+Compress large mobile photos automatically.
+
+Target:
+
+* Final upload ideally below 1 MB
+* Hard limit: 5 MB
+
+Compression requirements:
+
+* Preserve image clarity
+* Avoid blurry food images
+* Optimize for fast loading in customer menu app
+
+==================================================
+4. WEBP CONVERSION (OPTIONAL BUT RECOMMENDED)
+=============================================
+
+If possible:
+
+* Convert uploaded images to WEBP format automatically
+* Reduce storage size
+* Improve menu loading speed
+
+Fallback support:
+
+* JPG/JPEG/PNG still supported
+
+==================================================
+5. PREVIEW BEFORE SAVE
+======================
+
+Show optimized preview before saving menu item.
+
+Allow:
+
+* Remove image
+* Change image
+* Re-capture image
+
+==================================================
+6. FIX ROTATION ISSUES
+======================
+
+Many mobile images upload sideways due to EXIF orientation.
+
+Please:
+
+* Auto-fix image orientation before upload
+* Ensure portrait images display correctly
+
+==================================================
+7. PERFORMANCE OPTIMIZATION
+===========================
+
+Ensure:
+
+* Fast upload on slow mobile internet
+* No browser freezing
+* No memory crash on large images
+* Smooth experience on low-end Android devices
+
+==================================================
+8. ERROR HANDLING
+=================
+
+Show proper errors:
+
+* "Image too large"
+* "Unsupported image format"
+* "Failed to process image"
+* "Network upload failed"
+
+==================================================
+9. IMPORTANT
+============
+
+* Do not break existing menu item logic
+* Keep database structure stable
+* Ensure compatibility across Chrome, Safari, Edge, Firefox mobile browsers
+* Ensure uploaded images persist correctly after deployment/restart
+
+After implementation provide:
+
+* Files changed
+* Compression method used
+* Resize dimensions implemented
+* Final upload size limits
+* Mobile compatibility improvements added
+* Performance optimizations completed

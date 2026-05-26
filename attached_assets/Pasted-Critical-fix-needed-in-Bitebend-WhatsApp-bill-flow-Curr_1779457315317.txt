@@ -1,0 +1,123 @@
+Critical fix needed in Bitebend WhatsApp bill flow.
+
+Current problem:
+
+Restaurant owner clicks **"Send Payment Bill"**, but WhatsApp is not opening directly for the customer who originally placed the order.
+
+The system should automatically identify the phone number used by the customer during ordering and open that customer's WhatsApp chat directly.
+
+Required implementation:
+
+1. When customer places an order, permanently store:
+
+```ts
+customerName
+customerPhone
+orderId
+tableNo
+```
+
+inside the order record/database.
+
+Example:
+
+```ts
+{
+ orderId:15,
+ customerName:"Rahul",
+ customerPhone:"919876543210",
+ tableNo:"T4"
+}
+```
+
+2. During "Send Payment Bill", fetch customerPhone from the order itself:
+
+```ts
+const order = await getOrder(orderId)
+
+const customerPhone =
+order.customerPhone
+```
+
+Never ask owner to manually enter number.
+
+3. Sanitize phone number before using:
+
+```ts
+const cleanPhone=
+customerPhone
+.replace(/\D/g,'')
+.replace(/^0+/,'')
+```
+
+For Indian numbers:
+
+```ts
+const whatsappPhone =
+cleanPhone.startsWith("91")
+? cleanPhone
+: `91${cleanPhone}`
+```
+
+4. Directly open customer's WhatsApp:
+
+```ts
+const message=`
+Payment Bill
+
+Order #${order.id}
+Table: ${order.tableNo}
+
+Total: ₹${order.total}
+
+Please complete payment and share screenshot.
+`
+
+const url=
+`https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`
+
+window.open(url,"_blank")
+```
+
+5. Behavior required:
+
+Customer ordered using:
+9876543210
+
+Owner clicks:
+Send Payment Bill
+
+Expected:
+
+WhatsApp should directly open:
+
++91 9876543210
+
+and load the bill message automatically.
+
+No contact selection screen.
+No manual search.
+No generic WhatsApp homepage.
+No owner number.
+
+6. If customer phone missing:
+
+Show:
+
+"Customer phone number not found"
+
+7. Add debug logs:
+
+```ts
+console.log("Order:",order.id)
+
+console.log("Customer phone:",
+customerPhone)
+
+console.log("WhatsApp target:",
+whatsappPhone)
+```
+
+Goal:
+
+Restaurant owner clicks once → customer's own WhatsApp chat opens directly with prefilled bill message.

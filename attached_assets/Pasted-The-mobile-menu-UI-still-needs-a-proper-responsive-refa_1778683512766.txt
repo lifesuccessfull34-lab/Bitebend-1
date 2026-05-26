@@ -1,0 +1,145 @@
+The mobile menu UI still needs a proper responsive refactor. The current issue is not only spacing — the entire layout appears zoomed/scaled incorrectly on some Android devices.
+
+Please do a full mobile-first UI refinement for the restaurant menu experience.
+
+CURRENT ISSUES OBSERVED:
+
+1. Menu cards appear zoomed-in and oversized on mobile.
+2. Layout width is overflowing horizontally.
+3. Sticky cart bar is visually broken and partially cut off.
+4. Floating expand icon overlaps the cart CTA awkwardly.
+5. Menu item image/content proportions are inconsistent.
+6. Card spacing and padding feel unbalanced.
+7. Typography scales too large on smaller Android screens.
+8. Veg/Non-Veg indicators are misaligned.
+9. Sticky cart CTA is not respecting mobile viewport/safe-area.
+10. Overall UI lacks compact premium mobile feel.
+
+IMPORTANT ROOT ISSUE TO CHECK:
+
+Please verify:
+
+* viewport meta tag
+* unintended browser zoom/scaling
+* width calculations
+* fixed-width containers
+* min-width usage
+* transform: scale issues
+* overflow-x problems
+* flexbox shrink/grow behavior
+* image aspect ratio handling
+* Samsung Internet / MI Browser rendering
+
+MOBILE-FIRST RESPONSIVE REQUIREMENTS:
+
+GENERAL:
+
+* Entire menu layout must fit perfectly within mobile viewport width.
+* No horizontal overflow anywhere.
+* No zoomed appearance.
+* Use fluid responsive sizing.
+* Avoid fixed widths where possible.
+* Use max-width: 100%.
+* Ensure all containers shrink properly on small screens.
+
+MENU CARD DESIGN:
+
+* Reduce overall card height.
+* Create tighter compact card layout.
+* Maintain premium restaurant-app appearance.
+* Keep image, title, price, and controls visually balanced.
+* Use proper spacing hierarchy.
+
+MENU IMAGE:
+
+* Fixed consistent aspect ratio.
+* Prevent image stretching/cropping issues.
+* Keep images proportional across all devices.
+* Ensure images do not push content width.
+
+TYPOGRAPHY:
+
+* Reduce oversized text on mobile.
+* Use responsive font sizing.
+* Improve visual hierarchy:
+
+  * item name
+  * description
+  * price
+  * CTA
+
+ADD / QUANTITY CONTROLS:
+
+* Keep controls compact and aligned.
+* Ensure controls never overflow card width.
+* Improve touch feedback.
+* Keep controls visually centered vertically.
+
+STICKY CART BAR:
+Current sticky cart implementation is visually broken.
+
+Please redesign it completely.
+
+Requirements:
+
+* Proper mobile safe-area support.
+* Compact premium appearance.
+* Full-width responsive layout.
+* No overlap with Android navigation area.
+* Remove awkward floating expand icon.
+* Better spacing between:
+
+  * cart text
+  * item count
+  * total amount
+* Improve shadow and elevation.
+* Use cleaner CTA hierarchy.
+
+SAFE AREA SUPPORT:
+Add proper support for:
+
+* Android gesture navigation
+* iPhone safe-area insets
+
+Example:
+padding-bottom: env(safe-area-inset-bottom);
+
+RESPONSIVE REQUIREMENTS:
+Test properly on:
+
+* Chrome Android
+* Samsung Internet
+* MI Browser
+* Safari iPhone
+
+Verify:
+
+* small screens
+* tall screens
+* landscape mode
+* browser toolbar changes
+* zoom behavior
+* keyboard opening
+* sticky positioning
+
+PERFORMANCE:
+
+* Keep rendering lightweight.
+* Avoid layout shift.
+* Avoid oversized shadows/filters.
+* Ensure smooth scrolling.
+
+DESIGN GOAL:
+The UI should feel like:
+
+* Swiggy
+* Zomato
+* modern food ordering app
+* compact
+* clean
+* premium
+* touch-friendly
+* visually stable across all mobile browsers
+
+IMPORTANT:
+Please perform a true responsive mobile refactor instead of patch fixes. The current UI still feels scaled incorrectly and visually unstable on mobile devices.

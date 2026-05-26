@@ -1,0 +1,130 @@
+The issue is NOT limited to QR anymore.
+
+Critical observation:
+
+* Restaurant registration pages also fail to load properly
+* Portal pages fail inconsistently
+* QR navigation fails inconsistently
+* Some copied deep links work
+* Direct navigation often shows blank page
+
+This confirms the problem is a GLOBAL production frontend deployment/routing issue.
+
+This is now almost certainly caused by:
+
+* incorrect SPA rewrite handling
+* broken Vite base configuration
+* React Router basename mismatch
+* asset/chunk loading failure
+* production build mismatch
+* stale deployment artifacts
+* broken direct-route serving
+
+Please stop focusing only on QR generation.
+
+I need a FULL production frontend routing audit.
+
+Deeply inspect ALL of these:
+
+1. Direct Navigation Failure
+   Verify ALL routes work directly in browser:
+
+* https://bitebend.in/portal
+* https://bitebend.in/portal/
+* https://bitebend.in/menu/13
+* restaurant registration routes
+* admin routes
+
+The app must load correctly on:
+
+* fresh direct open
+* refresh
+* external browser open
+* QR navigation
+
+2. React Router Configuration
+   Inspect:
+
+* BrowserRouter
+* basename
+* nested routes
+* dynamic route handling
+
+Verify basenames exactly match deployment paths.
+
+3. Vite Production Base Paths
+   Inspect vite.config.ts carefully.
+
+Verify:
+Portal app:
+base: "/portal/"
+
+Menu app:
+base: "/menu/"
+
+Ensure built assets/chunks use correct absolute paths.
+
+4. artifact.toml SPA Rewrites
+   Check rewrites thoroughly.
+
+Each SPA artifact must correctly rewrite:
+"/*" → "/index.html"
+
+for:
+
+* portal
+* menu
+* registration
+* admin
+
+5. JS Chunk Loading
+   Inspect production network tab for:
+
+* 404 JS chunks
+* incorrect hashed asset paths
+* MIME errors
+* failed dynamic imports
+* stale chunk references
+
+6. Service Worker / Cached Builds
+   Remove ALL stale frontend caches:
+
+* service workers
+* old build artifacts
+* CDN cache
+* browser cache
+* deployment cache
+
+7. Force Complete Rebuild
+   Do NOT incremental deploy.
+
+Perform:
+
+* clean build
+* fresh artifact generation
+* fresh publish
+* full cache invalidation
+
+8. IMPORTANT
+   This is now confirmed to be a PRODUCTION FRONTEND DEPLOYMENT issue affecting the entire app.
+
+QR failures are only a symptom of the broken production routing/build system.
+
+9. Final Verification Required
+   Verify on REAL mobile browser:
+
+* portal loads
+* registration loads
+* menu loads
+* refresh works
+* direct navigation works
+* QR opens correctly
+* no blank pages anywhere
+
+10. Provide:
+
+* exact root cause
+* files changed
+* deployment config changes
+* console/network errors found
+* final verified routing structure

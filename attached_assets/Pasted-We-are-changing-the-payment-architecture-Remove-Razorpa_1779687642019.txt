@@ -1,0 +1,165 @@
+We are changing the payment architecture.
+
+Remove Razorpay from restaurant payment flow entirely.
+
+Reason:
+
+Customer payments will use only the restaurant's uploaded QR code from:
+
+Profile
+→ Payment & Communication
+
+Restaurant receives money directly through their own QR.
+
+No Razorpay checkout popup for customer orders.
+
+No per-restaurant Razorpay setup.
+
+==================================================
+
+REMOVE FROM RESTAURANT DASHBOARD
+
+Profile
+→ Payment & Communication
+
+Remove:
+
+* Razorpay Key ID
+* Razorpay Secret
+* Razorpay Webhook Secret
+* Razorpay setup helper text
+* Razorpay validation logic
+* Razorpay health checks
+
+Remove from owner UI completely.
+
+==================================================
+
+DATABASE / BACKEND AUDIT
+
+Inspect usage of:
+
+razorpayKeyId
+razorpayKeySecret
+razorpayWebhookSecret
+
+Find every code path.
+
+For customer order payments:
+
+remove dependencies.
+
+Do NOT immediately drop DB columns.
+
+Mark deprecated first.
+
+Need safe migration.
+
+==================================================
+
+CUSTOMER PAYMENT FLOW
+
+Checkout
+
+Choose:
+
+1. Cash Payment
+2. Scan QR & Pay and Proceed
+
+If Cash:
+
+Place Order
+→ Order confirmation screen
+
+paymentStatus:
+
+pending
+
+==================================================
+
+If QR selected:
+
+Place Order
+→ Payment Bill screen
+
+Generate bill using existing architecture.
+
+Show:
+
+Restaurant
+Customer
+Order ID
+Table
+Items
+Total
+Uploaded restaurant QR image
+Amount
+
+Do NOT generate Razorpay order.
+
+Do NOT call:
+
+POST /razorpay-order
+
+Do NOT open:
+
+checkout.razorpay.com
+
+==================================================
+
+QR SOURCE
+
+Use QR already uploaded by restaurant:
+
+Dashboard
+→ Profile
+→ Payment & Communication
+
+If QR missing:
+
+Disable QR payment option.
+
+Show:
+
+"Restaurant has not configured online payment"
+
+Cash still available.
+
+==================================================
+
+SCREENSHOT FLOW
+
+Keep:
+
+Upload payment screenshot
+
+Flow:
+
+upload
+→ OCR verify
+→ auto update payment status
+
+==================================================
+
+IMPORTANT
+
+Keep platform Razorpay untouched for:
+
+Bitebend subscriptions
+
+Only remove Razorpay from restaurant food-order payments.
+
+Do not break subscription billing.
+
+==================================================
+
+Before changing code:
+
+Generate impact report:
+
+Files affected
+routes affected
+DB fields affected
+frontend components affected
+
+Then implement.

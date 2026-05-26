@@ -1,0 +1,200 @@
+Good progress. The new hosted-bill flow is much better. Before deploying, make a production hardening pass.
+
+HIGH PRIORITY FIXES:
+
+1. Replace in-memory bill cache
+
+Current:
+billCache.ts → in-memory token storage
+
+Problem:
+
+* tokens disappear on restart
+* multiple server instances break
+* memory leak risk
+* not horizontally scalable
+
+Replace with persistent storage:
+
+BillLinks:
+
+* token
+* orderId
+* imagePath
+* expiresAt
+* createdAt
+
+Store in DB or object storage.
+
+Bills must survive server restarts.
+
+---
+
+2. Replace memory image storage
+
+Do not keep generated images in process memory.
+
+Instead:
+
+Generate image
+→ upload/store
+
+Examples:
+
+/uploads/bills/
+/tmp/bills/
+cloud object storage later
+
+Store URL in DB.
+
+---
+
+3. Increase expiry
+
+Current:
+
+30 minutes
+
+Problem:
+
+Customer may open WhatsApp later.
+
+Use:
+
+24 hours
+
+Run cleanup job:
+
+delete expired bills daily
+
+---
+
+4. Add signed token validation
+
+Current:
+
+random token only
+
+Implement:
+
+token + signature + expiration validation
+
+Reject:
+
+expired
+tampered
+unknown
+
+Return:
+
+410 Gone
+
+for expired bill links
+
+---
+
+5. Add fallback page
+
+If bill missing:
+
+Show proper HTML:
+
+"Bill expired"
+
+with:
+
+Restaurant
+Order #
+Support info
+
+Do not return raw errors.
+
+---
+
+6. Improve WhatsApp message
+
+Current message is too technical.
+
+Use:
+
+Hi {customerName},
+
+Please complete payment for your order.
+
+Restaurant: {restaurant}
+Table: {table}
+Order: #{orderId}
+Amount: ₹{amount}
+
+Payment Bill:
+{billURL}
+
+Scan the QR to pay instantly.
+Amount is already prefilled.
+
+Thank you.
+
+---
+
+7. Analytics logging
+
+Track:
+
+bill sent
+bill opened
+QR scanned (if possible)
+payment success
+
+Store:
+
+timestamp
+orderId
+customerPhone
+
+This will help later.
+
+---
+
+8. Prepare transport abstraction now
+
+Create:
+
+sendPaymentBill()
+
+Current:
+
+WhatsAppDeepLinkProvider
+
+Future:
+
+InteraktProvider
+WATIProvider
+MetaCloudProvider
+
+Dashboard should never know transport implementation.
+
+---
+
+9. Add rate limiting
+
+Prevent spam:
+
+maximum:
+5 bill sends per order
+
+---
+
+10. Add production verification
+
+Test:
+
+* server restart
+* token expiry
+* customer opens bill from another device
+* WhatsApp mobile
+* WhatsApp desktop
+* slow network
+
+Only deploy after these pass.
+
+The operational flow is correct now. Just harden it before production rollout.

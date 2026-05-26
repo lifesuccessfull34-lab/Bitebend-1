@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/portal/"
+title = "Bitebend Portal"
+version = "1.0.0"
+id = "artifacts/portal"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/portal/" ]
+localPort = 5000
+
+[services.development]
+run = "pnpm --filter @workspace/portal run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/portal", "run", "build" ]
+
+[services.production.run]
+args = [ "node", "artifacts/portal/static-server.mjs" ]
+
+[services.production.run.env]
+PORT = "5000"
+
+[services.env]
+PORT = "5000"
+BASE_PATH = "/portal/"

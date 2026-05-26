@@ -1,0 +1,94 @@
+BUG FOUND: "Send Payment Bill" is sending only a WhatsApp text message instead of the actual QR bill PDF/image.
+
+Current behavior:
+When clicking "Send Payment Bill", WhatsApp opens and sends a plain text message:
+
+Hello Nirmal,
+Your order is ready...
+Items Ordered...
+UPI...
+Reference...
+
+This is wrong.
+
+Expected behavior:
+The system must send/share the ACTUAL generated bill (the designed payment bill with embedded QR code inside it), not a recreated text version.
+
+The payment bill already exists and renders correctly:
+✓ Restaurant name
+✓ Order details
+✓ Items ordered
+✓ Total amount
+✓ Embedded QR image
+✓ Payment instructions
+
+The issue is only with send/share logic.
+
+Fix required:
+
+1. "Send Payment Bill" must use the generated bill file itself.
+   Do NOT generate a new WhatsApp text-only bill.
+
+Flow should be:
+
+Generate bill with embedded QR
+→ export bill as PDF/image
+→ attach/share the generated file
+→ optional short caption text only
+
+2. Remove this current behavior:
+   buildWhatsappMessage()
+   send plain order text
+
+Replace with:
+
+shareGeneratedBill(orderId)
+or
+share actual PDF/image blob
+
+3. Implementation approach:
+
+After bill creation:
+
+const pdfBlob = await generatePaymentBill(order);
+const file = new File([pdfBlob], `bill-${order.id}.pdf`, {
+type:"application/pdf"
+});
+
+Then share:
+
+if(navigator.share){
+await navigator.share({
+title:`Payment Bill #${order.id}`,
+text:`Please complete payment using attached QR bill`,
+files:[file]
+})
+}
+
+OR upload temporary bill URL and send that link.
+
+IMPORTANT:
+WhatsApp cannot magically attach files through a text URL intent.
+
+Current code likely does:
+
+window.open(
+`https://wa.me/${number}?text=${encodedMessage}`
+)
+
+That only sends text.
+
+Instead:
+Generate file → share attachment → then WhatsApp/share.
+
+4. Keep only:
+   [Send Payment Bill]
+   [Mark as Paid]
+
+5. Do NOT create a second bill message template.
+
+Always use the already-rendered bill that contains QR.
+
+The QR PDF shown on screen is the source of truth.
+
+Send exactly that file.

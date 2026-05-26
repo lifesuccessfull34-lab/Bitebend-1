@@ -1,0 +1,144 @@
+Create a new responsive page in Bitebend called **Resources Center** (route: `/resources`) that acts as a knowledge hub for restaurants and customers who want to learn more about Bitebend.
+
+Requirements:
+
+Page title:
+**Bitebend Resources Center**
+Subtitle:
+"Everything you need to learn, setup, explore and grow with Bitebend."
+
+Add this page to sidebar navigation:
+Dashboard
+Orders
+Menu
+Payments
+Resources ← NEW
+Settings
+
+Page layout:
+
+* Modern responsive UI
+* Card-based design
+* Search bar at top
+* Category filter tabs:
+
+  * All
+  * Videos
+  * PDFs
+  * Plans
+  * Links
+  * FAQs
+
+Create these sections:
+
+1. Demo Videos section
+   Use video cards with thumbnail, title and embedded support.
+   Sample items:
+
+* QR Ordering Demo
+* Restaurant Dashboard Tutorial
+* Customer Ordering Flow
+* Payment Setup Guide
+* Bitebend Full Product Walkthrough
+
+Support:
+
+* YouTube embeds
+* external video links
+* self-hosted videos
+
+2. Documents/PDF section
+   Cards with icon + title + download/open button.
+
+Sample:
+
+* Restaurant Setup Guide.pdf
+* Bitebend Brochure.pdf
+* QR Setup Manual.pdf
+* Pricing Details.pdf
+* Terms & Policies.pdf
+
+Assume files stored inside:
+`/public/docs/`
+
+Examples:
+`/docs/setup-guide.pdf`
+
+3. Subscription Plans section
+
+Starter
+₹999/month
+
+Pro
+₹2499/month
+
+Enterprise
+Custom Pricing
+
+Each card should include:
+
+* features list
+* button
+* Start Trial
+* Contact Sales
+
+4. Useful Links section
+
+Cards for:
+
+* Book Demo
+* WhatsApp Support
+* FAQ
+* Website
+* YouTube Channel
+* Contact Us
+
+Open external links in new tab.
+
+5. FAQ section
+
+Use accordion UI.
+
+Questions:
+
+* How does QR ordering work?
+* How are payments settled?
+* How long does onboarding take?
+* Can customers pay inside Bitebend?
+* Is UPI supported?
+
+Implementation requirements:
+
+* Use React + TypeScript
+* Match existing Bitebend theme and colors
+* Mobile responsive
+* Grid layout
+* Add icons
+* Add loading skeletons
+* Add empty state handling
+* Add animations
+* Add reusable components
+* Use a dynamic data structure instead of hardcoding
+
+Example:
+
+```ts
+const resources = [
+{
+ id:1,
+ type:"video",
+ title:"QR Ordering Demo",
+ url:"..."
+}
+]
+```
+
+Render using `.map()`.
+
+Create clean folder structure:
+
+/pages/resources
+/components/resources
+/data/resources.ts
+
+Add future support for admin-managed content so later resources can be added from dashboard without code changes.

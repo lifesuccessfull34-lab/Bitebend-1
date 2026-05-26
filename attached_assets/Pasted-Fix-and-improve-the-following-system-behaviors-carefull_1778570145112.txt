@@ -1,0 +1,193 @@
+Fix and improve the following system behaviors carefully without breaking existing authentication, restaurant data, or menu routing logic.
+
+==================================================
+TASK 1 — SESSION AUTO LOGOUT TIMING
+===================================
+
+Problem:
+Restaurant dashboard and Admin panel automatically log out too quickly after inactivity.
+
+Required behavior:
+
+1. Restaurant Dashboard
+
+* Auto logout only after 2 hours of inactivity
+
+2. Admin Panel
+
+* Auto logout after 30 minutes of inactivity
+
+==================================================
+IMPLEMENTATION REQUIREMENTS
+===========================
+
+1. Session Handling
+   Check:
+
+* JWT expiration
+* Session cookies
+* Refresh token logic
+* Local storage token expiry
+* Inactivity timer
+* Backend auth middleware
+
+2. Inactivity Detection
+   Use proper inactivity tracking:
+
+* Mouse movement
+* Keyboard activity
+* Touch events
+* Navigation activity
+* API activity
+
+3. Security
+
+* Admin timeout remains stricter (30 mins)
+* Restaurant panel gets longer session (2 hrs)
+* Ensure logout clears tokens/session properly
+
+4. UX Improvements
+   Before auto logout:
+
+* Show warning popup:
+  "Your session is about to expire"
+
+Buttons:
+
+* Stay Logged In
+* Logout
+
+5. Important
+
+* Do not break existing login flow
+* Do not break role-based authentication
+* Ensure sessions survive page refresh during active usage
+
+==================================================
+TASK 2 — ADD DELETE BUTTON IN ADMIN → OVERVIEW → SUSPENDED
+==========================================================
+
+Problem:
+Suspended restaurants section does not have delete option.
+
+Required:
+Add proper Delete button/action in:
+Admin Panel → Overview → Suspended Section
+
+==================================================
+DELETE REQUIREMENTS
+===================
+
+1. Add:
+
+* Delete button
+* Confirmation modal
+
+2. Confirmation text:
+   "Are you sure you want to permanently delete this restaurant?"
+
+3. On Delete:
+   Remove:
+
+* Restaurant account
+* Menu data
+* QR references
+* Uploaded images/files
+* Associated records safely
+
+4. Safety
+
+* Prevent accidental deletion
+* Soft delete optional if safer
+* Handle database cleanup properly
+
+5. UI
+
+* Keep consistent admin panel styling
+* Show success/error toast
+
+==================================================
+TASK 3 — MAKE MENU URL UNIQUE INSTEAD OF SERIAL NUMBER
+======================================================
+
+Problem:
+Menu URLs currently end with serial numbers.
+
+Example:
+Current:
+website.com/menu/12
+
+Required:
+Use unique readable restaurant-based URLs instead.
+
+Examples:
+website.com/menu/spice-villa
+website.com/menu/hotel-raj
+website.com/menu/bitebend-cafe
+
+==================================================
+URL REQUIREMENTS
+================
+
+1. Generate Unique Slugs
+   Create slug from:
+
+* Restaurant name
+* Business name
+
+2. Rules
+
+* Lowercase
+* Hyphen separated
+* Remove special characters/spaces
+
+3. Collision Handling
+   If duplicate exists:
+   Use:
+
+* spice-villa-2
+* spice-villa-3
+
+4. Backward Compatibility
+   IMPORTANT:
+   Old serial-number URLs must still work.
+
+Example:
+Old:
+website.com/menu/12
+
+Should redirect automatically to:
+website.com/menu/spice-villa
+
+5. SEO Improvements
+
+* Use canonical URLs
+* Improve readability
+* Better browser sharing
+* Better QR appearance
+
+6. Database
+
+* Add slug field safely
+* Auto-generate for existing restaurants
+* Prevent duplicate slugs
+
+7. QR Compatibility
+   IMPORTANT:
+
+* Existing QR codes must continue working
+* Do not break already printed QR codes
+* Old links should redirect properly
+
+==================================================
+AFTER COMPLETION PROVIDE
+========================
+
+* Files changed
+* Session timeout logic implemented
+* Auto logout warning implementation
+* Delete flow implementation details
+* Slug generation logic
+* Redirect logic for old URLs
+* Database changes made
+* Backward compatibility confirmation

@@ -1,0 +1,252 @@
+Update Bitebend payment flow with the following exact changes. Keep current architecture intact but modify checkout, WhatsApp billing, OCR verification, and payment status flow.
+
+BITEBEND FINAL PAYMENT FLOW
+
+1. MENU APP → CHECKOUT PAGE
+
+* Show ONLY:
+  [Place Order]
+* Remove / hide:
+
+  * Pay Now
+  * UPI options
+  * Razorpay checkout
+  * all payment methods from checkout UI
+
+Flow:
+Customer selects items → Checkout → Place Order
+
+---
+
+2. AFTER PLACE ORDER
+
+Create order immediately:
+
+orderStatus = "pending"
+paymentStatus = "unpaid"
+
+Then redirect customer back to Menu page automatically.
+
+No payment page should appear.
+
+---
+
+3. RESTAURANT DASHBOARD → SEND WHATSAPP BILL
+
+Add button:
+
+[Share Payment Bill]
+
+When owner clicks:
+
+Generate downloadable/shareable bill image or PDF.
+
+Bill should contain:
+
+* Restaurant Name
+* Order ID
+* Table Number
+* Item summary
+* Total Amount
+* QR code
+* Message text:
+
+"Please pay using this QR and share your payment details on WhatsApp."
+
+QR code payload format:
+
+amount=<order_total>;
+merchant=<restaurant_name>;
+reference=Order<order_id>
+
+Example:
+
+amount=385;
+merchant=ABC Restaurant;
+reference=Order123
+
+Use QR generation library already used in project or generate dynamically.
+
+Open WhatsApp share flow to customer number.
+
+---
+
+4. CUSTOMER PAYMENT FLOW
+
+Customer receives WhatsApp bill.
+
+Customer:
+
+* opens QR
+* optionally takes screenshot of QR
+* pays using GPay / PhonePe / Paytm / BHIM or any UPI app
+* sends payment proof/details to restaurant WhatsApp
+
+No WhatsApp API integration required.
+
+Manual WhatsApp only.
+
+---
+
+5. OPTIONAL PAYMENT SCREENSHOT UPLOAD
+
+Inside menu app add section:
+
+Payment Done?
+
+Optional:
+[Upload Payment Screenshot]
+
+Do NOT force upload.
+
+Customer can skip.
+
+State:
+
+paymentStatus = "unpaid"
+until verification starts.
+
+---
+
+6. OCR PAYMENT VERIFICATION (ONLY IF SCREENSHOT UPLOADED)
+
+On upload:
+
+POST /api/payment-proof
+
+Backend flow:
+
+Image
+→ OCR extraction
+→ parse text
+→ extract:
+
+* UTR
+* amount
+* payment status
+* merchant
+* timestamp
+
+Use image text extraction pipeline.
+
+Preferred architecture:
+
+Google Vision OCR
++
+AI extraction layer
+
+Return structured JSON:
+
+{
+amount,
+utr,
+status,
+merchant,
+confidence
+}
+
+---
+
+7. MATCH ENGINE
+
+Verify:
+
+amount == order total
+status == success
+UTR exists
+
+If matched:
+
+paymentStatus = "paid"
+
+Auto switch:
+
+unpaid → paid
+
+Do not require owner action.
+
+---
+
+8. AI CONFIDENCE SCORE
+
+When OCR runs:
+
+Store:
+
+confidence: 0–100
+
+Dashboard examples:
+
+AI Confidence: 97%
+UTR Found: Yes
+Amount Match: Yes
+
+---
+
+9. FALLBACK MANUAL REVIEW
+
+If:
+
+* OCR confidence low
+* UTR missing
+* amount mismatch
+* extraction fails
+
+Set:
+
+paymentStatus = "manual_review"
+
+Dashboard badge:
+
+Payment Verification Pending
+
+Owner actions:
+
+Approve Paid
+Reject
+
+Only show manual controls in fallback cases.
+
+---
+
+10. DASHBOARD ORDER STATES
+
+payment Status:
+
+* unpaid
+* paid
+*
+
+order Status:
+
+* confirmed
+* preparing
+* completed
+
+---
+
+11. ORDER CARD UI
+
+Display:
+
+Table 4
+Order #153
+₹385
+
+Payment Badge:
+
+🟡 Unpaid
+🟢 Paid\
+
+If OCR processed:
+
+Show:
+
+UTR:
+Confidence:
+Extracted amount:
+
+---
+
+Important:
+Keep current Bitebend architecture unchanged. Modify existing flows only. Avoid WhatsApp API/Twilio integration. Use manual WhatsApp sharing. OCR runs only when optional screenshot upload exists.

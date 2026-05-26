@@ -1,0 +1,139 @@
+Personal UPI partially works: payment app opens, but payment details are NOT prefilled.
+
+Expected:
+
+Customer taps:
+
+Pay ₹250 via UPI
+
+App opens with:
+
+* Amount prefilled (₹250)
+* Restaurant name prefilled
+* UPI ID prefilled
+* Order note/reference visible
+
+Current behavior:
+
+Only app opens. Payment parameters are missing or ignored.
+
+Please debug the UPI deep-link generation.
+
+==================================================
+VERIFY GENERATED LINK
+=====================
+
+Current link likely:
+
+upi://pay?pa=...
+
+Log exact generated link:
+
+console.log("UPI LINK:", upiLink)
+
+Expected structure:
+
+upi://pay?
+pa=restaurant@okaxis
+&pn=ABC Restaurant
+&am=250
+&cu=INR
+&tr=ORDER123
+&tn=Table-5 Order
+
+==================================================
+REQUIRED PARAMETERS
+===================
+
+Use:
+
+pa = UPI ID
+pn = Merchant/restaurant name
+am = Amount
+cu = INR
+tn = Transaction note
+tr = Unique order reference
+
+Example:
+
+upi://pay?pa=restaurant@okaxis&pn=ABC Restaurant&am=250&cu=INR&tr=ORDER123&tn=Order-123
+
+==================================================
+IMPORTANT
+=========
+
+URL encode values:
+
+encodeURIComponent()
+
+Example:
+
+pn=${encodeURIComponent(name)}
+
+tn=${encodeURIComponent(note)}
+
+Reason:
+
+Restaurant names with spaces break UPI parsing.
+
+Bad:
+
+ABC Restaurant
+
+Good:
+
+ABC%20Restaurant
+
+==================================================
+AMOUNT FORMAT
+=============
+
+Ensure amount:
+
+250.00
+
+not:
+
+₹250
+or
+"250 INR"
+
+Use:
+
+Number(amount).toFixed(2)
+
+==================================================
+OPENING METHOD
+==============
+
+Verify app opens via:
+
+window.location.href = upiLink
+
+or proper mobile intent flow
+
+instead of malformed redirects.
+
+==================================================
+TEST
+====
+
+Test on:
+
+* Google Pay
+* PhonePe
+* Paytm
+
+Confirm app receives:
+
+UPI ID
+Restaurant name
+Amount
+Reference
+
+Provide:
+
+* exact generated link
+* root cause
+* files changed
+* screenshots/logs

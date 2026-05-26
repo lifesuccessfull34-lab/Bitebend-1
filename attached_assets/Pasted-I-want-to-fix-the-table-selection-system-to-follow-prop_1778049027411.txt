@@ -1,0 +1,111 @@
+I want to fix the table selection system to follow proper structured logic instead of manual input.
+
+CURRENT ISSUE:
+- Users manually type table numbers (e.g. 1,2,3)
+- Tables are not properly linked to areas
+- No structured selection or validation
+
+--------------------------------------------------
+
+REQUIRED STRUCTURE:
+
+1. Tables must be structured like:
+   Area → Tables
+
+Example:
+- Lounge → Table 1, Table 2, Table 3
+- Rooftop → Table 1, Table 2
+
+--------------------------------------------------
+
+PART 1: BACKEND CHANGES
+
+1. Update database schema:
+
+Create separate structure:
+
+Areas:
+- id
+- name (e.g. Lounge, Rooftop)
+
+Tables:
+- id
+- tableNumber (e.g. 1, 2, 3)
+- areaId (reference to Area)
+- restaurantId
+
+2. Ensure:
+- Each table belongs to ONE area
+- No duplicate table numbers within same area
+
+--------------------------------------------------
+
+PART 2: ADMIN PANEL (TABLE MANAGEMENT)
+
+1. When adding tables:
+- First select or create Area
+- Then add tables under that area
+
+2. Display tables grouped by area:
+Example:
+Lounge:
+  [Table 1] [Table 2]
+
+Rooftop:
+  [Table 1]
+
+--------------------------------------------------
+
+PART 3: CUSTOMER UI (IMPORTANT)
+
+On menu page:
+
+1. User selects Area first
+
+2. After selecting Area:
+- Dynamically load tables for that area
+
+3. Show tables as selectable buttons/cards:
+- Table 1
+- Table 2
+- Table 3
+
+4. Allow ONLY ONE selection
+
+5. Remove manual input field completely
+
+--------------------------------------------------
+
+PART 4: VALIDATION
+
+- User MUST select:
+  - Area
+  - Table
+
+- Do NOT allow proceeding without selection
+
+--------------------------------------------------
+
+PART 5: ORDER STORAGE
+
+When order is created:
+- Store:
+  areaName
+  tableNumber
+  restaurantId
+
+--------------------------------------------------
+
+RULES:
+
+- Do NOT allow comma-separated input
+- Do NOT allow free text table entry
+- Keep logic clean and structured
+- Do not break existing order flow
+
+--------------------------------------------------
+
+OPTIONAL (IF EASY):
+
+- Add table status:
+  Available / Occupied

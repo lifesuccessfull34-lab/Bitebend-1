@@ -1,0 +1,140 @@
+Before changing anything, first inspect and explain the current Resources architecture.
+
+Questions to answer:
+
+1. Is the Resources page currently using:
+
+* local arrays
+* resources.ts
+* localStorage
+* mock data
+* frontend-only state
+
+or is it already connected to backend/API/database?
+
+2. Trace the full data flow:
+
+Resources Center page
+→ resourceService
+→ storage layer
+→ DB/API/localStorage
+
+Show exactly where content originates.
+
+3. Determine whether Resources currently has any connection to Super Admin.
+
+Specifically check:
+
+* Does super admin create resources?
+* Does dashboard read admin-created records?
+* Is there approval workflow?
+* Is there publish status?
+* Is there ownership?
+* Is there role filtering?
+
+After analysis, implement the following architecture:
+
+GOAL:
+Restaurant Resource page should NEVER show hardcoded content.
+
+Only show content that:
+
+* Super Admin uploads
+  OR
+* Super Admin explicitly approves
+
+Required architecture:
+
+Database table:
+
+resources
+
+Fields:
+
+id
+title
+description
+type
+category
+thumbnail
+url
+fileUrl
+tags
+featured
+status
+approvalStatus
+visibleTo
+createdBy
+approvedBy
+createdAt
+updatedAt
+publishAt
+expireAt
+
+approvalStatus values:
+
+pending
+approved
+rejected
+
+Rules:
+
+Super Admin:
+
+* upload resources
+* edit
+* approve
+* reject
+* publish
+* archive
+* feature resources
+
+Restaurant owner:
+
+* view approved content only
+* optionally submit content for review
+
+Customers:
+
+* view approved content only
+
+Dashboard Resource page:
+
+Fetch only:
+
+status='active'
+approvalStatus='approved'
+
+Never read directly from local arrays or mock data.
+
+Remove sample resources from frontend.
+
+Create API endpoints:
+
+GET /api/resources
+GET /api/resources/approved
+POST /api/admin/resources
+PUT /api/admin/resources/:id
+POST /api/admin/resources/:id/approve
+POST /api/admin/resources/:id/reject
+
+Add Super Admin page:
+
+/super-admin/resources
+
+Features:
+
+* upload PDFs
+* upload videos
+* add links
+* FAQs
+* plans
+* approve/reject queue
+* feature resources
+* analytics
+* draft mode
+* scheduled publishing
+
+Resource Center should become a live view of admin-controlled content.
+
+Preserve backward compatibility and migrate existing resources if needed.

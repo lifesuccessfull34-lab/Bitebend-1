@@ -1,0 +1,1763 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 1.0.0
+  description: Bitebend QR Restaurant Marketplace API
+
+servers:
+  - url: /api
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      summary: Health check
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthCheckResponse"
+
+  # ─── Auth ────────────────────────────────────────────────────────────────────
+
+  /auth/register:
+    post:
+      operationId: register
+      summary: Register a new restaurant owner
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      summary: Login
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      summary: Logout
+      tags: [auth]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+
+  /auth/me:
+    get:
+      operationId: getMe
+      summary: Get current user
+      tags: [auth]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Public Menu (Customer) ───────────────────────────────────────────────────
+
+  /menu/{restaurantId}:
+    get:
+      operationId: getPublicMenu
+      summary: Get restaurant public menu (called when customer scans QR)
+      tags: [menu]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicMenuResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /menu/{restaurantId}/orders:
+    post:
+      operationId: placeOrder
+      summary: Customer places an order
+      tags: [menu]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaceOrderInput"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderWithItems"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /menu/{restaurantId}/orders/{orderId}:
+    get:
+      operationId: getOrderStatus
+      summary: Customer checks their order status
+      tags: [menu]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderWithItems"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ─── Owner ────────────────────────────────────────────────────────────────────
+
+  /owner/restaurant:
+    get:
+      operationId: getOwnerRestaurant
+      summary: Get own restaurant profile
+      tags: [owner]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateOwnerRestaurant
+      summary: Update own restaurant profile
+      tags: [owner]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRestaurantInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+
+  /owner/categories:
+    get:
+      operationId: listCategories
+      summary: List menu categories for own restaurant
+      tags: [owner]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MenuCategory"
+    post:
+      operationId: createCategory
+      summary: Create a menu category
+      tags: [owner]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMenuCategoryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuCategory"
+
+  /owner/categories/{categoryId}:
+    put:
+      operationId: updateCategory
+      summary: Update a menu category
+      tags: [owner]
+      parameters:
+        - in: path
+          name: categoryId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMenuCategoryInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuCategory"
+    delete:
+      operationId: deleteCategory
+      summary: Delete a menu category
+      tags: [owner]
+      parameters:
+        - in: path
+          name: categoryId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: No content
+
+  /owner/menu-items:
+    get:
+      operationId: listMenuItems
+      summary: List menu items for own restaurant
+      tags: [owner]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MenuItem"
+    post:
+      operationId: createMenuItem
+      summary: Create a menu item
+      tags: [owner]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMenuItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuItem"
+
+  /owner/menu-items/{itemId}:
+    put:
+      operationId: updateMenuItem
+      summary: Update a menu item
+      tags: [owner]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMenuItemInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MenuItem"
+    delete:
+      operationId: deleteMenuItem
+      summary: Delete a menu item
+      tags: [owner]
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: No content
+
+  /owner/tables:
+    get:
+      operationId: listTables
+      summary: List tables for own restaurant
+      tags: [owner]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RestaurantTable"
+    post:
+      operationId: createTable
+      summary: Create a table
+      tags: [owner]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTableInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestaurantTable"
+
+  /owner/tables/{tableId}:
+    delete:
+      operationId: deleteTable
+      summary: Delete a table
+      tags: [owner]
+      parameters:
+        - in: path
+          name: tableId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: No content
+
+  /owner/tables/{tableId}/qr:
+    post:
+      operationId: regenerateTableQr
+      summary: Regenerate QR code for a table
+      tags: [owner]
+      parameters:
+        - in: path
+          name: tableId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestaurantTable"
+
+  /owner/orders:
+    get:
+      operationId: listOwnerOrders
+      summary: List orders for own restaurant
+      tags: [owner]
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum:
+              [
+                pending,
+                confirmed,
+                preparing,
+                ready,
+                completed,
+                cancelled,
+                all,
+              ]
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrderWithItems"
+
+  /owner/orders/{orderId}:
+    get:
+      operationId: getOwnerOrder
+      summary: Get a single order
+      tags: [owner]
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderWithItems"
+    put:
+      operationId: updateOrderStatus
+      summary: Update order status or payment
+      tags: [owner]
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateOrderStatusInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderWithItems"
+
+  /owner/orders/{orderId}/whatsapp:
+    get:
+      operationId: getWhatsappBillLink
+      summary: Get pre-filled WhatsApp link to send bill to customer
+      tags: [owner]
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppBillResponse"
+
+  /owner/stats:
+    get:
+      operationId: getOwnerStats
+      summary: Get dashboard stats for own restaurant
+      tags: [owner]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  # ─── Admin ────────────────────────────────────────────────────────────────────
+
+  /admin/restaurants:
+    get:
+      operationId: adminListRestaurants
+      summary: Admin — list all restaurants
+      tags: [admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RestaurantWithOwner"
+
+  /admin/restaurants/{restaurantId}/toggle:
+    post:
+      operationId: adminToggleRestaurant
+      summary: Admin — toggle restaurant active status
+      tags: [admin]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+
+  /admin/restaurants/{restaurantId}:
+    delete:
+      operationId: adminDeleteRestaurant
+      summary: Admin — delete a restaurant
+      tags: [admin]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: No content
+
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      summary: Admin — platform-wide stats
+      tags: [admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/restaurants/{restaurantId}/approve:
+    post:
+      operationId: adminApproveRestaurant
+      summary: Admin — approve a restaurant
+      tags: [admin]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminApproveInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+
+  /admin/restaurants/{restaurantId}/reject:
+    post:
+      operationId: adminRejectRestaurant
+      summary: Admin — reject a restaurant
+      tags: [admin]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRejectInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+
+  /admin/restaurants/{restaurantId}/subscription:
+    put:
+      operationId: adminUpdateSubscription
+      summary: Admin — update restaurant subscription
+      tags: [admin]
+      parameters:
+        - in: path
+          name: restaurantId
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUpdateSubscriptionInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Restaurant"
+
+  /admin/customers:
+    get:
+      operationId: adminListCustomers
+      summary: Admin — list all unique customers across platform
+      tags: [admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminCustomer"
+
+  /storage/uploads/request-url:
+    post:
+      tags: [Storage]
+      operationId: requestUploadUrl
+      summary: Request a presigned URL for file upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestUploadUrlBody'
+      responses:
+        '200':
+          description: Presigned upload URL generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestUploadUrlResponse'
+        '400':
+          description: Missing or invalid required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /storage/objects/{objectPath}:
+    get:
+      tags: [Storage]
+      operationId: getStorageObject
+      summary: Serve an uploaded object entity
+      parameters:
+        - name: objectPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Object content streamed
+          content:
+            '*/*':
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Object not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ─── Resources ──────────────────────────────────────────────────────────────
+
+  /resources:
+    get:
+      operationId: listApprovedResources
+      summary: List approved resources (public)
+      tags: [resources]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Resource"
+
+  /admin/resources:
+    get:
+      operationId: listAdminResources
+      summary: List all resources (admin)
+      tags: [admin]
+      parameters:
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: approvalStatus
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminResource"
+    post:
+      operationId: createAdminResource
+      summary: Create resource (admin)
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+  /admin/resources/{id}:
+    put:
+      operationId: updateAdminResource
+      summary: Update resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+    delete:
+      operationId: deleteAdminResource
+      summary: Delete resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+
+  /admin/resources/{id}/approve:
+    post:
+      operationId: approveResource
+      summary: Approve resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+  /admin/resources/{id}/reject:
+    post:
+      operationId: rejectResource
+      summary: Reject resource (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+  /admin/resources/{id}/feature:
+    post:
+      operationId: featureResource
+      summary: Toggle featured flag (admin)
+      tags: [admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminResource"
+
+components:
+  schemas:
+    HealthCheckResponse:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    RequestUploadUrlBody:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        size:
+          type: integer
+          minimum: 1
+        contentType:
+          type: string
+          minLength: 1
+
+    RequestUploadUrlResponse:
+      type: object
+      required: [uploadURL, objectPath]
+      properties:
+        uploadURL:
+          type: string
+          format: uri
+        objectPath:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/RequestUploadUrlBody'
+
+    # ─── Auth ─────────────────────────────────────────────────────────────────
+
+    RegisterInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        restaurantName:
+          type: string
+          minLength: 1
+        restaurantPhone:
+          type: string
+        restaurantAddress:
+          type: string
+        restaurantCity:
+          type: string
+          description: "Actual city or town name; independent of district and must not be inferred or derived from it"
+        restaurantState:
+          type: string
+          description: "Indian state name (e.g. Maharashtra, Tamil Nadu)"
+        restaurantDistrict:
+          type: string
+          description: "Administrative district within the selected state (e.g. Pune, Coimbatore)"
+        cuisineType:
+          type: string
+          enum:
+            [
+              north_indian,
+              south_indian,
+              chinese,
+              continental,
+              italian,
+              mughlai,
+              seafood,
+              street_food,
+              multi_cuisine,
+              other,
+            ]
+      required:
+        [
+          name,
+          email,
+          password,
+          restaurantName,
+          restaurantPhone,
+          restaurantAddress,
+          restaurantCity,
+          cuisineType,
+        ]
+
+    LoginInput:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [super_admin, owner]
+        restaurantId:
+          type: integer
+          nullable: true
+      required: [id, email, name, role]
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/AuthUser"
+      required: [user]
+
+    # ─── Restaurant ───────────────────────────────────────────────────────────
+
+    Restaurant:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+          nullable: true
+        cuisineType:
+          type: string
+        logoUrl:
+          type: string
+          nullable: true
+        address:
+          type: string
+        city:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        ownerId:
+          type: integer
+          nullable: true
+        isActive:
+          type: boolean
+        upiId:
+          type: string
+          nullable: true
+        whatsappNumber:
+          type: string
+          nullable: true
+        taxPercent:
+          type: integer
+        approvalStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        approvalNote:
+          type: string
+          nullable: true
+        subscriptionPlan:
+          type: string
+          enum: [free, basic, premium]
+        subscriptionFee:
+          type: integer
+        subscriptionExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        [id, name, slug, cuisineType, address, city, phone, email, isActive, taxPercent, approvalStatus, subscriptionPlan, subscriptionFee, createdAt]
+
+    RestaurantWithOwner:
+      allOf:
+        - $ref: "#/components/schemas/Restaurant"
+        - type: object
+          properties:
+            ownerName:
+              type: string
+              nullable: true
+            ownerEmail:
+              type: string
+              nullable: true
+            totalOrders:
+              type: integer
+            totalRevenue:
+              type: integer
+
+    UpdateRestaurantInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        cuisineType:
+          type: string
+          enum:
+            [
+              north_indian,
+              south_indian,
+              chinese,
+              continental,
+              italian,
+              mughlai,
+              seafood,
+              street_food,
+              multi_cuisine,
+              other,
+            ]
+        logoUrl:
+          type: string
+          nullable: true
+        address:
+          type: string
+        city:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        upiId:
+          type: string
+          nullable: true
+        whatsappNumber:
+          type: string
+          nullable: true
+        taxPercent:
+          type: integer
+    # ─── Menu ─────────────────────────────────────────────────────────────────
+
+    MenuCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+        restaurantId:
+          type: integer
+        name:
+          type: string
+        displayOrder:
+          type: integer
+        isActive:
+          type: boolean
+      required: [id, restaurantId, name, displayOrder, isActive]
+
+    CreateMenuCategoryInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        displayOrder:
+          type: integer
+      required: [name]
+
+    UpdateMenuCategoryInput:
+      type: object
+      properties:
+        name:
+          type: string
+        displayOrder:
+          type: integer
+        isActive:
+          type: boolean
+
+    MenuItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        restaurantId:
+          type: integer
+        categoryId:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+        imageUrl:
+          type: string
+          nullable: true
+        isAvailable:
+          type: boolean
+        isVeg:
+          type: boolean
+        displayOrder:
+          type: integer
+      required:
+        [id, restaurantId, categoryId, name, price, isAvailable, isVeg, displayOrder]
+
+    CreateMenuItemInput:
+      type: object
+      properties:
+        categoryId:
+          type: integer
+        name:
+          type: string
+          minLength: 1
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          minimum: 0
+        imageUrl:
+          type: string
+          nullable: true
+        isVeg:
+          type: boolean
+        displayOrder:
+          type: integer
+      required: [categoryId, name, price]
+
+    UpdateMenuItemInput:
+      type: object
+      properties:
+        categoryId:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        price:
+          type: integer
+          minimum: 0
+        imageUrl:
+          type: string
+          nullable: true
+        isAvailable:
+          type: boolean
+        isVeg:
+          type: boolean
+        displayOrder:
+          type: integer
+
+    # ─── Tables ───────────────────────────────────────────────────────────────
+
+    RestaurantTable:
+      type: object
+      properties:
+        id:
+          type: integer
+        restaurantId:
+          type: integer
+        tableNumber:
+          type: string
+        qrCodeUrl:
+          type: string
+          nullable: true
+        isOccupied:
+          type: boolean
+      required: [id, restaurantId, tableNumber, isOccupied]
+
+    CreateTableInput:
+      type: object
+      properties:
+        tableNumber:
+          type: string
+          minLength: 1
+      required: [tableNumber]
+
+    # ─── Orders ───────────────────────────────────────────────────────────────
+
+    OrderItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        orderId:
+          type: integer
+        menuItemId:
+          type: integer
+        name:
+          type: string
+        quantity:
+          type: integer
+        unitPrice:
+          type: integer
+        isVeg:
+          type: boolean
+        notes:
+          type: string
+          nullable: true
+      required: [id, orderId, menuItemId, name, quantity, unitPrice, isVeg]
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: integer
+        restaurantId:
+          type: integer
+        tableId:
+          type: integer
+          nullable: true
+        tableNumber:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+        customerPhone:
+          type: string
+        status:
+          type: string
+          enum:
+            [pending, confirmed, preparing, ready, completed, cancelled]
+        subtotal:
+          type: integer
+        tax:
+          type: integer
+        total:
+          type: integer
+        paymentStatus:
+          type: string
+          enum: [unpaid, paid]
+        paymentMethod:
+          type: string
+          nullable: true
+        notes:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        [id, restaurantId, customerName, customerPhone, status, subtotal, tax, total, paymentStatus, createdAt, updatedAt]
+
+    OrderWithItems:
+      allOf:
+        - $ref: "#/components/schemas/Order"
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/OrderItem"
+          required: [items]
+
+    PlaceOrderInput:
+      type: object
+      properties:
+        tableId:
+          type: integer
+          nullable: true
+        tableNumber:
+          type: string
+          nullable: true
+        customerName:
+          type: string
+          minLength: 1
+        customerPhone:
+          type: string
+          minLength: 10
+        notes:
+          type: string
+          nullable: true
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              menuItemId:
+                type: integer
+              quantity:
+                type: integer
+                minimum: 1
+              notes:
+                type: string
+                nullable: true
+            required: [menuItemId, quantity]
+      required: [customerName, customerPhone, items]
+
+    UpdateOrderStatusInput:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            [pending, confirmed, preparing, ready, completed, cancelled]
+        paymentStatus:
+          type: string
+          enum: [unpaid, paid]
+        paymentMethod:
+          type: string
+          nullable: true
+
+    WhatsAppBillResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        message:
+          type: string
+      required: [url, message]
+
+    # ─── Public Menu ──────────────────────────────────────────────────────────
+
+    PublicMenuCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        displayOrder:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MenuItem"
+      required: [id, name, displayOrder, items]
+
+    PublicMenuResponse:
+      type: object
+      properties:
+        restaurant:
+          $ref: "#/components/schemas/Restaurant"
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicMenuCategory"
+      required: [restaurant, categories]
+
+    # ─── Stats ────────────────────────────────────────────────────────────────
+
+    DashboardStats:
+      type: object
+      properties:
+        todayOrders:
+          type: integer
+        todayRevenue:
+          type: integer
+        activeOrders:
+          type: integer
+        pendingOrders:
+          type: integer
+        totalMenuItems:
+          type: integer
+        totalTables:
+          type: integer
+      required:
+        [todayOrders, todayRevenue, activeOrders, pendingOrders, totalMenuItems, totalTables]
+
+    AdminStats:
+      type: object
+      properties:
+        totalRestaurants:
+          type: integer
+        activeRestaurants:
+          type: integer
+        pendingApprovals:
+          type: integer
+        totalOrders:
+          type: integer
+        totalRevenue:
+          type: integer
+        totalCustomers:
+          type: integer
+        subscriptionRevenue:
+          type: integer
+      required: [totalRestaurants, activeRestaurants, pendingApprovals, totalOrders, totalRevenue, totalCustomers, subscriptionRevenue]
+
+    AdminCustomer:
+      type: object
+      properties:
+        customerPhone:
+          type: string
+        customerName:
+          type: string
+        totalOrders:
+          type: integer
+        totalSpent:
+          type: integer
+        lastOrderAt:
+          type: string
+          format: date-time
+        restaurants:
+          type: array
+          items:
+            type: string
+      required: [customerPhone, customerName, totalOrders, totalSpent, lastOrderAt, restaurants]
+
+    AdminApproveInput:
+      type: object
+      properties:
+        note:
+          type: string
+          nullable: true
+
+    AdminRejectInput:
+      type: object
+      properties:
+        note:
+          type: string
+      required: [note]
+
+    AdminUpdateSubscriptionInput:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [free, basic, premium]
+        fee:
+          type: integer
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [plan, fee]
+
+    Resource:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [video, pdf, link, plan, faq]
+        category:
+          type: string
+          nullable: true
+        thumbnail:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        fileUrl:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        featured:
+          type: boolean
+        displayOrder:
+          type: integer
+        status:
+          type: string
+          enum: [draft, active, archived]
+        duration:
+          type: string
+          nullable: true
+        videoSource:
+          type: string
+          enum: [youtube, external, self-hosted]
+          nullable: true
+        sizeLabel:
+          type: string
+          nullable: true
+        planName:
+          type: string
+          nullable: true
+        planPrice:
+          type: string
+          nullable: true
+        planPeriod:
+          type: string
+          nullable: true
+        planFeatures:
+          type: array
+          items:
+            type: string
+          nullable: true
+        planHighlight:
+          type: boolean
+          nullable: true
+        planBadge:
+          type: string
+          nullable: true
+        planCta:
+          type: string
+          enum: [trial, contact]
+          nullable: true
+        iconName:
+          type: string
+          nullable: true
+        iconColor:
+          type: string
+          nullable: true
+        question:
+          type: string
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, title, type, tags, featured, displayOrder, status, createdAt, updatedAt]
+
+    AdminResource:
+      allOf:
+        - $ref: "#/components/schemas/Resource"
+        - type: object
+          properties:
+            approvalStatus:
+              type: string
+              enum: [pending, approved, rejected]
+            visibleTo:
+              type: string
+              enum: [all, owners]
+            createdBy:
+              type: integer
+              nullable: true
+            approvedBy:
+              type: integer
+              nullable: true
+            publishAt:
+              type: string
+              format: date-time
+              nullable: true
+            expireAt:
+              type: string
+              format: date-time
+              nullable: true
+          required: [approvalStatus, visibleTo]
+
+    ResourceInput:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        type:
+          type: string
+          enum: [video, pdf, link, plan, faq]
+        category:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        fileUrl:
+          type: string
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+        featured:
+          type: boolean
+        displayOrder:
+          type: integer
+        status:
+          type: string
+          enum: [draft, active, archived]
+        approvalStatus:
+          type: string
+          enum: [pending, approved, rejected]
+        visibleTo:
+          type: string
+          enum: [all, owners]
+        publishAt:
+          type: string
+          format: date-time
+          nullable: true
+        expireAt:
+          type: string
+          format: date-time
+          nullable: true
+        duration:
+          type: string
+          nullable: true
+        videoSource:
+          type: string
+          nullable: true
+        sizeLabel:
+          type: string
+          nullable: true
+        planName:
+          type: string
+          nullable: true
+        planPrice:
+          type: string
+          nullable: true
+        planPeriod:
+          type: string
+          nullable: true
+        planFeatures:
+          type: array
+          items:
+            type: string
+        planHighlight:
+          type: boolean
+          nullable: true
+        planBadge:
+          type: string
+          nullable: true
+        planCta:
+          type: string
+          nullable: true
+        iconName:
+          type: string
+          nullable: true
+        iconColor:
+          type: string
+          nullable: true
+        question:
+          type: string
+          nullable: true
+        answer:
+          type: string
+          nullable: true
+      required: [title, type]

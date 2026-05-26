@@ -1,0 +1,161 @@
+Implement a new payment method for Bitebend using Personal UPI + UPI Deep Link flow while keeping the existing Razorpay Payment Gateway completely unchanged.
+
+This new flow should become the default lightweight payment option for restaurants that do not activate Razorpay.
+
+==================================================
+RESTAURANT DASHBOARD
+====================
+
+Location:
+
+Profile → Payment & Communication
+
+Add:
+
+UPI ID field:
+Example:
+
+restaurant@okaxis
+
+Merchant/Restaurant Name:
+Example:
+
+ABC Restaurant
+
+Enable Personal UPI toggle:
+ON / OFF
+
+Keep existing Razorpay settings exactly as-is.
+
+Logic:
+
+IF Razorpay activated:
+→ Existing Razorpay flow continues
+
+ELSE IF Personal UPI enabled:
+→ Use Personal UPI payment flow
+
+==================================================
+CUSTOMER PAYMENT FLOW
+=====================
+
+Customer:
+
+Scan menu QR
+→ Add items
+→ Checkout
+→ Pay Now
+
+On mobile:
+
+Click:
+
+Pay via UPI
+
+Generate dynamic UPI deep link:
+
+upi://pay?
+pa=<upiId>
+pn=<restaurantName>
+am=<orderAmount>
+cu=INR
+tn=Order-<orderId>
+
+Example:
+
+upi://pay?pa=restaurant@okaxis&pn=ABC Restaurant&am=250
+
+==================================================
+EXPECTED BEHAVIOR
+=================
+
+When customer clicks:
+
+Pay via UPI
+
+Automatically open installed payment apps:
+
+* Google Pay
+* PhonePe
+* Paytm
+* BHIM
+* Other UPI apps
+
+No scanning should be required.
+
+Customer chooses app and pays directly.
+
+==================================================
+IMPORTANT
+=========
+
+Do NOT make QR the primary payment method on mobile.
+
+Reason:
+
+Customer cannot scan a QR shown on the same phone.
+
+==================================================
+FALLBACK SYSTEM
+===============
+
+If:
+
+* UPI app fails
+* No app installed
+* Deep link unsupported
+
+Show:
+
+"Having trouble? Show QR instead"
+
+Generate dynamic QR from SAME UPI link:
+
+upi://pay?...same parameters...
+
+Display message:
+
+"Scan using another device"
+
+==================================================
+PAYMENT STATUS
+==============
+
+Since personal UPI has no payment webhook:
+
+After redirecting customer:
+
+Show:
+
+"I Have Paid"
+
+Optional:
+
+Enter UTR number
+
+Restaurant dashboard:
+
+Payment Verification:
+Pending
+
+Owner can verify manually.
+
+==================================================
+DO NOT BREAK
+============
+
+* Existing Razorpay integration
+* Existing checkout
+* Existing order flow
+* Existing QR menu functionality
+
+==================================================
+AFTER IMPLEMENTATION PROVIDE
+============================
+
+* Files changed
+* Deep-link logic used
+* Fallback QR implementation
+* Mobile behavior tested
+* Android/iPhone compatibility
+* Razorpay compatibility confirmation

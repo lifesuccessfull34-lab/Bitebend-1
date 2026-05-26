@@ -1,0 +1,138 @@
+Fix the following issues carefully without breaking existing restaurant ordering logic.
+
+==================================================
+TASK 1 — MENU ITEM PHOTO UPLOAD NOT WORKING
+===========================================
+
+Problem:
+Dashboard → Menu → Add Item → Upload Photo is not working.
+
+Please fully debug and fix the complete image upload flow.
+
+Check all of the following:
+
+1. Frontend
+
+* File input trigger
+* Image selection handler
+* FormData creation
+* API request
+* Upload button state
+* Validation errors
+* File size restrictions
+* Accepted image formats
+
+2. Backend/API
+
+* Upload endpoint
+* Multer/storage configuration
+* Request parsing
+* Authentication/session issues
+* File save path
+* Database image URL save logic
+* Error handling
+
+3. Storage
+
+* Ensure uploaded images are actually stored correctly
+* Ensure public URL is generated properly
+* Ensure image persists after refresh/redeploy
+* Fix broken path or permission issues
+
+4. Database
+
+* Ensure uploaded image URL/path is saved in menu item record
+* Ensure menu item loads image correctly in dashboard + menu app
+
+5. UI/UX
+
+* Show upload progress/loading state
+* Show success/error toast
+* Preview uploaded image before saving
+* Prevent silent failures
+
+6. Browser Compatibility
+
+* Ensure upload works in Chrome, Safari, Firefox, Edge, mobile browsers
+
+IMPORTANT:
+
+* Keep existing menu item logic unchanged
+* Keep database schema stable unless absolutely required
+* Do not break existing menu items
+
+After fixing:
+Provide:
+
+* Which files changed
+* Root cause
+* What was fixed
+* How upload flow now works
+
+==================================================
+TASK 2 — HIDE PAYMENT OPTIONS IF NOT CONFIGURED
+===============================================
+
+Problem:
+If Profile → Payment & Communication has:
+
+* Empty UPI ID
+  AND
+* Payment Gateway not activated
+
+Then the customer menu app should NOT show:
+
+* UPI payment option
+* Payment Gateway option
+
+Required Logic:
+
+CASE 1:
+If UPI ID exists:
+→ Show UPI payment option
+
+CASE 2:
+If Payment Gateway is activated:
+→ Show Gateway payment option
+
+CASE 3:
+If both are missing/inactive:
+→ Hide all online payment methods completely
+
+CASE 4:
+Only COD/Offline payment should remain visible if enabled
+
+Implementation Requirements:
+
+1. Backend Validation
+
+* Fetch restaurant payment configuration safely
+* Return only valid enabled payment methods
+
+2. Frontend/Menu App
+
+* Dynamically render payment methods
+* Remove empty/broken payment buttons
+* Prevent customer from selecting unavailable payment methods
+
+3. Checkout Protection
+
+* Even if frontend manipulated manually, backend must reject unavailable payment methods
+
+4. UI
+
+* Do not show disabled empty payment cards/buttons
+* Cleanly hide unavailable options
+
+IMPORTANT:
+
+* Do not break existing checkout flow
+* Do not affect restaurants with working UPI/gateway setup
+* Maintain backward compatibility
+
+After fixing provide:
+
+* Which files changed
+* Root cause
+* Exact logic implemented
+* How future restaurants will behave
