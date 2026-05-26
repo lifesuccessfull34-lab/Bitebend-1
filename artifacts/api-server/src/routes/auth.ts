@@ -1,8 +1,9 @@
 import { Router } from "express";
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { db } from "@workspace/db";
-import { users, restaurants, subscriptionPlans, subscriptionTransactions, notifications } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { users, restaurants, subscriptionPlans, subscriptionTransactions, notifications, ownerPasswordResetTokens } from "@workspace/db";
+import { eq, sql, and, gt, isNull } from "drizzle-orm";
 import type { RequestHandler } from "express";
 
 const router = Router();
@@ -288,49 +289,187 @@ const createRegistrationOrder: RequestHandler = async (req, res) => {
   res.json({ razorpayOrderId: order.id, keyId, amount: plan.price, planName: plan.name });
 };
 
-// ── Forgot password (self-service via email + phone verification) ─────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function buildOwnerResetLink(req: Parameters<RequestHandler>[0], token: string): string {
+  const base = process.env.SITE_URL?.trim()
+    ? `${process.env.SITE_URL.trim()}/portal`
+    : `${process.env.NODE_ENV === "production" ? "https" : req.protocol}://${req.get("host")}/portal`;
+  return `${base}/restaurant/reset-password?token=${token}`;
+}
+
+// ── POST /api/auth/forgot-password ───────────────────────────────────────────
+// Accepts owner email, generates a single-use 30-minute token, and either
+// sends it via email (when SMTP is configured) or returns the link in the
+// response as a dev fallback. Always responds 200 to avoid leaking whether
+// the email exists.
 
 const forgotPassword: RequestHandler = async (req, res) => {
-  const { email, phone } = req.body as { email?: string; phone?: string };
+  const { email } = req.body as { email?: string };
 
-  if (!email || !phone) {
-    res.status(400).json({ error: "Email and phone number are required." });
+  if (!email || typeof email !== "string") {
+    res.status(400).json({ error: "Email is required." });
     return;
   }
+
+  const normalised = email.trim().toLowerCase();
 
   const [user] = await db
     .select()
     .from(users)
-    .where(eq(users.email, email.trim().toLowerCase()))
+    .where(and(eq(users.email, normalised), eq(users.role, "owner")))
     .limit(1);
 
-  if (!user || user.role === "super_admin" || !user.restaurantId) {
-    // Return generic error to avoid leaking account existence
-    res.status(404).json({ error: "No account found matching these details. Please check your email and phone number." });
+  if (!user) {
+    res.json({ ok: true });
     return;
   }
 
-  const [restaurant] = await db
+  // Invalidate any existing unused tokens before issuing a new one
+  await db
+    .update(ownerPasswordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(and(eq(ownerPasswordResetTokens.userId, user.id), isNull(ownerPasswordResetTokens.usedAt)));
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+  await db.insert(ownerPasswordResetTokens).values({ userId: user.id, token, expiresAt });
+
+  const resetLink = buildOwnerResetLink(req, token);
+
+  const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+
+  if (smtpConfigured) {
+    try {
+      const nodemailer = (await import("nodemailer")).default;
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT ?? "587"),
+        secure: process.env.SMTP_SECURE === "true",
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      });
+
+      const [restaurant] = await db
+        .select({ name: restaurants.name })
+        .from(restaurants)
+        .where(eq(restaurants.id, user.restaurantId!))
+        .limit(1);
+
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+        to: user.email,
+        subject: "Bitebend — Password Reset Request",
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
+            <h2 style="color:#ea580c;margin-bottom:8px;">Bitebend Restaurant Portal</h2>
+            <p style="color:#374151;margin-bottom:8px;">Hi ${user.name},</p>
+            <p style="color:#374151;margin-bottom:24px;">
+              A password reset was requested for your account
+              ${restaurant ? `(<strong>${restaurant.name}</strong>)` : ""} at <strong>${user.email}</strong>.
+            </p>
+            <a href="${resetLink}"
+               style="display:inline-block;background:#ea580c;color:#fff;font-weight:700;
+                      text-decoration:none;padding:14px 28px;border-radius:10px;font-size:15px;">
+              Reset My Password
+            </a>
+            <p style="color:#6b7280;font-size:13px;margin-top:24px;">
+              This link expires in <strong>30 minutes</strong> and can only be used once.<br>
+              If you did not request this, you can safely ignore this email.
+            </p>
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+            <p style="color:#9ca3af;font-size:12px;">Bitebend Platform</p>
+          </div>
+        `,
+      });
+
+      req.log.info({ email: user.email }, "Owner password reset email sent");
+      res.json({ ok: true });
+    } catch (err) {
+      req.log.error(err, "Failed to send owner password reset email — returning link as fallback");
+      res.json({ ok: true, resetLink });
+    }
+  } else {
+    req.log.warn({ email: user.email, resetLink }, "Owner password reset — SMTP not configured, returning reset link in response");
+    res.json({ ok: true, resetLink });
+  }
+};
+
+// ── GET /api/auth/validate-reset-token ───────────────────────────────────────
+
+const validateResetToken: RequestHandler = async (req, res) => {
+  const { token } = req.query as { token?: string };
+
+  if (!token || typeof token !== "string") {
+    res.json({ valid: false });
+    return;
+  }
+
+  const [row] = await db
+    .select({ id: ownerPasswordResetTokens.id })
+    .from(ownerPasswordResetTokens)
+    .where(and(
+      eq(ownerPasswordResetTokens.token, token),
+      isNull(ownerPasswordResetTokens.usedAt),
+      gt(ownerPasswordResetTokens.expiresAt, new Date()),
+    ))
+    .limit(1);
+
+  res.json({ valid: !!row });
+};
+
+// ── POST /api/auth/reset-password ────────────────────────────────────────────
+
+const resetPassword: RequestHandler = async (req, res) => {
+  const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+
+  if (!token || !newPassword) {
+    res.status(400).json({ error: "Token and new password are required." });
+    return;
+  }
+  if (newPassword.length < 8) {
+    res.status(400).json({ error: "Password must be at least 8 characters." });
+    return;
+  }
+
+  const [resetRow] = await db
     .select()
-    .from(restaurants)
-    .where(eq(restaurants.id, user.restaurantId))
+    .from(ownerPasswordResetTokens)
+    .where(and(
+      eq(ownerPasswordResetTokens.token, token),
+      isNull(ownerPasswordResetTokens.usedAt),
+      gt(ownerPasswordResetTokens.expiresAt, new Date()),
+    ))
     .limit(1);
 
-  const normalise = (s: string) => s.replace(/\D/g, "").slice(-10);
-  if (!restaurant || normalise(restaurant.phone ?? "") !== normalise(phone)) {
-    res.status(404).json({ error: "No account found matching these details. Please check your email and phone number." });
+  if (!resetRow) {
+    res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
     return;
   }
 
-  // Generate a readable temp password: word-word-digits
-  const chars = "abcdefghjkmnpqrstuvwxyz23456789";
-  const seg = (len: number) => Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
-  const newPassword = `${seg(4)}-${seg(4)}-${seg(4)}`;
+  const [user] = await db
+    .select({ id: users.id, role: users.role })
+    .from(users)
+    .where(and(eq(users.id, resetRow.userId), eq(users.role, "owner")))
+    .limit(1);
 
-  const hash = await bcrypt.hash(newPassword, 10);
-  await db.update(users).set({ passwordHash: hash }).where(eq(users.id, user.id));
+  if (!user) {
+    res.status(400).json({ error: "Invalid reset token." });
+    return;
+  }
 
-  res.json({ newPassword });
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  await db.update(users).set({ passwordHash }).where(eq(users.id, user.id));
+
+  await db
+    .update(ownerPasswordResetTokens)
+    .set({ usedAt: new Date() })
+    .where(eq(ownerPasswordResetTokens.id, resetRow.id));
+
+  req.log.info({ userId: user.id }, "Owner password reset successful");
+
+  res.json({ ok: true });
 };
 
 router.post("/auth/register", register);
@@ -340,5 +479,7 @@ router.get("/auth/me", me);
 router.get("/auth/platform-key", getPlatformKey);
 router.post("/auth/registration-order", createRegistrationOrder);
 router.post("/auth/forgot-password", forgotPassword);
+router.get("/auth/validate-reset-token", validateResetToken);
+router.post("/auth/reset-password", resetPassword);
 
 export default router;

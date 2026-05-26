@@ -79,11 +79,26 @@ async function ensureSessionsTable() {
   console.log("[migrate] sessions table ready");
 }
 
+async function ensureOwnerPasswordResetTokensTable() {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS "owner_password_reset_tokens" (
+      "id"         serial        PRIMARY KEY,
+      "user_id"    integer       NOT NULL REFERENCES "users"("id") ON DELETE CASCADE,
+      "token"      text          NOT NULL UNIQUE,
+      "expires_at" timestamp     NOT NULL,
+      "used_at"    timestamp,
+      "created_at" timestamp     NOT NULL DEFAULT now()
+    )
+  `);
+  console.log("[migrate] owner_password_reset_tokens table ready");
+}
+
 async function main() {
   const migrationsFolder = path.join(__dirname, "migrations");
   console.log(`[migrate] running migrations from ${migrationsFolder}`);
 
   await ensureSessionsTable();
+  await ensureOwnerPasswordResetTokensTable();
 
   try {
     await migrate(db, { migrationsFolder });

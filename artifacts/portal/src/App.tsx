@@ -36,6 +36,7 @@ function lazyWithRetry<T extends React.ComponentType<unknown>>(
 // check has completed and the login/dashboard page is already visible.
 const AdminForgotPassword = lazyWithRetry(() => import("@/pages/AdminForgotPassword"));
 const AdminResetPassword  = lazyWithRetry(() => import("@/pages/AdminResetPassword"));
+const ResetPassword       = lazyWithRetry(() => import("@/pages/ResetPassword"));
 const RegisterPage      = lazyWithRetry(() => import("@/pages/RegisterPage"));
 const TermsPage         = lazyWithRetry(() => import("@/pages/TermsPage"));
 const PrivacyPolicyPage = lazyWithRetry(() => import("@/pages/PrivacyPolicyPage"));
@@ -251,6 +252,7 @@ const RestaurantCatchAll       = () => <RestaurantRoute component={RestaurantToD
 const AdminLoginPage           = () => <AdminPublicRoute component={AdminLogin} />;
 const AdminForgotPasswordPage  = () => <AdminForgotPassword />;
 const AdminResetPasswordPage   = () => <AdminResetPassword />;
+const ResetPasswordPage        = () => <ResetPassword />;
 const AdminDashboardPage       = () => <AdminRoute component={Admin} />;
 const AdminCatchAll            = () => <AdminRoute component={AdminToDashboard} />;
 
@@ -274,6 +276,7 @@ function Router() {
       {/* ── Restaurant auth (public) ──────────────────────────────────── */}
       <Route path="/restaurant/auth"         component={RestaurantAuthPage} />
       <Route path="/restaurant/register"     component={RegisterPage_} />
+      <Route path="/restaurant/reset-password" component={ResetPasswordPage} />
 
       {/* ── Restaurant protected (owner only) ────────────────────────── */}
       <Route path="/restaurant/dashboard"    component={DashboardPage} />

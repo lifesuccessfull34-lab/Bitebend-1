@@ -9,7 +9,7 @@ import type { SubscriptionPlan } from "@/lib/types";
 import {
   Loader2, LogIn, UserPlus, Eye, EyeOff,
   ChevronRight, AlertTriangle, CheckCircle2, KeyRound,
-  ArrowLeft, Copy, Check, Smartphone, Users, IndianRupee,
+  ArrowLeft, Copy, Check,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
@@ -54,10 +54,9 @@ function SignInForm() {
   const [loading, setLoading] = useState(false);
 
   const [fpEmail, setFpEmail] = useState("");
-  const [fpPhone, setFpPhone] = useState("");
   const [fpError, setFpError] = useState("");
   const [fpLoading, setFpLoading] = useState(false);
-  const [newPassword, setNewPassword] = useState("");
+  const [resetLink, setResetLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const handleSignIn = async (e: React.FormEvent) => {
@@ -83,22 +82,23 @@ function SignInForm() {
     setFpError("");
     setFpLoading(true);
     try {
-      const res = await apiFetch<{ newPassword: string }>("/auth/forgot-password", {
+      const res = await apiFetch<{ ok: boolean; resetLink?: string }>("/auth/forgot-password", {
         method: "POST",
-        body: JSON.stringify({ email: fpEmail, phone: fpPhone }),
+        body: JSON.stringify({ email: fpEmail.trim().toLowerCase() }),
       });
-      setNewPassword(res.newPassword);
+      setResetLink(res.resetLink ?? null);
       setView("done");
     } catch (err) {
-      setFpError(err instanceof Error ? err.message : "Could not reset password. Please try again.");
+      setFpError(err instanceof Error ? err.message : "Could not send reset email. Please try again.");
     } finally {
       setFpLoading(false);
     }
   };
 
-  const copyPassword = async () => {
+  const copyLink = async () => {
+    if (!resetLink) return;
     try {
-      await navigator.clipboard.writeText(newPassword);
+      await navigator.clipboard.writeText(resetLink);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch { /* ignore */ }
@@ -109,9 +109,8 @@ function SignInForm() {
     if (fpEmail) setEmail(fpEmail);
     setPassword("");
     setFpEmail("");
-    setFpPhone("");
     setFpError("");
-    setNewPassword("");
+    setResetLink(null);
     setCopied(false);
   };
 
@@ -123,20 +122,12 @@ function SignInForm() {
             className="p-1 rounded-md hover:bg-gray-100 text-gray-500 transition-colors">
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <p className="text-sm text-gray-500">Enter your registered email and phone to reset your password.</p>
+          <p className="text-sm text-gray-500">Enter your registered email and we'll send you a reset link.</p>
         </div>
         <FieldRow label="Registered Email">
           <Input type="email" placeholder="you@restaurant.com" value={fpEmail}
             onChange={(e) => setFpEmail(e.target.value)} required autoComplete="email"
-            className="focus-visible:ring-orange-400" />
-        </FieldRow>
-        <FieldRow label="Registered Phone Number">
-          <div className="relative">
-            <Smartphone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input type="tel" placeholder="9876543210" value={fpPhone}
-              onChange={(e) => setFpPhone(e.target.value)} required
-              className="pl-9 focus-visible:ring-orange-400" />
-          </div>
+            autoFocus className="focus-visible:ring-orange-400" />
         </FieldRow>
         {fpError && (
           <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2.5 text-sm">
@@ -145,7 +136,7 @@ function SignInForm() {
         )}
         <button type="submit" disabled={fpLoading}
           className="w-full h-11 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-sm shadow-md shadow-orange-100 transition-all flex items-center justify-center gap-2 disabled:opacity-70">
-          {fpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><KeyRound className="w-4 h-4" /> Reset My Password</>}
+          {fpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <><KeyRound className="w-4 h-4" /> Send Reset Link</>}
         </button>
       </form>
     );
@@ -158,23 +149,34 @@ function SignInForm() {
           <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
             <CheckCircle2 className="w-7 h-7 text-green-600" />
           </div>
-          <p className="font-bold text-gray-900">Password Reset!</p>
-          <p className="text-sm text-gray-500">Use this temporary password to sign in, then change it from your profile.</p>
+          <p className="font-bold text-gray-900">Check Your Email</p>
+          <p className="text-sm text-gray-500">
+            If <strong>{fpEmail}</strong> is registered, a reset link has been sent.
+            The link expires in 30 minutes.
+          </p>
         </div>
-        <div className="bg-orange-50 border-2 border-orange-200 rounded-xl p-4">
-          <p className="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-1.5">Your New Password</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-lg font-bold font-mono text-gray-900 tracking-widest">{newPassword}</code>
-            <button type="button" onClick={copyPassword}
-              className={cn("flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors",
-                copied ? "bg-green-100 text-green-700" : "bg-orange-200 text-orange-700 hover:bg-orange-300")}>
-              {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
-            </button>
+
+        {resetLink && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Email not configured — use this link</p>
+            <p className="text-xs text-gray-600 break-all font-mono bg-white border border-amber-100 rounded-lg p-2">{resetLink}</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={copyLink}
+                className={cn("flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold h-8 rounded-lg border transition-colors",
+                  copied ? "border-green-300 bg-green-50 text-green-700" : "border-amber-300 bg-white text-amber-700 hover:bg-amber-50")}>
+                {copied ? <><Check className="w-3.5 h-3.5" /> Copied</> : <><Copy className="w-3.5 h-3.5" /> Copy Link</>}
+              </button>
+              <a href={resetLink}
+                className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold h-8 rounded-lg bg-orange-500 text-white hover:bg-orange-600 transition-colors">
+                Open Link
+              </a>
+            </div>
           </div>
-        </div>
+        )}
+
         <button type="button" onClick={goBackToSignIn}
-          className="w-full h-11 rounded-xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-bold text-sm shadow-md shadow-orange-100 transition-all flex items-center justify-center gap-2">
-          <LogIn className="w-4 h-4" /> Sign In with New Password
+          className="w-full h-11 rounded-xl border border-gray-200 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-colors flex items-center justify-center gap-2">
+          <ArrowLeft className="w-4 h-4" /> Back to Sign In
         </button>
       </div>
     );
