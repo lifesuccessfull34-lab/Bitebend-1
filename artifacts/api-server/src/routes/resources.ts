@@ -2,11 +2,19 @@ import { Router } from "express";
 import type { RequestHandler } from "express";
 import { db } from "@workspace/db";
 import { resources } from "@workspace/db";
-import { and, or, isNull, lte, gt, eq } from "drizzle-orm";
+import { and, or, isNull, lte, gt, eq, inArray } from "drizzle-orm";
 
 const router = Router();
 
-// GET /api/resources — public; only active + approved + within publish/expire window
+// GET /api/resources — public (no auth required).
+// Server-side enforces ALL of:
+//   • deletedAt IS NULL
+//   • status = 'active'
+//   • approvalStatus = 'approved'
+//   • publishAt <= now (or null)
+//   • expireAt > now (or null)
+//   • visibleTo IN ('public', 'all')   ← visibility gate
+// Never rely on frontend filtering.
 const listApprovedResources: RequestHandler = async (_req, res) => {
   const now = new Date();
   const rows = await db
@@ -19,6 +27,7 @@ const listApprovedResources: RequestHandler = async (_req, res) => {
         eq(resources.approvalStatus, "approved"),
         or(isNull(resources.publishAt), lte(resources.publishAt!, now)),
         or(isNull(resources.expireAt), gt(resources.expireAt!, now)),
+        inArray(resources.visibleTo, ["public", "all"]),
       ),
     )
     .orderBy(resources.displayOrder);

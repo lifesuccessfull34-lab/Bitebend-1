@@ -272,7 +272,7 @@ export const resources = pgTable("resources", {
   displayOrder: integer("display_order").notNull().default(0),
   status: text("status", { enum: ["draft", "active", "archived"] }).notNull().default("draft"),
   approvalStatus: text("approval_status", { enum: ["pending", "approved", "rejected"] }).notNull().default("pending"),
-  visibleTo: text("visible_to", { enum: ["all", "owners"] }).notNull().default("all"),
+  visibleTo: text("visible_to", { enum: ["public", "restaurant", "admin", "all"] }).notNull().default("all"),
   createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
   approvedBy: integer("approved_by").references(() => users.id, { onDelete: "set null" }),
   publishAt: timestamp("publish_at"),

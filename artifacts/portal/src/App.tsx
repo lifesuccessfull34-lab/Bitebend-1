@@ -246,8 +246,8 @@ const TablesManagementPage  = () => <RestaurantRoute component={TablesManagement
 const ProfilePage           = () => <RestaurantRoute component={Profile} />;
 const SubscriptionPage         = () => <RestaurantRoute component={Subscription} />;
 const CustomerAnalyticsPage    = () => <RestaurantRoute component={CustomerAnalytics} />;
-const ResourcesCenterPage      = () => <RestaurantRoute component={ResourcesCenter} />;
-const ResourcesManagePage      = () => <RestaurantRoute component={ResourcesManage} />;
+const ResourcesCenterPage      = () => <ResourcesCenter />;
+const ResourcesManagePage      = () => <AdminRoute component={ResourcesManage} />;
 const RestaurantCatchAll       = () => <RestaurantRoute component={RestaurantToDashboard} />;
 const AdminLoginPage           = () => <AdminPublicRoute component={AdminLogin} />;
 const AdminForgotPasswordPage  = () => <AdminForgotPassword />;
@@ -285,8 +285,8 @@ function Router() {
       <Route path="/restaurant/profile"      component={ProfilePage} />
       <Route path="/restaurant/subscription"           component={SubscriptionPage} />
       <Route path="/restaurant/customers/analytics"    component={CustomerAnalyticsPage} />
-      <Route path="/restaurant/resources/manage"       component={ResourcesManagePage} />
-      <Route path="/restaurant/resources"              component={ResourcesCenterPage} />
+      <Route path="/restaurant/resources/manage"       component={() => <Redirect to="/admin/resources" />} />
+      <Route path="/restaurant/resources"              component={() => <Redirect to="/portal/resources" />} />
 
       {/* ── Catch-all for any unknown /restaurant/* path ─────────────── */}
       <Route path="/restaurant/:rest*"       component={RestaurantCatchAll} />
@@ -296,7 +296,11 @@ function Router() {
       <Route path="/admin/forgot-password"   component={AdminForgotPasswordPage} />
       <Route path="/admin/reset-password"    component={AdminResetPasswordPage} />
 
+      {/* ── Public resource portal (no auth required) ────────────────── */}
+      <Route path="/portal/resources"        component={ResourcesCenterPage} />
+
       {/* ── Admin protected (super_admin only) ───────────────────────── */}
+      <Route path="/admin/resources"         component={ResourcesManagePage} />
       <Route path="/admin/dashboard"         component={AdminDashboardPage} />
 
       {/* ── Catch-all for any unknown /admin/* path ──────────────────── */}
