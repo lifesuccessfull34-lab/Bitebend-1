@@ -18,7 +18,7 @@ import {
   LayoutDashboard, TrendingDown, KeyRound, Copy, Eye, EyeOff,
   Filter, ChevronDown, Smartphone, ShieldCheck, Pencil, Clock,
   FileText, ScrollText, ExternalLink, Download, FileSpreadsheet,
-  Receipt, BookOpen,
+  Receipt, BookOpen, Database,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATE_NAMES, getDistricts } from "@/data/india-states-districts";
@@ -167,6 +167,18 @@ function PlanFormPanel({ editingPlan, planForm, planSaving, onChangePlanForm, on
   );
 }
 
+interface DbHealthDetails {
+  status: "ok" | "degraded" | "error";
+  totalTables: number;
+  migrationCount: number;
+  dbSize: string;
+  rowCounts: Record<string, number>;
+  uptimeSeconds: number;
+  missingTables: string[];
+  warnings: string[];
+  error?: string;
+}
+
 export default function Admin() {
   const [, navigate] = useLocation();
   const [tab, setTab] = useState<AdminSection>("overview");
@@ -246,6 +258,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [dbHealth, setDbHealth] = useState<DbHealthDetails | null>(null);
 
   const navigateRef = useRef(navigate);
   useEffect(() => { navigateRef.current = navigate; }, [navigate]);
@@ -330,7 +343,7 @@ export default function Admin() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [rests, s, custs, plns, txns, ps, bs, rs] = await Promise.all([
+      const [rests, s, custs, plns, txns, ps, bs, rs, dbh] = await Promise.all([
         apiFetch<RestaurantWithOwner[]>("/admin/restaurants"),
         apiFetch<AdminStats>("/admin/stats"),
         apiFetch<AdminCustomer[]>("/admin/customers"),
@@ -339,6 +352,7 @@ export default function Admin() {
         apiFetch<PaymentSettings>("/admin/payment-settings"),
         apiFetch<BillStats>("/admin/bill-stats"),
         apiFetch<AdminResource[]>("/admin/resources"),
+        apiFetch<DbHealthDetails>("/health/db/details").catch(() => null),
       ]);
       setRestaurants(rests);
       setStats(s);
@@ -349,6 +363,7 @@ export default function Admin() {
       setUpiIdEdit(ps.upiId);
       setBillStats(bs);
       setAdminResources(rs);
+      setDbHealth(dbh);
     } catch (e) {
       handleAuthError(e);
     } finally {
@@ -956,6 +971,74 @@ export default function Admin() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Database Health Card */}
+            {dbHealth && (
+              <div className={cn(
+                "bg-white border rounded-xl p-5 shadow-sm",
+                dbHealth.status !== "ok" ? "border-red-200" : "border-slate-200"
+              )}>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "w-8 h-8 rounded-lg flex items-center justify-center",
+                      dbHealth.status === "ok" ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600"
+                    )}>
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <h3 className="font-semibold text-slate-700 text-sm">Database Health</h3>
+                  </div>
+                  <span className={cn(
+                    "text-xs font-semibold px-2.5 py-0.5 rounded-full",
+                    dbHealth.status === "ok"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-red-100 text-red-700"
+                  )}>
+                    {dbHealth.status === "ok" ? "Healthy" : "Degraded"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                  {[
+                    { label: "Migrations", value: String(dbHealth.migrationCount) },
+                    { label: "Tables",     value: String(dbHealth.totalTables) },
+                    { label: "DB Size",    value: dbHealth.dbSize },
+                    { label: "Uptime",     value: `${Math.floor(dbHealth.uptimeSeconds / 60)}m` },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-slate-50 rounded-lg p-3">
+                      <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+                      <p className="text-base font-bold text-slate-700">{value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                  {Object.entries(dbHealth.rowCounts).map(([table, count]) => (
+                    <div key={table} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+                      <span className="text-xs text-slate-500 capitalize">{table}</span>
+                      <span className="text-xs font-semibold text-slate-700">{count.toLocaleString("en-IN")}</span>
+                    </div>
+                  ))}
+                </div>
+                {dbHealth.missingTables.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-2">
+                    <p className="text-xs font-semibold text-red-700 mb-1">Missing Tables</p>
+                    {dbHealth.missingTables.map((t) => (
+                      <p key={t} className="text-xs text-red-600 font-mono">{t}</p>
+                    ))}
+                    <p className="text-xs text-red-500 mt-1.5">
+                      Fix: <code className="font-mono bg-red-100 px-1 rounded">pnpm migrate</code>
+                    </p>
+                  </div>
+                )}
+                {dbHealth.warnings.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-amber-700 mb-1">Warnings</p>
+                    {dbHealth.warnings.map((w, i) => (
+                      <p key={i} className="text-xs text-amber-600">{w}</p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

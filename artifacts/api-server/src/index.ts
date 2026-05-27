@@ -112,7 +112,8 @@ const STARTUP_REQUIRED_TABLES = [
   "resources", "orders", "owner_password_reset_tokens",
 ] as const;
 
-logger.info("[DB_BOOT] Running startup schema check");
+const dbBootStart = Date.now();
+logger.info("[DB_BOOT_START] Running startup schema check");
 try {
   const tableRows = await db.execute<{ table_name: string }>(sql`
     SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
@@ -123,12 +124,14 @@ try {
     for (const t of missing) {
       logger.error(`[MIGRATION_ERROR] missing table: ${t}`);
     }
-    logger.error("[MIGRATION_ERROR] DB startup check failed — run: pnpm migrate");
+    logger.error("[MIGRATION_ERROR] DB startup check failed — fix: run 'pnpm migrate' then restart the server");
     process.exit(1);
   }
+  const dbBootDurationMs = Date.now() - dbBootStart;
+  logger.info({ durationMs: dbBootDurationMs }, "[DB_BOOT_COMPLETE] Startup schema check passed");
   logger.info("[DB_SCHEMA_VALIDATED] Startup schema check passed");
 } catch (dbCheckErr) {
-  logger.error({ err: dbCheckErr }, "[MIGRATION_ERROR] Could not connect to database");
+  logger.error({ err: dbCheckErr }, "[MIGRATION_ERROR] Could not connect to database — fix: check DATABASE_URL and run 'pnpm migrate'");
   process.exit(1);
 }
 

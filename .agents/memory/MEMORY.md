@@ -1,1 +1,2 @@
 - [DB migration architecture](db-migration-architecture.md) — resources & owner_password_reset_tokens are in SQL migrations (0011, 0012); sessions is the only runtime-ensure table; fresh DB needs pnpm migrate before server start.
+- [DB operational layer](db-operational-layer.md) — health endpoints, timing log prefixes, warning thresholds, backup service interface, admin DB card, and integration test script added in the DB hardening pass.

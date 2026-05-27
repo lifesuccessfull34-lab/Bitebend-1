@@ -149,6 +149,7 @@ async function validateSchema(): Promise<void> {
 }
 
 async function main() {
+  const mainStart = Date.now();
   console.log("[DB_BOOT] Starting database bootstrap");
 
   // Resolve migrations folder — works with both tsx (import.meta.url) and
@@ -161,8 +162,11 @@ async function main() {
 
   await ensureSessionsTable();
 
+  const migrationStart = Date.now();
+  console.log("[MIGRATION_START] Applying migrations...");
   try {
     await migrate(db, { migrationsFolder });
+    console.log(`[MIGRATION_COMPLETE] All migrations applied in ${Date.now() - migrationStart}ms`);
     console.log("[DB_MIGRATIONS_OK] All migrations applied");
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -176,16 +180,20 @@ async function main() {
     if (isDuplicateTable) {
       console.log("[DB_BOOT] Push-initialised DB detected — stamping journal and retrying");
       await stampPushInitialisedDb(migrationsFolder);
+      const retryStart = Date.now();
       await migrate(db, { migrationsFolder });
+      console.log(`[MIGRATION_COMPLETE] All migrations applied (after stamp) in ${Date.now() - retryStart}ms`);
       console.log("[DB_MIGRATIONS_OK] All migrations applied (after stamp)");
     } else {
       console.error("[MIGRATION_ERROR] Migration failed:", msg);
+      console.error("[MIGRATION_ERROR] Fix: run 'pnpm migrate' again — if it persists, check docs/database-lifecycle.md");
       throw err;
     }
   }
 
   await validateSchema();
 
+  console.log(`[DB_BOOT_COMPLETE] Bootstrap complete in ${Date.now() - mainStart}ms`);
   await pool.end();
   process.exit(0);
 }
