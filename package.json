@@ -17,6 +17,8 @@
     "check:no-http-links": "pnpm --filter @workspace/scripts run check:no-http-links",
     "check:qr-generation": "pnpm --filter @workspace/scripts run check:qr-generation",
     "verify:bill-flow": "pnpm --filter @workspace/scripts run verify:bill-flow",
+    "migrate": "pnpm --filter @workspace/api-server run migrate",
+    "validate:db": "pnpm --filter @workspace/api-server run validate:db",
     "verify-deployment": "pnpm run build && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
   },
   "private": true,

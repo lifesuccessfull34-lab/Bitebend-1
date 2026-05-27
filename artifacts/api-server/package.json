@@ -8,6 +8,8 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "pnpm run build && node dist/migrate.mjs",
+    "validate:db": "pnpm run build && node dist/validate-db.mjs",
     "seed:dev": "tsx src/seed-dev.ts"
   },
   "dependencies": {

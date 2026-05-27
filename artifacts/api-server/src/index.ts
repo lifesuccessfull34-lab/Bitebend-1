@@ -2,6 +2,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { sql } from "drizzle-orm";
+import { db } from "@workspace/db";
 import { WORKSPACE_ROOT } from "./lib/workspace";
 
 const rawPort = process.env["PORT"];
@@ -97,6 +99,37 @@ if (existsSync(buildInfoPath)) {
     { path: buildInfoPath },
     "Frontend build-info.json not found — run: pnpm --filter @workspace/menu run build",
   );
+}
+
+// ── Startup DB safety check ───────────────────────────────────────────────────
+//
+// Checks that all critical tables exist before the server starts accepting
+// requests. Exits with code 1 if anything is missing so that a broken
+// deployment surfaces immediately instead of silently serving 500s.
+
+const STARTUP_REQUIRED_TABLES = [
+  "users", "restaurants", "sessions",
+  "resources", "orders", "owner_password_reset_tokens",
+] as const;
+
+logger.info("[DB_BOOT] Running startup schema check");
+try {
+  const tableRows = await db.execute<{ table_name: string }>(sql`
+    SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'
+  `);
+  const found = new Set(tableRows.rows.map((r) => r.table_name));
+  const missing = STARTUP_REQUIRED_TABLES.filter((t) => !found.has(t));
+  if (missing.length > 0) {
+    for (const t of missing) {
+      logger.error(`[MIGRATION_ERROR] missing table: ${t}`);
+    }
+    logger.error("[MIGRATION_ERROR] DB startup check failed — run: pnpm migrate");
+    process.exit(1);
+  }
+  logger.info("[DB_SCHEMA_VALIDATED] Startup schema check passed");
+} catch (dbCheckErr) {
+  logger.error({ err: dbCheckErr }, "[MIGRATION_ERROR] Could not connect to database");
+  process.exit(1);
 }
 
 // ── Cleanup jobs ──────────────────────────────────────────────────────────────
