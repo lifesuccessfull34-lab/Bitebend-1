@@ -529,7 +529,7 @@ export default function Profile() {
                   className="bg-muted/50 cursor-default"
                 />
                 <p className="text-xs text-muted-foreground">
-                  This email is for restaurant information only and does not change account login credentials.
+                  This is your account login email. To change it, use the <strong>Login Credentials</strong> section below.
                 </p>
               </div>
               <div className="space-y-1.5">

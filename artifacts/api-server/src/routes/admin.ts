@@ -138,6 +138,74 @@ const deleteRestaurant: RequestHandler = async (req, res) => {
   res.status(204).send();
 };
 
+const updateRestaurantAdmin: RequestHandler = async (req, res) => {
+  const restaurantId = parseInt(String(req.params.restaurantId));
+
+  const {
+    name, phone, email,
+    subscriptionStatus, planId, customerLimit, customersUsed,
+    subscriptionExpiresAt, subscriptionStartedAt, isActive,
+    approvalNote,
+  } = req.body as {
+    name?: string;
+    phone?: string;
+    email?: string;
+    subscriptionStatus?: string;
+    planId?: number | null;
+    customerLimit?: number;
+    customersUsed?: number;
+    subscriptionExpiresAt?: string | null;
+    subscriptionStartedAt?: string | null;
+    isActive?: boolean;
+    approvalNote?: string | null;
+  };
+
+  const [existing] = await db.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1);
+  if (!existing) { res.status(404).json({ error: "Restaurant not found" }); return; }
+
+  const updates: Record<string, unknown> = {};
+  if (name !== undefined) updates.name = name.trim();
+  if (phone !== undefined) updates.phone = phone.trim();
+  if (subscriptionStatus !== undefined) updates.subscriptionStatus = subscriptionStatus;
+  if (planId !== undefined) updates.planId = planId;
+  if (customerLimit !== undefined) updates.customerLimit = customerLimit;
+  if (customersUsed !== undefined) updates.customersUsed = customersUsed;
+  if (subscriptionExpiresAt !== undefined) updates.subscriptionExpiresAt = subscriptionExpiresAt ? new Date(subscriptionExpiresAt) : null;
+  if (subscriptionStartedAt !== undefined) updates.subscriptionStartedAt = subscriptionStartedAt ? new Date(subscriptionStartedAt) : null;
+  if (isActive !== undefined) updates.isActive = isActive;
+  if (approvalNote !== undefined) updates.approvalNote = approvalNote;
+
+  // Email sync: when admin updates restaurant email, also update the owner's users.email
+  if (email !== undefined && email.trim() && email.trim().toLowerCase() !== existing.email) {
+    const newEmail = email.trim().toLowerCase();
+    // Check no other user has this email
+    const [clash] = await db.select({ id: users.id }).from(users).where(eq(users.email, newEmail)).limit(1);
+    if (clash && existing.ownerId && clash.id !== existing.ownerId) {
+      res.status(409).json({ error: "That email is already registered to another account" });
+      return;
+    }
+    updates.email = newEmail;
+    // Mirror to users table
+    if (existing.ownerId) {
+      await db.update(users).set({ email: newEmail }).where(eq(users.id, existing.ownerId));
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    const [current] = await db.select().from(restaurants).where(eq(restaurants.id, restaurantId)).limit(1);
+    res.json(current);
+    return;
+  }
+
+  const [updated] = await db
+    .update(restaurants)
+    .set(updates)
+    .where(eq(restaurants.id, restaurantId))
+    .returning();
+
+  res.json(updated);
+};
+
 // ── Subscription Plans (admin CRUD) ────────────────────────────────────────
 
 function computeExpiry(validityType: string, validityValue: number): Date {
@@ -599,6 +667,7 @@ const resetOwnerPassword: RequestHandler = async (req, res) => {
 };
 
 router.get("/admin/restaurants", requireAdmin, listRestaurants);
+router.put("/admin/restaurants/:restaurantId", requireAdmin, updateRestaurantAdmin);
 router.post("/admin/restaurants/:restaurantId/toggle", requireAdmin, toggleRestaurant);
 router.post("/admin/restaurants/:restaurantId/suspend", requireAdmin, suspendRestaurant);
 router.post("/admin/restaurants/:restaurantId/activate", requireAdmin, activateRestaurant);

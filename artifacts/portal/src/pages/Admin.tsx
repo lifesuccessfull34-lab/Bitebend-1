@@ -295,6 +295,18 @@ export default function Admin() {
   const [showPassword, setShowPassword] = useState<number | null>(null);
   const [showModalPassword, setShowModalPassword] = useState(false);
 
+  interface EditRestForm {
+    name: string; phone: string; email: string;
+    subscriptionStatus: string; planId: string;
+    customerLimit: string; customersUsed: string;
+    subscriptionExpiresAt: string; subscriptionStartedAt: string;
+    isActive: boolean;
+  }
+  const [editRestModal, setEditRestModal] = useState<(RestaurantWithOwner & { ownerId?: number | null }) | null>(null);
+  const [editRestForm, setEditRestForm] = useState<EditRestForm | null>(null);
+  const [editRestSaving, setEditRestSaving] = useState(false);
+  const [editRestError, setEditRestError] = useState<string | null>(null);
+
   const [notifTargetState, setNotifTargetState] = useState<string>("");
   const [notifTargetDistrict, setNotifTargetDistrict] = useState<string>("");
   const [notifTargetCity, setNotifTargetCity] = useState<string>("");
@@ -451,6 +463,55 @@ export default function Admin() {
     setCredModal({ restaurantId: r.id, restaurantName: r.name, email: r.ownerEmail ?? "", password: null });
     setShowModalPassword(false);
     setCredCopied(null);
+  };
+
+  const openEditRestModal = (r: RestaurantWithOwner) => {
+    setEditRestModal(r);
+    setEditRestError(null);
+    setEditRestForm({
+      name: r.name ?? "",
+      phone: r.phone ?? "",
+      email: r.ownerEmail ?? r.email ?? "",
+      subscriptionStatus: r.subscriptionStatus ?? "active",
+      planId: r.planId ? String(r.planId) : "",
+      customerLimit: String(r.customerLimit ?? 0),
+      customersUsed: String(r.customersUsed ?? 0),
+      subscriptionExpiresAt: r.subscriptionExpiresAt
+        ? new Date(r.subscriptionExpiresAt).toISOString().slice(0, 10)
+        : "",
+      subscriptionStartedAt: r.subscriptionStartedAt
+        ? new Date(r.subscriptionStartedAt).toISOString().slice(0, 10)
+        : "",
+      isActive: r.isActive ?? true,
+    });
+  };
+
+  const handleEditRestSave = async () => {
+    if (!editRestModal || !editRestForm) return;
+    setEditRestSaving(true);
+    setEditRestError(null);
+    try {
+      const body: Record<string, unknown> = {
+        name: editRestForm.name.trim(),
+        phone: editRestForm.phone.trim(),
+        email: editRestForm.email.trim(),
+        subscriptionStatus: editRestForm.subscriptionStatus,
+        customerLimit: parseInt(editRestForm.customerLimit) || 0,
+        customersUsed: parseInt(editRestForm.customersUsed) || 0,
+        isActive: editRestForm.isActive,
+        planId: editRestForm.planId ? parseInt(editRestForm.planId) : null,
+        subscriptionExpiresAt: editRestForm.subscriptionExpiresAt || null,
+        subscriptionStartedAt: editRestForm.subscriptionStartedAt || null,
+      };
+      await apiFetch(`/admin/restaurants/${editRestModal.id}`, { method: "PUT", body: JSON.stringify(body) });
+      setEditRestModal(null);
+      setEditRestForm(null);
+      await fetchData();
+    } catch (e) {
+      setEditRestError((e as Error).message);
+    } finally {
+      setEditRestSaving(false);
+    }
   };
 
   const handleResetPassword = async () => {
@@ -1305,7 +1366,9 @@ export default function Admin() {
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-xs text-slate-400 italic">Not set — use Reset</span>
+                              <span className="text-xs text-slate-400 italic">
+                                Encrypted — use Reset to generate a shareable temp password
+                              </span>
                             )}
 
                             {/* Reset button */}
@@ -1345,7 +1408,11 @@ export default function Admin() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex items-center gap-1 justify-end">
+                            <div className="flex items-center gap-1 justify-end flex-wrap">
+                              <Button size="sm" variant="ghost" className="h-8 px-2 text-indigo-600 hover:bg-indigo-50 text-xs"
+                                onClick={() => openEditRestModal(r)}>
+                                <Pencil className="w-3.5 h-3.5 mr-1" />Edit
+                              </Button>
                               {r.subscriptionStatus === "suspended" ? (
                                 <Button size="sm" variant="ghost" className="h-8 px-2 text-emerald-600 hover:bg-emerald-50 text-xs"
                                   disabled={actionId === r.id} onClick={() => handleActivate(r.id)}>
@@ -2512,6 +2579,151 @@ export default function Admin() {
             </a>
           </div>
         )}
+
+      {/* ── Edit Restaurant Modal ── */}
+      {editRestModal && editRestForm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => { setEditRestModal(null); setEditRestForm(null); }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+                  <Pencil className="w-5 h-5 text-indigo-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-800">Edit Restaurant</h3>
+                  <p className="text-xs text-slate-400">#{editRestModal.id} · {editRestModal.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setEditRestModal(null); setEditRestForm(null); }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Basic Info */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Basic Information</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Restaurant Name</Label>
+                  <Input value={editRestForm.name}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, name: e.target.value } : f)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Phone</Label>
+                  <Input value={editRestForm.phone}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, phone: e.target.value } : f)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Login Email</Label>
+                  <Input type="email" value={editRestForm.email}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, email: e.target.value } : f)} />
+                  <p className="text-xs text-slate-400">Updates both login and contact email</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Subscription */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Subscription & Status</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Subscription Status</Label>
+                  <select
+                    value={editRestForm.subscriptionStatus}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, subscriptionStatus: e.target.value } : f)}
+                    className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="active">active</option>
+                    <option value="suspended">suspended</option>
+                    <option value="exhausted">exhausted</option>
+                    <option value="expired">expired</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Plan</Label>
+                  <select
+                    value={editRestForm.planId}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, planId: e.target.value } : f)}
+                    className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">No Plan</option>
+                    {plans.map((p) => (
+                      <option key={p.id} value={String(p.id)}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Customer Limit</Label>
+                  <Input type="number" min="0" value={editRestForm.customerLimit}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, customerLimit: e.target.value } : f)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Customers Used</Label>
+                  <Input type="number" min="0" value={editRestForm.customersUsed}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, customersUsed: e.target.value } : f)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Subscription Start Date</Label>
+                  <Input type="date" value={editRestForm.subscriptionStartedAt}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, subscriptionStartedAt: e.target.value } : f)} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Subscription Expiry Date</Label>
+                  <Input type="date" value={editRestForm.subscriptionExpiresAt}
+                    onChange={(e) => setEditRestForm((f) => f ? { ...f, subscriptionExpiresAt: e.target.value } : f)} />
+                </div>
+                <div className="col-span-2 flex items-center gap-3">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editRestForm.isActive}
+                      onChange={(e) => setEditRestForm((f) => f ? { ...f, isActive: e.target.checked } : f)}
+                      className="w-4 h-4 accent-indigo-600"
+                    />
+                    <span className="text-sm text-slate-700">Account Active (can receive orders)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {editRestError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2.5 text-sm">
+                {editRestError}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1"
+                onClick={() => { setEditRestModal(null); setEditRestForm(null); }}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                disabled={editRestSaving}
+                onClick={handleEditRestSave}
+              >
+                {editRestSaving
+                  ? <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                  : <Save className="w-4 h-4 mr-2" />}
+                Save Changes
+              </Button>
+            </div>
+
+            <p className="text-xs text-center text-slate-400">
+              Changes are applied immediately and will reflect in the restaurant dashboard on next load.
+            </p>
+          </div>
+        </div>
+      )}
 
     </AdminShell>
   );
