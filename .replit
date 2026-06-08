@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "python-3.11", "postgresql-16"]
+modules = ["nodejs-20", "web", "bash"]
 
   [deployment]
   router = "application"
@@ -139,7 +139,7 @@ localPort = 8082
 externalPort = 3000
 
   [nix]
-  channel = "stable-25_05"
+channel = "stable-25_05"
 
   [userenv]
 
