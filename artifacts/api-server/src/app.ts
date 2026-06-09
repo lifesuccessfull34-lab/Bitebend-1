@@ -146,6 +146,23 @@ for (const prefix of PORTAL_PREFIXES) {
 // Root redirect → portal
 app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
 
+// ── JSON error handler ────────────────────────────────────────────────────────
+// Express's built-in last-resort error handler returns an HTML page, which
+// causes clients calling res.json() to throw "Unexpected token '<'".
+// This handler ensures all unhandled route errors respond with JSON so the
+// client always receives a parseable error body.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status = (typeof _err === "object" && _err !== null && "status" in _err)
+    ? Number((_err as { status: unknown }).status)
+    : 500;
+  const message = (typeof _err === "object" && _err !== null && "message" in _err)
+    ? String((_err as { message: unknown }).message)
+    : "Internal Server Error";
+  logger.error({ err: _err }, message);
+  res.status(status).json({ error: message });
+});
+
 // ── Static helpers ────────────────────────────────────────────────────────────
 // Browsers and crawlers always probe these at the root domain.
 // Without handlers they hit the API, cost a DB connection, and return 404 —
