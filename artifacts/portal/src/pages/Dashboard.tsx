@@ -274,7 +274,7 @@ export default function Dashboard() {
     try {
       const data = await apiFetch<BillData>(`/owner/orders/${orderId}/bill`);
       if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
-      window.open(data.whatsappUrl, "_blank");
+      window.open(data.whatsappUrl, "bitebend_whatsapp");
       toast.success("WhatsApp opened — tap Send to deliver the bill");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Unable to send payment bill");
