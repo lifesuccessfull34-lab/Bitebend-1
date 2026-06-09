@@ -177,6 +177,15 @@ export default function Dashboard() {
   const [isConfirmingPayment, setIsConfirmingPayment]     = useState(false);
   const [isRejectingFromModal, setIsRejectingFromModal]   = useState(false);
 
+  // Tracks the last WhatsApp tab opened by "Send Bill".
+  // window.open(url, "named_window") cannot reuse a tab after wa.me redirects to
+  // api.whatsapp.com — that domain sets Cross-Origin-Opener-Policy:
+  // same-origin-allow-popups, which moves the tab into a new browsing context
+  // group, making it invisible to any subsequent named-window lookup.
+  // Storing the reference lets us close the previous tab before opening a new
+  // one, so only one WhatsApp tab ever exists at a time.
+  const waWindowRef = useRef<Window | null>(null);
+
   // Bill state — server generates the image; we just track loading per order
   const [billLoading, setBillLoading]     = useState<number | null>(null);
 
@@ -274,7 +283,13 @@ export default function Dashboard() {
     try {
       const data = await apiFetch<BillData>(`/owner/orders/${orderId}/bill`);
       if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
-      window.open(data.whatsappUrl, "bitebend_whatsapp");
+      // Close the previous WhatsApp tab if the staff hasn't closed it yet.
+      // window.close() works on script-opened windows regardless of COOP —
+      // Chrome grants close permission based on who opened the window, not origin.
+      if (waWindowRef.current && !waWindowRef.current.closed) {
+        waWindowRef.current.close();
+      }
+      waWindowRef.current = window.open(data.whatsappUrl, "_blank") ?? null;
       toast.success("WhatsApp opened — tap Send to deliver the bill");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Unable to send payment bill");
