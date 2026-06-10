@@ -22,6 +22,7 @@
     "verify-deployment": "pnpm run build && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
   },
   "private": true,
+  "packageManager": "pnpm@10.26.1",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@typescript-eslint/parser": "^8.59.3",
