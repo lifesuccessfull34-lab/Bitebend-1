@@ -170,7 +170,7 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+      <WouterRouter base="/">
         <Router />
       </WouterRouter>
       <Toaster />

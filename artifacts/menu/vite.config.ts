@@ -83,10 +83,9 @@ function netlifyRedirectsPlugin() {
 
 const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 5173;
-const basePath = process.env.BASE_PATH ?? "/menu/";
 
 export default defineConfig({
-  base: basePath,
+  base: "/",
 
   define: {
     __APP_BUILD__: JSON.stringify(appBuild),
