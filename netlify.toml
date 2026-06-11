@@ -1,0 +1,4 @@
+[build] 
+base = "artifacts/portal"
+command = "pnpm build"
+publish = "dist"
