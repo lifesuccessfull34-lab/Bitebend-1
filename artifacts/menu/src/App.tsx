@@ -121,10 +121,8 @@ function Router() {
       <Switch>
 
         {/* ✅ STATIC ROUTES FIRST (IMPORTANT FIX) */}
-        <Route path="/menu" component={MenuPage} />
-        <Route path="/portal/restaurant/auth" component={ScanPrompt} />
-        <Route path="/portal/*" component={ScanPrompt} />
-
+        <Route path="/menu" component={MenuPage} />        
+        
         <Route path="/my-orders/" component={OrderHistoryPage} />
         <Route path="/my-orders" component={OrderHistoryPage} />
 
