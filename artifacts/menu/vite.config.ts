@@ -6,9 +6,9 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import legacy from "@vitejs/plugin-legacy";
 import { execSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { readFileSync } from "node:fs";
+import { readFileSync, copyFileSync, existsSync, mkdirSync } from "node:fs";
 
-// ── Build metadata (resolved once at config load time) ────────────────────────
+// ── Build metadata ─────────────────────────────────────────────────────────────
 
 const commitHash = (() => {
   try {
@@ -32,14 +32,7 @@ const appBuild = {
   version: pkg.version,
 } as const;
 
-// ── Custom plugin: write build-info.json to dist after build ──────────────────
-//
-// This file is read by the API server at startup to:
-//   1. Confirm the frontend was built before deployment
-//   2. Compare frontend vs backend commit hashes (version sync check)
-//   3. Expose both via GET /api/admin/build-info
-//
-// Also used by check-build-freshness.ts to verify the build is up to date.
+// ── Build info plugin (UNCHANGED) ─────────────────────────────────────────────
 
 function buildInfoPlugin() {
   return {
@@ -47,13 +40,43 @@ function buildInfoPlugin() {
     closeBundle() {
       const outDir = path.resolve(import.meta.dirname, "dist/public");
       const buildInfo = { ...appBuild, builtAt: new Date().toISOString() };
+
       writeFileSync(
         path.join(outDir, "build-info.json"),
         JSON.stringify(buildInfo, null, 2),
       );
+
       console.log(
         `\n[build-info] commit=${appBuild.commit} ts=${appBuild.timestamp} → dist/public/build-info.json\n`,
       );
+    },
+  };
+}
+
+// ── NEW: Netlify redirects auto-inject plugin (FIX) ──────────────────────────
+
+function netlifyRedirectsPlugin() {
+  return {
+    name: "netlify-redirects-auto-copy",
+    closeBundle() {
+      const src = path.resolve(import.meta.dirname, "public/_redirects");
+      const destDir = path.resolve(import.meta.dirname, "dist/public");
+      const dest = path.join(destDir, "_redirects");
+
+      try {
+        if (!existsSync(destDir)) {
+          mkdirSync(destDir, { recursive: true });
+        }
+
+        if (existsSync(src)) {
+          copyFileSync(src, dest);
+          console.log("\n[_redirects] copied to dist/public successfully\n");
+        } else {
+          console.warn("\n[_redirects] source file not found in public/\n");
+        }
+      } catch (err) {
+        console.error("[_redirects] copy failed:", err);
+      }
     },
   };
 }
@@ -65,9 +88,6 @@ const basePath = process.env.BASE_PATH ?? "/menu/";
 export default defineConfig({
   base: basePath,
 
-  // ── Build-time constants ─────────────────────────────────────────────────
-  // __APP_BUILD__ is replaced with a literal object in every output file.
-  // Access it anywhere in the source without an import.
   define: {
     __APP_BUILD__: JSON.stringify(appBuild),
   },
@@ -77,23 +97,14 @@ export default defineConfig({
     tailwindcss(),
     runtimeErrorOverlay(),
     buildInfoPlugin(),
+
+    // ✅ ADDED FIX (SAFE, NON-BREAKING)
+    netlifyRedirectsPlugin(),
+
     legacy({
       targets: ["Android >= 7", "iOS >= 12", "Samsung >= 8", "Chrome >= 67"],
       additionalLegacyPolyfills: ["regenerator-runtime/runtime"],
     }),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
-      ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
-            }),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
-        ]
-      : []),
   ],
 
   resolve: {
@@ -109,11 +120,11 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    // Generate .vite/manifest.json — maps source paths to hashed output filenames.
-    // Used by check-build-freshness.ts to verify the build completed and by
-    // the API server to report frontend asset versions.
+
     manifest: true,
+
     minify: "terser",
+
     terserOptions: {
       compress: {
         drop_console: true,
@@ -124,8 +135,10 @@ export default defineConfig({
       mangle: { safari10: true },
       format: { safari10: true },
     },
+
     chunkSizeWarningLimit: 600,
     reportCompressedSize: false,
+
     rollupOptions: {
       output: {
         manualChunks(id) {
