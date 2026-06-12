@@ -26,6 +26,7 @@ import type { UploadStage } from "./menu/PaymentBillView";
 import { RazorpayCheckout } from "./menu/RazorpayCheckout";
 import type { RazorpayResponse } from "./menu/RazorpayCheckout";
 
+
 /**
  * Feature flag: VITE_ENABLE_CUSTOMER_RAZORPAY
  * false (default) — new QR bill flow active.
@@ -33,7 +34,10 @@ import type { RazorpayResponse } from "./menu/RazorpayCheckout";
  */
 const CUSTOMER_RAZORPAY_ENABLED = import.meta.env["VITE_ENABLE_CUSTOMER_RAZORPAY"] === "true";
 
-const BASE = "";
+const BASE = import.meta.env.VITE_API_URL;
+if (!BASE) {
+  throw new Error("VITE_API_URL is not set in environment variables");
+}
 
 interface ProofResult {
   ocrConfigured: boolean;
