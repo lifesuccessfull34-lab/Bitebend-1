@@ -120,18 +120,26 @@ function Router() {
 
       <Switch>
 
-        {/* ✅ STATIC ROUTES FIRST (IMPORTANT FIX) */}
-        <Route path="/menu" component={MenuPage} />        
-        
+        {/* Order history */}
         <Route path="/my-orders/" component={OrderHistoryPage} />
         <Route path="/my-orders" component={OrderHistoryPage} />
 
-        {/* 🔥 DYNAMIC ROUTES LAST (VERY IMPORTANT) */}
+        {/* New QR routes (Netlify + restaurant slug support) */}
+        <Route path="/menu/:restaurantId/table/:tableId/" component={MenuPage} />
+        <Route path="/menu/:restaurantId/table/:tableId" component={MenuPage} />
+
+        <Route path="/menu/:restaurantId/" component={MenuPage} />
+        <Route path="/menu/:restaurantId" component={MenuPage} />
+
+        {/* Legacy routes kept for backward compatibility */}
         <Route path="/:restaurantId/table/:tableId/" component={MenuPage} />
         <Route path="/:restaurantId/table/:tableId" component={MenuPage} />
 
         <Route path="/:restaurantId/" component={MenuPage} />
         <Route path="/:restaurantId" component={MenuPage} />
+
+        {/* Generic menu page */}
+        <Route path="/menu" component={MenuPage} />
 
         {/* Home */}
         <Route path="/" component={ScanPrompt} />
@@ -143,6 +151,8 @@ function Router() {
     </>
   );
 }
+
+
 
 /* ─────────────────────────────────────────────────────────────
    App Root
