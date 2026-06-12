@@ -15,6 +15,11 @@ const basePath = "/";
 
 export default defineConfig({
   base: basePath,
+  
+  define: {
+    __SITE_URL__: JSON.stringify(process.env.VITE_SITE_URL || ""),
+    __REPLIT_DOMAINS__: JSON.stringify(""),
+  },
 
   plugins: [
     react(),

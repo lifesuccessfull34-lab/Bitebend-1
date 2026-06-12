@@ -418,14 +418,13 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
 
   // Resolve the correct public-facing origin at build time.
   // Priority: SITE_URL (custom domain) → REPLIT_DOMAINS (.replit.app) → current origin.
+
   const _publicOrigin =
-    (__SITE_URL__ && __SITE_URL__.trim()) ||
-    (() => {
-      const d = __REPLIT_DOMAINS__?.split(",")[0]?.trim();
-      return d ? `https://${d}` : null;
-    })() ||
+    (typeof __SITE_URL__ !== "undefined" &&
+      __SITE_URL__?.trim()) ||
     window.location.origin;
-  // Use slug for clean URLs; fall back to numeric ID for backward compat.
+  
+    // Use slug for clean URLs; fall back to numeric ID for backward compat.
   const menuUrl = `${_publicOrigin}/menu/${restaurantSlug ?? restaurantId}`;
 
   const handleCopy = async () => {
