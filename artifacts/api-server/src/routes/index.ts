@@ -10,6 +10,7 @@ import storageRouter from "./storage";
 import imagesRouter from "./images";
 import paymentsRouter from "./payments";
 import resourcesRouter from "./resources";
+import whatsappBridgeRouter from "./whatsappBridge";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use(storageRouter);
 router.use(imagesRouter);
 router.use(paymentsRouter);
 router.use(resourcesRouter);
+router.use(whatsappBridgeRouter);
 
 export default router;

@@ -122,6 +122,18 @@ if (process.env.NODE_ENV !== "production") {
       pathFilter: (path) => path.startsWith("/menu"),
     }),
   );
+  // Proxy Socket.IO and REST calls for the WhatsApp Bridge service.
+  // Path /whatsapp-bridge/* is rewritten to /* on the bridge (port 3001).
+  // The portal connects Socket.IO with path="/whatsapp-bridge/socket.io".
+  app.use(
+    createProxyMiddleware({
+      target: "http://localhost:3001",
+      changeOrigin: true,
+      ws: true,
+      pathFilter: (path) => path.startsWith("/whatsapp-bridge"),
+      pathRewrite: { "^/whatsapp-bridge": "" },
+    }),
+  );
   app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
 } else {
   // ── Production only: static redirect helpers ─────────────────────────────

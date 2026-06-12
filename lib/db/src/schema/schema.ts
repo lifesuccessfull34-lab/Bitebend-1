@@ -81,6 +81,8 @@ export const restaurants = pgTable("restaurants", {
   termsAccepted: boolean("terms_accepted").notNull().default(false),
   privacyAccepted: boolean("privacy_accepted").notNull().default(false),
   acceptedAt: timestamp("accepted_at"),
+  whatsappStatus: text("whatsapp_status").notNull().default("disconnected"),
+  whatsappPhone: text("whatsapp_phone"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

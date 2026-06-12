@@ -10,6 +10,7 @@ import {
   CreditCard,
   Users,
   BookOpen,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,6 +31,7 @@ const NAV: NavItem[] = [
   { name: "Tables & QR", href: "/restaurant/tables",               icon: Table2 },
   { name: "Customers",   href: "/restaurant/customers/analytics",   icon: Users },
   { name: "Subscription", href: "/restaurant/subscription",        icon: CreditCard, ownerOnly: true },
+  { name: "WhatsApp",    href: "/restaurant/whatsapp",             icon: MessageCircle },
   { name: "Resources",   href: "/restaurant/resources",            icon: BookOpen },
   { name: "Profile",     href: "/restaurant/profile",              icon: Settings },
 ];
