@@ -18,96 +18,54 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "typecheck"
+args = "Start application"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "build"
+args = "Portal Dev Server"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "test"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "lint"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "pre-deploy"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "check-static"
+args = "Menu Dev Server"
 
 [[workflows.workflow]]
-name = "typecheck"
+name = "Start application"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm run typecheck"
+args = "pnpm --filter @workspace/api-server run dev"
+waitForPort = 5000
 
 [workflows.workflow.metadata]
-isValidation = true
+outputType = "webview"
 
 [[workflows.workflow]]
-name = "build"
+name = "Portal Dev Server"
 author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm run build"
-
-[workflows.workflow.metadata]
-isValidation = true
+args = "BASE_PATH=/portal/ PORT=3000 pnpm --filter @workspace/portal run dev"
+waitForPort = 3000
 
 [[workflows.workflow]]
-name = "test"
+name = "Menu Dev Server"
 author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm run test"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "lint"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm run lint"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "pre-deploy"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm run verify-deployment"
-
-[workflows.workflow.metadata]
-isValidation = true
-
-[[workflows.workflow]]
-name = "check-static"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm run check:static"
-
-[workflows.workflow.metadata]
-isValidation = true
+args = "BASE_PATH=/menu/ PORT=5173 pnpm --filter @workspace/menu run dev"
+waitForPort = 5173
 
   [agent]
-  stack = "PNPM_WORKSPACE"
+stack = "BEST_EFFORT_FALLBACK"
 expertMode = true
 
   [postMerge]
@@ -116,27 +74,11 @@ expertMode = true
 
 [[ports]]
 localPort = 3000
-externalPort = 3001
-
-[[ports]]
-localPort = 5000
-externalPort = 5000
-
-[[ports]]
-localPort = 5001
-externalPort = 3002
+externalPort = 3000
 
 [[ports]]
 localPort = 5173
 externalPort = 5173
-
-[[ports]]
-localPort = 8080
-externalPort = 80
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
 
 [[ports]]
 localPort = 8082
@@ -149,4 +91,7 @@ channel = "stable-25_05"
 
   [userenv.production]
   SITE_URL = "https://bitebend.in"
+
+[userenv.shared]
+PORT = "5000"
   

@@ -6,6 +6,7 @@ import connectPgSimple from "connect-pg-simple";
 import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 const PgSession = connectPgSimple(session);
 
@@ -98,59 +99,79 @@ app.use(
 
 app.use("/api", router);
 
-// Belt-and-suspenders: if the portal was ever built without BASE_PATH=/portal/,
-// its asset files will be requested at /assets/... instead of /portal/assets/...
-// Those requests hit this API server. Redirect them to the correct /portal/assets/
-// path so the portal static server can serve them.
-// This prevents a blank/loading page when the portal dist was built incorrectly.
-app.get("/assets/*path", (req, res) => {
-  const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
-  const rest = Array.isArray(raw) ? raw.join("/") : raw;
-  res.redirect(301, `/portal/assets/${rest}`);
-});
-
-// Trailing-slash redirect for the portal SPA.
-// The Replit proxy intercepts "/portal/" (with trailing slash) only.
-// Direct navigation to "/portal" (no trailing slash) falls through to
-// Express and gets a 404 unless we redirect it here.
-app.get("/portal", (_req, res) => { res.redirect(301, "/portal/"); });
-
-// Custom-domain catch-all redirects.
-// When accessed via a custom domain (e.g. bitebend.in), requests for the
-// portal's SPA routes arrive without the /portal/ prefix (e.g. /restaurant/login
-// instead of /portal/restaurant/login). The Replit proxy has no service
-// registered for these paths, which causes a 502/500 error. We register
-// these path prefixes in artifact.toml and redirect them to the correct
-// /portal/ base here so the portal SPA can handle them.
-const PORTAL_PREFIXES = [
-  "/restaurant",
-  "/admin",
-  "/login",
-  "/register",
-  "/logout",
-  "/terms",
-  "/privacy-policy",
-];
-
-for (const prefix of PORTAL_PREFIXES) {
-  // Exact match (e.g. /restaurant → /portal/restaurant/)
-  app.get(prefix, (_req, res) => { res.redirect(302, `/portal${prefix}`); });
-  // Prefix match (e.g. /restaurant/login → /portal/restaurant/login)
-  app.get(`${prefix}/*path`, (req, res) => {
+// ── Dev proxy: forward /portal/ and /menu/ to Vite dev servers ───────────────
+// In development the portal and menu are served by separate Vite processes.
+// The Replit preview pane only sees port 5000 (this API server), so we
+// proxy those paths to the appropriate Vite dev server ports.
+// IMPORTANT: must be registered BEFORE any redirect handlers for /portal or /menu
+// so that requests don't get caught by the trailing-slash or SPA redirect routes.
+if (process.env.NODE_ENV !== "production") {
+  app.use(
+    createProxyMiddleware({
+      target: "http://localhost:3000",
+      changeOrigin: true,
+      ws: true,
+      pathFilter: (path) => path.startsWith("/portal"),
+    }),
+  );
+  app.use(
+    createProxyMiddleware({
+      target: "http://localhost:5173",
+      changeOrigin: true,
+      ws: true,
+      pathFilter: (path) => path.startsWith("/menu"),
+    }),
+  );
+  app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
+} else {
+  // ── Production only: static redirect helpers ─────────────────────────────
+  // Belt-and-suspenders: if the portal was ever built without BASE_PATH=/portal/,
+  // its asset files will be requested at /assets/... instead of /portal/assets/...
+  app.get("/assets/*path", (req, res) => {
     const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
     const rest = Array.isArray(raw) ? raw.join("/") : raw;
-    res.redirect(302, `/portal${prefix}/${rest}`);
+    res.redirect(301, `/portal/assets/${rest}`);
+  });
+
+  // Trailing-slash redirect for the portal SPA.
+  app.get("/portal", (_req, res) => { res.redirect(301, "/portal/"); });
+
+  // Custom-domain catch-all redirects.
+  const PORTAL_PREFIXES = [
+    "/restaurant",
+    "/admin",
+    "/login",
+    "/register",
+    "/logout",
+    "/terms",
+    "/privacy-policy",
+  ];
+
+  for (const prefix of PORTAL_PREFIXES) {
+    app.get(prefix, (_req, res) => { res.redirect(302, `/portal${prefix}`); });
+    app.get(`${prefix}/*path`, (req, res) => {
+      const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
+      const rest = Array.isArray(raw) ? raw.join("/") : raw;
+      res.redirect(302, `/portal${prefix}/${rest}`);
+    });
+  }
+
+  // Root redirect → portal
+  app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
+
+  // Redirect browser favicon requests to the portal's built favicon.
+  app.get("/favicon.svg", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
+  app.get("/favicon.ico", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
+
+  // Minimal robots.txt so crawlers don't retry 404 on every visit.
+  app.get("/robots.txt", (_req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.end("User-agent: *\nAllow: /\n");
   });
 }
 
-// Root redirect → portal
-app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
-
-// ── JSON error handler ────────────────────────────────────────────────────────
-// Express's built-in last-resort error handler returns an HTML page, which
-// causes clients calling res.json() to throw "Unexpected token '<'".
-// This handler ensures all unhandled route errors respond with JSON so the
-// client always receives a parseable error body.
+// ── JSON error handler ──────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = (typeof _err === "object" && _err !== null && "status" in _err)
@@ -161,22 +182,6 @@ app.use((_err: unknown, _req: express.Request, res: express.Response, _next: exp
     : "Internal Server Error";
   logger.error({ err: _err }, message);
   res.status(status).json({ error: message });
-});
-
-// ── Static helpers ────────────────────────────────────────────────────────────
-// Browsers and crawlers always probe these at the root domain.
-// Without handlers they hit the API, cost a DB connection, and return 404 —
-// adding ~1 extra round-trip to every mobile page load.
-
-// Redirect browser favicon requests to the portal's built favicon.
-app.get("/favicon.svg", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
-app.get("/favicon.ico", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
-
-// Minimal robots.txt so crawlers don't retry 404 on every visit.
-app.get("/robots.txt", (_req, res) => {
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  res.end("User-agent: *\nAllow: /\n");
 });
 
 export default app;

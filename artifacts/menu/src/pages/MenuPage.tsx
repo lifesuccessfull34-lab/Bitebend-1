@@ -34,10 +34,7 @@ import type { RazorpayResponse } from "./menu/RazorpayCheckout";
  */
 const CUSTOMER_RAZORPAY_ENABLED = import.meta.env["VITE_ENABLE_CUSTOMER_RAZORPAY"] === "true";
 
-const BASE = import.meta.env.VITE_API_URL;
-if (!BASE) {
-  throw new Error("VITE_API_URL is not set in environment variables");
-}
+const BASE: string = import.meta.env.VITE_API_URL ?? "";
 
 interface ProofResult {
   ocrConfigured: boolean;

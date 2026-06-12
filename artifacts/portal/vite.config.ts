@@ -10,8 +10,9 @@ const port = process.env.PORT ? Number(process.env.PORT) : 5173;
 /**
  * IMPORTANT:
  * Netlify MUST NOT use /portal base path
+ * In dev on Replit we use /portal/ so the proxy works correctly.
  */
-const basePath = "/";
+const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,

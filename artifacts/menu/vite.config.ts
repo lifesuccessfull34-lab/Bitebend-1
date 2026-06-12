@@ -85,7 +85,7 @@ const rawPort = process.env.PORT;
 const port = rawPort ? Number(rawPort) : 5173;
 
 export default defineConfig({
-  base: "/",
+  base: process.env.BASE_PATH ?? "/",
 
   define: {
     __APP_BUILD__: JSON.stringify(appBuild),

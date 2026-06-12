@@ -9,7 +9,7 @@ import type { UploadStage } from "./menu/PaymentBillView";
 import type { RestaurantData, PlacedOrderItem, OrderType } from "./menu/types";
 import { lsGet } from "./menu/utils";
 
-const BASE = import.meta.env.VITE_API_URL;
+const BASE: string = import.meta.env.VITE_API_URL ?? "";
 const ACCEPTED_TYPES = ["image/jpeg", "image/jpg", "image/png"];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
