@@ -137,7 +137,14 @@ if (process.env.NODE_ENV !== "production") {
       pathRewrite: { "^/whatsapp-bridge": "" },
     }),
   );
-  app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
+  app.use(
+    createProxyMiddleware({
+      target: "http://localhost:3000",
+      changeOrigin: true,
+      ws: true,
+      pathFilter: (path) => path === "/",
+    }),
+  );
 } else {
   // ── Production: serve built frontend static files ─────────────────────────
   const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist");
