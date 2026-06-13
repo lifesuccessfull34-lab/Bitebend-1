@@ -42,6 +42,7 @@ onlyBuiltDependencies:
   - bcrypt
   - esbuild
   - msw
+  - puppeteer
   - sharp
   - unrs-resolver
 

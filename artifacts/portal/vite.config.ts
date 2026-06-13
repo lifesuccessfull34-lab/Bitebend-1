@@ -55,6 +55,17 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: {
+      // Proxy WebSocket + HTTP for the WhatsApp Bridge (dev only).
+      // The portal's Socket.IO client connects with path="/whatsapp-bridge/socket.io"
+      // which Vite rewrites to "/socket.io" on the bridge at port 3001.
+      "/whatsapp-bridge": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path: string) => path.replace(/^\/whatsapp-bridge/, ""),
+      },
+    },
   },
 
   preview: {

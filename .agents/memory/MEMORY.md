@@ -1,2 +1,4 @@
 - [DB migration architecture](db-migration-architecture.md) — resources & owner_password_reset_tokens are in SQL migrations (0011, 0012); sessions is the only runtime-ensure table; fresh DB needs pnpm migrate before server start.
 - [DB operational layer](db-operational-layer.md) — health endpoints, timing log prefixes, warning thresholds, backup service interface, admin DB card, and integration test script added in the DB hardening pass.
+- [Replit artifact port routing](replit-artifact-routing.md) — artifact system routes /api→8080, portal→5000, menu→5173; portal Vite server is main entry (port 5000); use Vite proxy for non-API traffic like WebSockets.
+- [WhatsApp Bridge integration](whatsapp-bridge.md) — bridge at services/whatsapp-bridge (port 3001); migration 0013 added whatsapp_status+whatsapp_phone to restaurants; Drizzle journal needed manual 0013 entry after direct psql apply.
