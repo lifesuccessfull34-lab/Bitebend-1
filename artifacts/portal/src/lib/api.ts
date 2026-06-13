@@ -1,5 +1,4 @@
-export const API_BASE =
-  "https://workspaceapi-server-production-1d52.up.railway.app/api";
+export const API_BASE = "/api";
 
 let onUnauthorized: (() => void) | null = null;
 

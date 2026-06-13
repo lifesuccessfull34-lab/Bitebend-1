@@ -84,15 +84,16 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      // Replit always proxies over HTTPS (even in dev), detected via REPL_ID.
+      // sameSite:"lax" blocks cookies in cross-site iframe contexts — specifically
+      // the Replit IDE preview pane (replit.com embedding the repl URL) as well as
+      // mobile in-app browsers that open from QR scans.
+      // When on Replit or in production: sameSite:"none" + secure:true so the
+      // cookie survives all these cross-site contexts.
+      // On truly local dev (no REPL_ID): fall back to lax + non-secure.
+      secure: process.env.NODE_ENV === "production" || !!process.env.REPL_ID,
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      // "none" requires secure=true (HTTPS). On production this is correct and
-      // necessary for mobile browsers that open the app from a QR code scan,
-      // external app, or in-app browser — all of which are cross-site contexts
-      // where "lax" would silently drop the session cookie, causing a
-      // login → 401 loop and a blank white screen.
-      // In development (HTTP) fall back to "lax" since "none" needs HTTPS.
-      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      sameSite: (process.env.NODE_ENV === "production" || !!process.env.REPL_ID) ? "none" : "lax",
     },
   }),
 );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Redirect } from "wouter";
 import { io, Socket } from "socket.io-client";
 import { QRCodeSVG } from "qrcode.react";
 import { AppShell } from "@/components/layout/AppShell";
@@ -36,7 +37,7 @@ const STATUS_COLOR: Record<WhatsAppStatus, string> = {
 };
 
 export default function WhatsAppConnect() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const restaurantId = user?.restaurantId;
 
   const [status, setStatus]         = useState<WhatsAppStatus>("not_initialised");
@@ -139,6 +140,11 @@ export default function WhatsAppConnect() {
     setQrString(null);
     setLoading(false);
   };
+
+  // Auth guard — all hooks above, redirect is safe here
+  if (!authLoading && !user) {
+    return <Redirect to="/restaurant/auth" />;
+  }
 
   const isConnected   = status === "connected";
   const isPending     = status === "initialising" || status === "connecting";
