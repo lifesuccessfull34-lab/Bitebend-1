@@ -78,7 +78,17 @@ export async function initClient(restaurantId: number): Promise<void> {
   clients.set(restaurantId, managed);
   attachEventHandlers(managed);
 
-  await client.initialize();
+  try {
+    await client.initialize();
+  } catch (err) {
+    logger.error(`client.initialize() threw for restaurant ${restaurantId}`, {
+      error: (err as Error).message,
+    });
+    managed.status = 'auth_failed';
+    emitStatus(restaurantId, 'auth_failed');
+    clients.delete(restaurantId);
+    throw err;
+  }
 }
 
 function attachEventHandlers(managed: ManagedClient): void {
