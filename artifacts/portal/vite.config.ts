@@ -5,13 +5,10 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import legacy from "@vitejs/plugin-legacy";
 
-const port = process.env.PORT ? Number(process.env.PORT) : 5173;
+// The Replit artifact system expects web artifacts on port 5000.
+// If PORT is explicitly overridden (e.g. local dev outside artifact system), use that.
+const port = process.env.PORT ? Number(process.env.PORT) : 5000;
 
-/**
- * IMPORTANT:
- * Netlify MUST NOT use /portal base path
- * In dev on Replit we use /portal/ so the proxy works correctly.
- */
 const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
@@ -43,10 +40,6 @@ export default defineConfig({
   root: path.resolve(import.meta.dirname),
 
   build: {
-    /**
-     * CRITICAL FIX:
-     * Netlify expects dist/index.html (NOT dist/public)
-     */
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
   },
@@ -56,14 +49,24 @@ export default defineConfig({
     host: "0.0.0.0",
     allowedHosts: true,
     proxy: {
-      // Proxy WebSocket + HTTP for the WhatsApp Bridge (dev only).
-      // The portal's Socket.IO client connects with path="/whatsapp-bridge/socket.io"
-      // which Vite rewrites to "/socket.io" on the bridge at port 3001.
+      // In development, the API server runs as a separate artifact on port 8080.
+      // Proxy all /api calls there so the portal can reach the backend.
+      "/api": {
+        target: "http://localhost:8080",
+        changeOrigin: true,
+      },
+      // Proxy WebSocket + HTTP for the WhatsApp Bridge (port 3001).
       "/whatsapp-bridge": {
         target: "http://localhost:3001",
         changeOrigin: true,
         ws: true,
         rewrite: (path: string) => path.replace(/^\/whatsapp-bridge/, ""),
+      },
+      // Proxy /menu to the menu Vite dev server (port 5173).
+      "/menu": {
+        target: "http://localhost:5173",
+        changeOrigin: true,
+        ws: true,
       },
     },
   },

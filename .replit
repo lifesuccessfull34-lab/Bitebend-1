@@ -20,55 +20,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Portal Dev Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Menu Dev Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "WhatsApp Bridge"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/api-server run dev"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
-
-[[workflows.workflow]]
-name = "Portal Dev Server"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=3000 pnpm --filter @workspace/portal run dev"
-waitForPort = 3000
-
-[[workflows.workflow]]
-name = "Menu Dev Server"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "BASE_PATH=/menu/ PORT=5173 pnpm --filter @workspace/menu run dev"
-waitForPort = 5173
 
 [[workflows.workflow]]
 name = "WhatsApp Bridge"
@@ -95,8 +47,16 @@ localPort = 3000
 externalPort = 3000
 
 [[ports]]
+localPort = 3001
+externalPort = 3001
+
+[[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 5001
+externalPort = 3002
 
 [[ports]]
 localPort = 5173
@@ -123,5 +83,4 @@ channel = "stable-25_05"
   SITE_URL = "https://bitebend.in"
 
 [userenv.shared]
-PORT = "5000"
   
