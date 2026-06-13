@@ -4,7 +4,7 @@ modules = ["nodejs-20", "web", "bash", "postgresql-16"]
   router = "application"
 deploymentTarget = "autoscale"
 run = ["bash", "-c", "node artifacts/api-server/dist/migrate.mjs && pnpm run start"]
-build = ["bash", "-c", "BASE_PATH=/menu/ pnpm --filter @workspace/menu build && BASE_PATH=/portal/ pnpm --filter @workspace/portal build && pnpm --filter @workspace/api-server build"]
+build = ["bash", "-c", "BASE_PATH=/menu/ pnpm --filter @workspace/menu build && pnpm --filter @workspace/portal build && pnpm --filter @workspace/api-server build"]
 
   [deployment.postBuild]
   args = ["pnpm", "store", "prune"]
@@ -55,7 +55,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "BASE_PATH=/portal/ PORT=3000 pnpm --filter @workspace/portal run dev"
+args = "PORT=3000 pnpm --filter @workspace/portal run dev"
 waitForPort = 3000
 
 [[workflows.workflow]]
@@ -93,10 +93,6 @@ expertMode = true
 [[ports]]
 localPort = 3000
 externalPort = 3000
-
-[[ports]]
-localPort = 3001
-externalPort = 3002
 
 [[ports]]
 localPort = 5000

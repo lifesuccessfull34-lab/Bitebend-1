@@ -26,15 +26,12 @@ app.set("trust proxy", 1);
 // the phone. The Replit reverse proxy sets X-Forwarded-Proto so we can detect
 // the original protocol. Any http:// request that somehow reaches the server
 // (older devices, curl, bots) gets a permanent 301 redirect to https://.
-// This also prevents the relative-redirect chain from keeping the http:// scheme
-// (e.g. /restaurant/auth → 302 /portal/restaurant/auth still has http:// otherwise).
 // In development X-Forwarded-Proto is absent so this middleware is a no-op.
 if (process.env.NODE_ENV === "production") {
   app.use((req, res, next) => {
     const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
     if (proto === "http") {
       const host = req.headers["host"] ?? "";
-      // 301 Permanent so browsers & search engines remember to use HTTPS
       return res.redirect(301, `https://${host}${req.url}`);
     }
     next();
@@ -102,21 +99,13 @@ app.use(
 
 app.use("/api", router);
 
-// ── Dev proxy: forward /portal/ and /menu/ to Vite dev servers ───────────────
+// ── Dev proxy: forward requests to Vite dev servers ──────────────────────────
 // In development the portal and menu are served by separate Vite processes.
 // The Replit preview pane only sees port 5000 (this API server), so we
 // proxy those paths to the appropriate Vite dev server ports.
-// IMPORTANT: must be registered BEFORE any redirect handlers for /portal or /menu
-// so that requests don't get caught by the trailing-slash or SPA redirect routes.
+// Order matters: /menu and /whatsapp-bridge are matched first, then everything
+// else (except /api which is already handled above) goes to the portal.
 if (process.env.NODE_ENV !== "production") {
-  app.use(
-    createProxyMiddleware({
-      target: "http://localhost:3000",
-      changeOrigin: true,
-      ws: true,
-      pathFilter: (path) => path.startsWith("/portal"),
-    }),
-  );
   app.use(
     createProxyMiddleware({
       target: "http://localhost:5173",
@@ -127,7 +116,6 @@ if (process.env.NODE_ENV !== "production") {
   );
   // Proxy Socket.IO and REST calls for the WhatsApp Bridge service.
   // Path /whatsapp-bridge/* is rewritten to /* on the bridge (port 3001).
-  // The portal connects Socket.IO with path="/whatsapp-bridge/socket.io".
   app.use(
     createProxyMiddleware({
       target: "http://localhost:3001",
@@ -137,12 +125,17 @@ if (process.env.NODE_ENV !== "production") {
       pathRewrite: { "^/whatsapp-bridge": "" },
     }),
   );
+  // Portal catch-all: proxy everything that isn't /api, /menu, /whatsapp-bridge
+  // to the portal Vite dev server (which now serves at base path "/").
   app.use(
     createProxyMiddleware({
       target: "http://localhost:3000",
       changeOrigin: true,
       ws: true,
-      pathFilter: (path) => path === "/",
+      pathFilter: (path) =>
+        !path.startsWith("/api") &&
+        !path.startsWith("/menu") &&
+        !path.startsWith("/whatsapp-bridge"),
     }),
   );
 } else {
@@ -150,13 +143,21 @@ if (process.env.NODE_ENV !== "production") {
   const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist");
   const menuDist   = join(WORKSPACE_ROOT, "artifacts/menu/dist/public");
 
-  // Serve portal SPA — static assets first, then SPA fallback for client-side routes
-  app.use("/portal", express.static(portalDist));
-  app.get("/portal/*path", (_req, res) => {
-    res.sendFile(join(portalDist, "index.html"));
+  // Backwards-compat: old /portal/* URLs → redirect to the same path without prefix.
+  // Handles any bookmarks or links that still use the old /portal/ base.
+  app.get("/portal", (_req, res) => { res.redirect(301, "/"); });
+  app.get("/portal/*path", (req, res) => {
+    const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
+    const rest = Array.isArray(raw) ? raw.join("/") : raw;
+    res.redirect(301, `/${rest}`);
   });
-  // Trailing-slash redirect so /portal → /portal/
-  app.get("/portal", (_req, res) => { res.redirect(301, "/portal/"); });
+
+  // Minimal robots.txt so crawlers don't retry 404 on every visit.
+  app.get("/robots.txt", (_req, res) => {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    res.end("User-agent: *\nAllow: /\n");
+  });
 
   // Serve menu SPA
   app.use("/menu", express.static(menuDist));
@@ -164,48 +165,20 @@ if (process.env.NODE_ENV !== "production") {
     res.sendFile(join(menuDist, "index.html"));
   });
 
-  // Belt-and-suspenders: legacy asset redirect if BASE_PATH was missing at build time
-  app.get("/assets/*path", (req, res) => {
-    const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
-    const rest = Array.isArray(raw) ? raw.join("/") : raw;
-    res.redirect(301, `/portal/assets/${rest}`);
-  });
-
-  // Custom-domain catch-all redirects.
-  const PORTAL_PREFIXES = [
-    "/restaurant",
-    "/admin",
-    "/login",
-    "/register",
-    "/logout",
-    "/terms",
-    "/privacy-policy",
-  ];
-
-  for (const prefix of PORTAL_PREFIXES) {
-    app.get(prefix, (_req, res) => { res.redirect(302, `/portal${prefix}`); });
-    app.get(`${prefix}/*path`, (req, res) => {
-      const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
-      const rest = Array.isArray(raw) ? raw.join("/") : raw;
-      res.redirect(302, `/portal${prefix}/${rest}`);
-    });
-  }
+  // Serve portal SPA at root — static assets first, then SPA fallback.
+  // This must come AFTER /api (already registered) and /menu above.
+  app.use("/", express.static(portalDist));
 
   // Root: serve portal index.html directly (200) so the deployment health-check
-  // probe (GET /) passes. A 302 redirect causes the promote step to fail.
+  // probe (GET /) passes.
   app.get("/", (_req, res) => {
     res.sendFile(join(portalDist, "index.html"));
   });
 
-  // Favicon — serve from portal build
-  app.get("/favicon.svg", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
-  app.get("/favicon.ico", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
-
-  // Minimal robots.txt so crawlers don't retry 404 on every visit.
-  app.get("/robots.txt", (_req, res) => {
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Cache-Control", "public, max-age=86400");
-    res.end("User-agent: *\nAllow: /\n");
+  // SPA catch-all: any path not matched by static files → portal index.html
+  // so React Router handles client-side navigation.
+  app.use((_req, res) => {
+    res.sendFile(join(portalDist, "index.html"));
   });
 }
 
