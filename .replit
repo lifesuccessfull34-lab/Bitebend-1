@@ -4,7 +4,7 @@ modules = ["nodejs-20", "web", "bash", "postgresql-16"]
   router = "application"
 deploymentTarget = "autoscale"
 run = ["bash", "-c", "node artifacts/api-server/dist/migrate.mjs && pnpm run start"]
-build = ["pnpm", "run", "build"]
+build = ["bash", "-c", "BASE_PATH=/menu/ pnpm --filter @workspace/menu build && BASE_PATH=/portal/ pnpm --filter @workspace/portal build && pnpm --filter @workspace/api-server build"]
 
   [deployment.postBuild]
   args = ["pnpm", "store", "prune"]

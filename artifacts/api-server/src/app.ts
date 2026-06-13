@@ -3,10 +3,12 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import { join } from "node:path";
 import { pool } from "@workspace/db";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import { WORKSPACE_ROOT } from "./lib/workspace";
 
 const PgSession = connectPgSimple(session);
 
@@ -137,17 +139,30 @@ if (process.env.NODE_ENV !== "production") {
   );
   app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
 } else {
-  // ── Production only: static redirect helpers ─────────────────────────────
-  // Belt-and-suspenders: if the portal was ever built without BASE_PATH=/portal/,
-  // its asset files will be requested at /assets/... instead of /portal/assets/...
+  // ── Production: serve built frontend static files ─────────────────────────
+  const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist");
+  const menuDist   = join(WORKSPACE_ROOT, "artifacts/menu/dist/public");
+
+  // Serve portal SPA — static assets first, then SPA fallback for client-side routes
+  app.use("/portal", express.static(portalDist));
+  app.get("/portal/*path", (_req, res) => {
+    res.sendFile(join(portalDist, "index.html"));
+  });
+  // Trailing-slash redirect so /portal → /portal/
+  app.get("/portal", (_req, res) => { res.redirect(301, "/portal/"); });
+
+  // Serve menu SPA
+  app.use("/menu", express.static(menuDist));
+  app.get("/menu/*path", (_req, res) => {
+    res.sendFile(join(menuDist, "index.html"));
+  });
+
+  // Belt-and-suspenders: legacy asset redirect if BASE_PATH was missing at build time
   app.get("/assets/*path", (req, res) => {
     const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
     const rest = Array.isArray(raw) ? raw.join("/") : raw;
     res.redirect(301, `/portal/assets/${rest}`);
   });
-
-  // Trailing-slash redirect for the portal SPA.
-  app.get("/portal", (_req, res) => { res.redirect(301, "/portal/"); });
 
   // Custom-domain catch-all redirects.
   const PORTAL_PREFIXES = [
@@ -169,10 +184,13 @@ if (process.env.NODE_ENV !== "production") {
     });
   }
 
-  // Root redirect → portal
-  app.get("/", (_req, res) => { res.redirect(302, "/portal/"); });
+  // Root: serve portal index.html directly (200) so the deployment health-check
+  // probe (GET /) passes. A 302 redirect causes the promote step to fail.
+  app.get("/", (_req, res) => {
+    res.sendFile(join(portalDist, "index.html"));
+  });
 
-  // Redirect browser favicon requests to the portal's built favicon.
+  // Favicon — serve from portal build
   app.get("/favicon.svg", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
   app.get("/favicon.ico", (_req, res) => { res.redirect(301, "/portal/favicon.svg"); });
 
