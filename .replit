@@ -47,7 +47,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "( PORT=8080 node artifacts/api-server/dist/migrate.mjs && PORT=8080 NODE_ENV=development node --enable-source-maps artifacts/api-server/dist/index.mjs ) & PORT=5173 pnpm --filter @workspace/menu run dev & sleep 4 && pnpm --filter @workspace/portal run dev"
+args = "PORT=3000 pnpm --filter @workspace/portal run dev & PORT=5173 pnpm --filter @workspace/menu run dev & sleep 5 && node artifacts/api-server/dist/migrate.mjs && NODE_ENV=development node --enable-source-maps artifacts/api-server/dist/index.mjs"
 waitForPort = 5000
 
   [agent]
