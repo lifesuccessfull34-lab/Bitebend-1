@@ -9,11 +9,12 @@ import legacy from "@vitejs/plugin-legacy";
 // If PORT is explicitly overridden (e.g. local dev outside artifact system), use that.
 const port = process.env.PORT ? Number(process.env.PORT) : 5000;
 
-// Always serve at root ("/").
-// The Replit artifact system injects BASE_PATH=/portal/ into the workflow env, but we
-// ignore it here — the portal must be accessible at "/" both in production (served by
-// Express) and in Replit dev (port 5000 maps to external port 80).
-const basePath = "/";
+// In Replit dev, the artifact router serves the portal under /portal/.
+// BASE_PATH=/portal/ is injected by the workflow so Vite's base matches the
+// artifact router prefix — this ensures /@vite/client, /src/* etc. are all
+// served under /portal/* and reach Vite through the artifact router.
+// In production (api-server serving static files), BASE_PATH is not set → "/".
+const basePath = process.env.BASE_PATH ?? "/";
 
 export default defineConfig({
   base: basePath,
