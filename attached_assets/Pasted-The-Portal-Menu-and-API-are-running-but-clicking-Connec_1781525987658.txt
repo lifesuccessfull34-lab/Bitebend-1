@@ -1,0 +1,79 @@
+The Portal, Menu and API are running, but clicking **"Connect WhatsApp"** shows:
+
+"WhatsApp Bridge unreachable. Make sure the bridge service is running."
+
+Please investigate the actual integration between Bitebend and the WhatsApp Bridge.
+
+Facts already verified:
+
+* WhatsApp Bridge code exists at:
+  `services/whatsapp-bridge`
+* The bridge starts successfully:
+  `WhatsApp Bridge running on port 3001`
+* Session store: file
+* Hook configured:
+  `http://localhost:5000/api/whatsapp/incoming`
+
+The issue is not that the bridge package is missing.
+
+Please perform the following checks:
+
+1. Verify the Portal code for the "Connect WhatsApp" button.
+
+   * Which API endpoint is called?
+   * What URL is it trying to reach?
+   * Show the exact request.
+
+2. Verify the API server routes.
+
+   * Search for:
+
+     * whatsapp
+     * bridge
+     * connect
+     * qr
+   * List all WhatsApp-related endpoints.
+
+3. Check whether the API is trying to reach:
+
+   * localhost:3001
+   * 127.0.0.1:3001
+   * bridge service URL
+   * environment variable
+
+4. Test bridge connectivity directly:
+
+   curl http://localhost:3001
+   curl http://localhost:3001/health
+
+   If those fail, identify why.
+
+5. Check bridge logs while clicking "Connect WhatsApp".
+
+   * Does any request reach the bridge?
+   * If not, identify where the request is blocked.
+
+6. Verify environment variables used for bridge communication.
+   Look for:
+
+   * WHATSAPP_BRIDGE_URL
+   * BRIDGE_URL
+   * WHATSAPP_API_URL
+   * any bridge-related config
+
+7. Trace the full flow:
+
+   Portal button
+   → API endpoint
+   → Bridge endpoint
+   → QR generation
+
+   Identify exactly where it breaks.
+
+8. Fix the issue and prove it by:
+
+   * Clicking Connect WhatsApp
+   * Showing QR code generation
+   * Showing the bridge receiving the request
+
+Do not assume the bridge is down simply because the UI says "unreachable". The bridge process starts successfully on port 3001, so find the actual communication failure between Bitebend and the bridge.
