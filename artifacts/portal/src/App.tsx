@@ -302,6 +302,13 @@ function Router() {
       {/* ── Public resource portal (no auth required) ────────────────── */}
       <Route path="/portal/resources"        component={ResourcesCenterPage} />
 
+      {/* ── /portal/* → strip prefix and redirect (Replit canvas artifact iframe compat) ── */}
+      <Route path="/portal/:rest*" component={({ params }: { params: { rest?: string } }) => {
+        const rest = params.rest ?? "";
+        return <Redirect to={rest ? `/${rest}` : "/"} />;
+      }} />
+      <Route path="/portal" component={() => <Redirect to="/" />} />
+
       {/* ── Admin protected (super_admin only) ───────────────────────── */}
       <Route path="/admin/resources"         component={ResourcesManagePage} />
       <Route path="/admin/dashboard"         component={AdminDashboardPage} />
