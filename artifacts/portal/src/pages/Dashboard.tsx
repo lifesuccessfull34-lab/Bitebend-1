@@ -105,6 +105,8 @@ interface BillData {
   customerPhone: string;
   restaurantName: string;
   tableNumber: string | null;
+  deliveryMethod?: "bridge" | "deeplink";
+  sent?: boolean;
 }
 
 // ─── Status tracker ────────────────────────────────────────────────────────────
@@ -282,15 +284,24 @@ export default function Dashboard() {
     setBillLoading(orderId);
     try {
       const data = await apiFetch<BillData>(`/owner/orders/${orderId}/bill`);
-      if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
-      // Close the previous WhatsApp tab if the staff hasn't closed it yet.
-      // window.close() works on script-opened windows regardless of COOP —
-      // Chrome grants close permission based on who opened the window, not origin.
-      if (waWindowRef.current && !waWindowRef.current.closed) {
-        waWindowRef.current.close();
+
+      if (data.deliveryMethod === "bridge" && data.sent) {
+        // Message was delivered automatically via the connected WhatsApp Bridge.
+        // No need to open a browser tab — customer already received the bill.
+        toast.success(`Bill sent to ${data.customerName} via WhatsApp ✓`);
+      } else {
+        // Bridge not connected or send failed — fall back to wa.me deep-link.
+        // Staff opens WhatsApp Web and taps Send manually.
+        if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
+        // Close the previous WhatsApp tab if the staff hasn't closed it yet.
+        // window.close() works on script-opened windows regardless of COOP —
+        // Chrome grants close permission based on who opened the window, not origin.
+        if (waWindowRef.current && !waWindowRef.current.closed) {
+          waWindowRef.current.close();
+        }
+        waWindowRef.current = window.open(data.whatsappUrl, "_blank") ?? null;
+        toast.success("WhatsApp opened — tap Send to deliver the bill");
       }
-      waWindowRef.current = window.open(data.whatsappUrl, "_blank") ?? null;
-      toast.success("WhatsApp opened — tap Send to deliver the bill");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Unable to send payment bill");
       setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed to send bill" }));

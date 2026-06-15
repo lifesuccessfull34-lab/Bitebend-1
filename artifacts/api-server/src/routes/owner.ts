@@ -32,6 +32,39 @@ import {
   type BillResult,
 } from "../lib/billService";
 
+const BRIDGE_URL = process.env.BRIDGE_URL ?? "http://localhost:3001";
+const BRIDGE_API_SECRET = process.env.BRIDGE_API_SECRET ?? "";
+
+async function tryBridgeSend(
+  restaurantId: number,
+  phone: string,
+  message: string,
+): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (BRIDGE_API_SECRET) headers["x-bridge-secret"] = BRIDGE_API_SECRET;
+
+    const statusRes = await fetch(`${BRIDGE_URL}/api/whatsapp/status/${restaurantId}`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(3000),
+    });
+    const statusData = (await statusRes.json()) as { status?: string };
+    if (statusData.status !== "connected") return false;
+
+    const sendRes = await fetch(`${BRIDGE_URL}/api/send-message`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ restaurantId, phone, message }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const sendData = (await sendRes.json()) as { success?: boolean };
+    return sendData.success === true;
+  } catch {
+    return false;
+  }
+}
+
 const router = Router();
 
 function getQrUrl(restaurantSlug: string, tableId: number): string {
@@ -955,7 +988,19 @@ const getBill: RequestHandler = async (req, res) => {
     billUrl: shortUrl,
   });
 
-  req.log.info({ orderId, restaurantId: user.restaurantId, shortId }, "bill_send_success");
+  // Try sending via the connected WhatsApp Bridge first.
+  // If the bridge is not connected, not running, or returns an error, we fall
+  // back silently to the wa.me deep-link so the UI can open WhatsApp manually.
+  const sentViaBridge = await tryBridgeSend(
+    user.restaurantId!,
+    order.customerPhone,
+    message,
+  );
+
+  req.log.info(
+    { orderId, restaurantId: user.restaurantId, shortId, sentViaBridge },
+    "bill_send_success",
+  );
 
   res.json({
     billUrl: shortUrl,
@@ -966,8 +1011,10 @@ const getBill: RequestHandler = async (req, res) => {
     customerPhone: order.customerPhone,
     restaurantName: restaurant?.name ?? "Restaurant",
     tableNumber: order.tableNumber ?? null,
-    // full token URL for direct image access if needed
     imageUrl: `${billUrl}/image`,
+    // deliveryMethod tells the portal how the message was dispatched
+    deliveryMethod: sentViaBridge ? "bridge" : "deeplink",
+    sent: sentViaBridge,
   });
 };
 
