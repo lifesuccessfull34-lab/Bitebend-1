@@ -126,10 +126,10 @@ if (process.env.NODE_ENV !== "production") {
     }),
   );
   // Portal catch-all: proxy everything that isn't /api, /menu, /whatsapp-bridge
-  // to the portal Vite dev server (which now serves at base path "/").
+  // to the portal Vite dev server (port 5000 with BASE_PATH=/portal/).
   app.use(
     createProxyMiddleware({
-      target: "http://localhost:3000",
+      target: "http://localhost:5000",
       changeOrigin: true,
       ws: true,
       pathFilter: (path) =>
