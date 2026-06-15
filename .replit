@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "postgresql-16"]
+modules = ["nodejs-20", "web", "bash"]
 
   [deployment]
   router = "application"
@@ -42,13 +42,13 @@ outputType = "console"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/portal run dev"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=3000 pnpm --filter @workspace/portal run dev & PORT=5173 pnpm --filter @workspace/menu run dev & sleep 8 && node artifacts/api-server/dist/migrate.mjs && NODE_ENV=development node --enable-source-maps artifacts/api-server/dist/index.mjs"
+waitForPort = 5000
 
   [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -69,10 +69,6 @@ externalPort = 3001
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3002
 
 [[ports]]
 localPort = 5173
@@ -99,4 +95,5 @@ channel = "stable-25_05"
   SITE_URL = "https://bitebend.in"
 
 [userenv.shared]
+PORT = "5000"
   
