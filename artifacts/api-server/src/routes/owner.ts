@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
 import { requireOwner } from "../middlewares/auth";
+import { logger } from "../lib/logger";
 import QRCode from "qrcode";
 import bcrypt from "bcrypt";
 import type { RequestHandler, Request, Response } from "express";
@@ -50,7 +51,12 @@ async function tryBridgeSend(
       signal: AbortSignal.timeout(3000),
     });
     const statusData = (await statusRes.json()) as { status?: string };
-    if (statusData.status !== "connected") return false;
+    logger.info({ restaurantId, bridgeStatus: statusData.status }, "[tryBridgeSend] bridge status response");
+
+    if (statusData.status !== "connected") {
+      logger.info({ restaurantId, bridgeStatus: statusData.status }, "[tryBridgeSend] not connected — falling back to deeplink");
+      return false;
+    }
 
     const sendRes = await fetch(`${BRIDGE_URL}/api/send-message`, {
       method: "POST",
@@ -58,9 +64,12 @@ async function tryBridgeSend(
       body: JSON.stringify({ restaurantId, phone, message }),
       signal: AbortSignal.timeout(10000),
     });
-    const sendData = (await sendRes.json()) as { success?: boolean };
+    const sendData = (await sendRes.json()) as { success?: boolean; error?: string };
+    logger.info({ restaurantId, phone, sendSuccess: sendData.success, sendError: sendData.error }, "[tryBridgeSend] send-message response");
+
     return sendData.success === true;
-  } catch {
+  } catch (err) {
+    logger.warn({ restaurantId, error: (err as Error).message }, "[tryBridgeSend] exception — falling back to deeplink");
     return false;
   }
 }
