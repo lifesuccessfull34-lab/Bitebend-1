@@ -440,7 +440,12 @@ const listOrders: RequestHandler = async (req, res) => {
     itemsByOrder.get(item.orderId)!.push(item);
   }
 
-  res.json(allOrders.map((o) => ({ ...o, items: itemsByOrder.get(o.id) ?? [] })));
+  res.json(allOrders.map((o) => ({
+    ...o,
+    paymentScreenshotUrl: null,          // excluded from list — fetch individually on demand
+    hasScreenshot: !!o.paymentScreenshotUrl,
+    items: itemsByOrder.get(o.id) ?? [],
+  })));
 };
 
 const getOwnerOrder: RequestHandler = async (req, res) => {

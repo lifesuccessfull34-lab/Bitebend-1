@@ -141,7 +141,8 @@ export interface Order {
   paymentStatus: "unpaid" | "paid" | "manual_review" | "awaiting_verification";
   paymentMethod: string | null;
   notes: string | null;
-  paymentScreenshotUrl: string | null;
+  paymentScreenshotUrl: string | null;  // null in list responses — only present in individual order fetch
+  hasScreenshot?: boolean;
   paymentOcrData: string | null;
   paymentVerificationStatus: string | null;
   verificationMethod: string | null;

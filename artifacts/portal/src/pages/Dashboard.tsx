@@ -174,6 +174,8 @@ export default function Dashboard() {
 
   // Staff confirm-payment modal state (screenshot viewer + manual verification)
   const [confirmPaymentOrderId, setConfirmPaymentOrderId] = useState<number | null>(null);
+  const [modalFullOrder, setModalFullOrder]               = useState<Order | null>(null);
+  const [modalOrderLoading, setModalOrderLoading]         = useState(false);
   const [confirmUtr, setConfirmUtr]                       = useState("");
   const [confirmNotes, setConfirmNotes]                   = useState("");
   const [isConfirmingPayment, setIsConfirmingPayment]     = useState(false);
@@ -362,9 +364,16 @@ export default function Dashboard() {
 
   const openConfirmPaymentModal = (orderId: number) => {
     setConfirmPaymentOrderId(orderId);
+    setModalFullOrder(null);
     setConfirmUtr("");
     setConfirmNotes("");
     setImageZoomed(false);
+    // Fetch the full order (including paymentScreenshotUrl blob) individually
+    setModalOrderLoading(true);
+    apiFetch<Order>(`/owner/orders/${orderId}`)
+      .then((o) => setModalFullOrder(o))
+      .catch(() => { /* fall back to list-state order */ })
+      .finally(() => setModalOrderLoading(false));
   };
 
   const handleConfirmStaffPayment = async () => {
@@ -415,7 +424,7 @@ export default function Dashboard() {
   });
 
   const screenshotQueue = orders.filter(
-    (o) => o.paymentStatus === "awaiting_verification" && !!o.paymentScreenshotUrl
+    (o) => o.paymentStatus === "awaiting_verification" && (o.hasScreenshot ?? !!o.paymentScreenshotUrl)
   );
 
   const subBanner = (() => {
@@ -924,16 +933,19 @@ export default function Dashboard() {
 
       {/* ── Payment Proof Modal (screenshot viewer + manual verification) ── */}
       {(() => {
-        const modalOrder = confirmPaymentOrderId !== null
+        // Use the individually-fetched full order (has paymentScreenshotUrl blob).
+        // Fall back to the list-state order (no blob) for metadata while loading.
+        const listOrder = confirmPaymentOrderId !== null
           ? orders.find((o) => o.id === confirmPaymentOrderId) ?? null
           : null;
-        const hasScreenshot = !!modalOrder?.paymentScreenshotUrl;
+        const modalOrder = modalFullOrder ?? listOrder;
+        const hasScreenshot = !!(modalFullOrder?.paymentScreenshotUrl ?? listOrder?.hasScreenshot);
         // Backward-compat: stored value is always the full data URL from FileReader.readAsDataURL()
         // (e.g. "data:image/jpeg;base64,/9j/..."). Legacy rows that somehow contain raw base64
         // only (no "data:" prefix) are handled by the fallback branch.
-        const screenshotSrc = modalOrder?.paymentScreenshotUrl?.startsWith("data:")
-          ? modalOrder.paymentScreenshotUrl
-          : `data:image/jpeg;base64,${modalOrder?.paymentScreenshotUrl}`;
+        const screenshotSrc = modalFullOrder?.paymentScreenshotUrl?.startsWith("data:")
+          ? modalFullOrder.paymentScreenshotUrl
+          : `data:image/jpeg;base64,${modalFullOrder?.paymentScreenshotUrl}`;
 
         return (
           <Dialog
@@ -979,7 +991,10 @@ export default function Dashboard() {
                 {hasScreenshot && (
                   <div className="rounded-lg border overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-2 bg-muted border-b">
-                      <p className="text-xs font-semibold text-muted-foreground">Payment Screenshot</p>
+                      <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+                        Payment Screenshot
+                        {modalOrderLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                      </p>
                       <div className="flex items-center gap-1">
                         <Button
                           size="sm" variant="ghost"
