@@ -127,9 +127,22 @@ export interface OrderItem {
   notes: string | null;
 }
 
+export interface SessionSummary {
+  id: number;
+  tableNumber: string;
+  status: "active" | "awaiting_payment" | "awaiting_verification" | "paid" | "closed";
+  orderCount: number;
+  itemCount: number;
+  totalAmount: number;
+  createdAt: string;
+  updatedAt: string;
+  orders: Order[];
+}
+
 export interface Order {
   id: number;
   restaurantId: number;
+  sessionId: number | null;
   tableId: number | null;
   tableNumber: string | null;
   customerName: string;

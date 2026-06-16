@@ -10,6 +10,7 @@ import {
   subscriptionTransactions,
   users,
   imageBlobs,
+  tableSessions,
 } from "@workspace/db";
 import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
 import { requireOwner } from "../middlewares/auth";
@@ -1344,6 +1345,86 @@ const getCustomerAnalytics: RequestHandler = async (req, res) => {
 
 // ─── Stats ────────────────────────────────────────────────────────────────────
 
+// ─── Sessions: table session summary with embedded orders ─────────────────────
+
+const listSessions: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.json([]); return; }
+
+  const { status } = req.query as { status?: string };
+
+  const sessionRows = await db
+    .select()
+    .from(tableSessions)
+    .where(
+      and(
+        eq(tableSessions.restaurantId, user.restaurantId),
+        status && status !== "all"
+          ? eq(tableSessions.status, status as "active" | "awaiting_payment" | "awaiting_verification" | "paid" | "closed")
+          : undefined,
+      ),
+    )
+    .orderBy(desc(tableSessions.createdAt));
+
+  if (sessionRows.length === 0) { res.json([]); return; }
+
+  const sessionIds = sessionRows.map((s) => s.id);
+
+  const sessionOrders = await db
+    .select()
+    .from(orders)
+    .where(inArray(orders.sessionId, sessionIds))
+    .orderBy(desc(orders.createdAt));
+
+  const orderIds = sessionOrders.map((o) => o.id);
+  const allItems = orderIds.length > 0
+    ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds))
+    : [];
+
+  const itemsByOrder = new Map<number, typeof allItems>();
+  for (const item of allItems) {
+    if (!itemsByOrder.has(item.orderId)) itemsByOrder.set(item.orderId, []);
+    itemsByOrder.get(item.orderId)!.push(item);
+  }
+
+  const ordersWithItems = sessionOrders.map((o) => ({
+    ...o,
+    paymentScreenshotUrl: null,
+    hasScreenshot: !!o.paymentScreenshotUrl,
+    items: itemsByOrder.get(o.id) ?? [],
+  }));
+
+  const ordersBySession = new Map<number, typeof ordersWithItems>();
+  for (const o of ordersWithItems) {
+    if (o.sessionId !== null) {
+      if (!ordersBySession.has(o.sessionId)) ordersBySession.set(o.sessionId, []);
+      ordersBySession.get(o.sessionId)!.push(o);
+    }
+  }
+
+  res.json(
+    sessionRows.map((session) => {
+      const sessionOrdersList = ordersBySession.get(session.id) ?? [];
+      const itemCount = sessionOrdersList.reduce(
+        (sum, o) => sum + o.items.reduce((s, item) => s + item.quantity, 0),
+        0,
+      );
+      const totalAmount = sessionOrdersList.reduce((sum, o) => sum + o.total, 0);
+      return {
+        id: session.id,
+        tableNumber: session.tableNumber,
+        status: session.status,
+        createdAt: session.createdAt.toISOString(),
+        updatedAt: session.updatedAt.toISOString(),
+        orderCount: sessionOrdersList.length,
+        itemCount,
+        totalAmount,
+        orders: sessionOrdersList,
+      };
+    }),
+  );
+};
+
 const getStats: RequestHandler = async (req, res) => {
   const user = req.user!;
   if (!user.restaurantId) {
@@ -1572,6 +1653,7 @@ router.patch("/owner/orders/:orderId/reject-payment", requireOwner, rejectPaymen
 router.post("/owner/orders/:orderId/confirm-staff-payment", requireOwner, confirmStaffPayment);
 
 router.get("/owner/stats", requireOwner, getStats);
+router.get("/owner/sessions", requireOwner, listSessions);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);
 
 // ─── Image Upload ─────────────────────────────────────────────────────────────

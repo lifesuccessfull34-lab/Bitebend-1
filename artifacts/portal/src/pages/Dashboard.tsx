@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
-import type { Order, DashboardStats } from "@/lib/types";
+import type { Order, DashboardStats, SessionSummary } from "@/lib/types";
 import {
   IndianRupee,
   ShoppingBag,
@@ -29,6 +29,9 @@ import {
   ZoomIn,
   ZoomOut,
   ExternalLink,
+  ChevronDown,
+  ChevronUp,
+  UtensilsCrossed,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -159,6 +162,8 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const [stats, setStats]   = useState<DashboardStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [expandedSessions, setExpandedSessions] = useState<Set<number>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId]       = useState<number | null>(null);
   const [payingId, setPayingId]           = useState<number | null>(null);
@@ -182,12 +187,6 @@ export default function Dashboard() {
   const [isRejectingFromModal, setIsRejectingFromModal]   = useState(false);
 
   // Tracks the last WhatsApp tab opened by "Send Bill".
-  // window.open(url, "named_window") cannot reuse a tab after wa.me redirects to
-  // api.whatsapp.com — that domain sets Cross-Origin-Opener-Policy:
-  // same-origin-allow-popups, which moves the tab into a new browsing context
-  // group, making it invisible to any subsequent named-window lookup.
-  // Storing the reference lets us close the previous tab before opening a new
-  // one, so only one WhatsApp tab ever exists at a time.
   const waWindowRef = useRef<Window | null>(null);
 
   // Bill state — server generates the image; we just track loading per order
@@ -199,12 +198,14 @@ export default function Dashboard() {
   const fetchData = useCallback(async () => {
     if (!user) return;
     try {
-      const [statsData, ordersData] = await Promise.all([
+      const [statsData, ordersData, sessionsData] = await Promise.all([
         apiFetch<DashboardStats>("/owner/stats"),
         apiFetch<Order[]>("/owner/orders"),
+        apiFetch<SessionSummary[]>("/owner/sessions"),
       ]);
       setStats(statsData);
       setOrders(ordersData);
+      setSessions(sessionsData);
     } catch { /* silently fail on poll */ } finally {
       setLoading(false);
     }
@@ -277,10 +278,6 @@ export default function Dashboard() {
     }
   };
 
-  // ─── Send Payment Bill ────────────────────────────────────────────────────
-  // Server generates the bill PNG and returns a hosted public URL + WhatsApp
-  // deep-link with the bill URL pre-filled. Restaurant staff tap one button,
-  // WhatsApp opens with the message ready — no download, no attachment needed.
   const handleSendPaymentBill = async (orderId: number) => {
     clearError(orderId);
     setBillLoading(orderId);
@@ -288,16 +285,9 @@ export default function Dashboard() {
       const data = await apiFetch<BillData>(`/owner/orders/${orderId}/bill`);
 
       if (data.deliveryMethod === "bridge" && data.sent) {
-        // Message was delivered automatically via the connected WhatsApp Bridge.
-        // No need to open a browser tab — customer already received the bill.
         toast.success(`Bill sent to ${data.customerName} via WhatsApp ✓`);
       } else {
-        // Bridge not connected or send failed — fall back to wa.me deep-link.
-        // Staff opens WhatsApp Web and taps Send manually.
         if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
-        // Close the previous WhatsApp tab if the staff hasn't closed it yet.
-        // window.close() works on script-opened windows regardless of COOP —
-        // Chrome grants close permission based on who opened the window, not origin.
         if (waWindowRef.current && !waWindowRef.current.closed) {
           waWindowRef.current.close();
         }
@@ -368,7 +358,6 @@ export default function Dashboard() {
     setConfirmUtr("");
     setConfirmNotes("");
     setImageZoomed(false);
-    // Fetch the full order (including paymentScreenshotUrl blob) individually
     setModalOrderLoading(true);
     apiFetch<Order>(`/owner/orders/${orderId}`)
       .then((o) => setModalFullOrder(o))
@@ -416,7 +405,16 @@ export default function Dashboard() {
     e.target.value = "";
   };
 
+  // Orders in active sessions — excluded from the legacy orders list
+  const activeSessionOrderIds = new Set(
+    sessions
+      .filter((s) => s.status === "active")
+      .flatMap((s) => s.orders.map((o) => o.id)),
+  );
+
   const filteredOrders = orders.filter((o) => {
+    // Orders in active sessions are shown in the Sessions section, not here
+    if (activeSessionOrderIds.has(o.id)) return false;
     if (filter === "active")    return ACTIVE_STATUSES.includes(o.status);
     if (filter === "completed") return o.status === "completed";
     if (filter === "cancelled") return o.status === "cancelled" || o.status === "payment_failed";
@@ -469,11 +467,313 @@ export default function Dashboard() {
     return null;
   })();
 
+  // ─── Order card renderer (shared between sessions view and legacy orders) ─────
+
+  const renderOrderCard = (order: Order, i: number) => {
+    const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.ordered;
+    const nextStatus = getNextStatus(order.status);
+    const isUpdating = updatingId === order.id;
+    const isPaying   = payingId === order.id;
+    const isActive   = ACTIVE_STATUSES.includes(order.status);
+    const isUnpaid   = order.paymentStatus !== "paid";
+    const isManualReview = order.paymentStatus === "manual_review";
+    const isAwaitingVerification = order.paymentStatus === "awaiting_verification";
+    const orderError = orderErrors[order.id];
+    const isPendingUpiVerification =
+      order.status === "awaiting_confirmation" &&
+      order.paymentMethod === "upi" &&
+      order.paymentStatus !== "paid";
+    const utr = isPendingUpiVerification ? extractUtr(order.notes) : null;
+    const isVerifying        = verifyingId === order.id;
+    const isRejecting        = rejectingId === order.id;
+    const isUploadingProof   = uploadingProofId === order.id;
+    const isApproving        = approvingId === order.id;
+    const isRejectingPayment = rejectingPaymentId === order.id;
+
+    let ocrData: OcrData | null = null;
+    if (order.paymentOcrData) {
+      try { ocrData = JSON.parse(order.paymentOcrData) as OcrData; } catch { /* ignore */ }
+    }
+
+    const verificationStatus = order.paymentVerificationStatus;
+    const isAiVerified      = verificationStatus === "ai_verified";
+    const isApproved        = verificationStatus === "approved";
+    const isRejectedPayment = verificationStatus === "rejected";
+
+    return (
+      <div key={order.id} className={cn("p-4 transition-colors", i % 2 === 0 ? "bg-[#F9FAFB] hover:bg-[#F1F3F5]" : "bg-[#EEF2FF] hover:bg-[#E5EAFC]")}>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+
+          {/* Left: order info */}
+          <div className="flex-1 min-w-0">
+            {/* Badges */}
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="font-bold text-sm">#{order.id}</span>
+              {order.tableNumber && (
+                <span className="text-xs bg-muted px-2 py-0.5 rounded-full font-medium">Table {order.tableNumber}</span>
+              )}
+              <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", cfg.color)}>{cfg.label}</span>
+
+              {order.paymentStatus === "paid" && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium flex items-center gap-1">
+                  {(isAiVerified || isApproved) && <BadgeCheck className="w-3 h-3" />}
+                  ✓ Paid
+                  {isAiVerified && <span className="text-[10px] text-green-500 ml-0.5">AI</span>}
+                </span>
+              )}
+              {isAwaitingVerification && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-300 font-semibold flex items-center gap-1">
+                  <UserCheck className="w-3 h-3" />
+                  Awaiting Verification
+                </span>
+              )}
+              {isManualReview && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-300 font-semibold flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />
+                  Review Required
+                </span>
+              )}
+              {order.paymentStatus === "unpaid" && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-300 font-semibold">UNPAID</span>
+              )}
+              {isRejectedPayment && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 font-medium">Rejected</span>
+              )}
+              {order.paymentMethod && (
+                <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-muted text-muted-foreground border-border">
+                  {order.paymentMethod === "cash"
+                    ? "Cash Payment"
+                    : order.paymentMethod === "upi" || order.paymentMethod === "razorpay"
+                    ? "QR · Online Payment"
+                    : order.paymentMethod}
+                </span>
+              )}
+            </div>
+
+            <p className="text-sm font-medium">{order.customerName}</p>
+            <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
+
+            <StatusTracker status={order.status} />
+
+            {/* Unpaid warning */}
+            {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                Payment pending — send payment bill to collect
+              </div>
+            )}
+
+            {/* Error */}
+            {orderError && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {orderError}
+              </div>
+            )}
+
+            {/* Items */}
+            <div className="mt-2 space-y-0.5">
+              {order.items.map((item) => (
+                <div key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", item.isVeg ? "bg-green-500" : "bg-red-500")} />
+                  <span>{item.quantity}× {item.name}</span>
+                  <span className="ml-auto font-medium text-foreground">₹{item.unitPrice * item.quantity}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 flex items-center gap-3 text-xs">
+              <span className="text-muted-foreground">Subtotal ₹{order.subtotal}</span>
+              {order.tax > 0 && <span className="text-muted-foreground">Tax ₹{order.tax}</span>}
+              <span className="font-bold text-foreground">Total ₹{order.total}</span>
+            </div>
+            {order.notes && (
+              <p className="mt-1 text-xs text-muted-foreground italic">Note: {order.notes}</p>
+            )}
+
+            {/* OCR / AI verification panel */}
+            {ocrData && (
+              <div className={cn(
+                "mt-3 rounded-lg border p-3",
+                !ocrData.ocrConfigured ? "border-slate-200 bg-slate-50"
+                  : isAiVerified        ? "border-green-200 bg-green-50"
+                  : "border-amber-200 bg-amber-50",
+              )}>
+                {!ocrData.ocrConfigured ? (
+                  <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                    <ScanLine className="w-3.5 h-3.5 shrink-0" />
+                    OCR not configured — screenshot saved for manual review
+                  </p>
+                ) : (
+                  <>
+                    <p className={cn("text-xs font-semibold flex items-center gap-1.5 mb-2", isAiVerified ? "text-green-800" : "text-amber-800")}>
+                      {isAiVerified
+                        ? <><BadgeCheck className="w-3.5 h-3.5 shrink-0" />AI Verified Payment</>
+                        : <><AlertTriangle className="w-3.5 h-3.5 shrink-0" />Low Confidence — Manual Review</>}
+                      <span className="ml-auto font-mono text-[10px]">{ocrData.confidence}% confidence</span>
+                    </p>
+                    <div className={cn("space-y-1 text-xs", isAiVerified ? "text-green-700" : "text-amber-700")}>
+                      {ocrData.utr    && <div className="flex justify-between"><span className="opacity-70">UTR</span><span className="font-mono font-bold">{ocrData.utr}</span></div>}
+                      {ocrData.amount !== null && <div className="flex justify-between"><span className="opacity-70">Amount</span><span className="font-bold">₹{ocrData.amount}</span></div>}
+                      {ocrData.status && <div className="flex justify-between"><span className="opacity-70">Status</span><span className="font-semibold capitalize">{ocrData.status}</span></div>}
+                      {ocrData.merchant && <div className="flex justify-between"><span className="opacity-70">Merchant</span><span>{ocrData.merchant}</span></div>}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Legacy UPI verification panel */}
+            {isPendingUpiVerification && (
+              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  Payment Pending Verification
+                </p>
+                <div className="space-y-1 text-xs text-amber-700">
+                  <div className="flex justify-between"><span className="text-amber-600">Order</span><span className="font-mono font-bold text-amber-900">#{order.id}</span></div>
+                  <div className="flex justify-between"><span className="text-amber-600">Amount</span><span className="font-bold text-amber-900">₹{order.total}</span></div>
+                  {utr ? (
+                    <div className="flex justify-between items-center mt-1 pt-1 border-t border-amber-200">
+                      <span className="text-amber-600">UTR</span>
+                      <span className="font-mono font-bold tracking-wider text-amber-900 text-sm">{utr}</span>
+                    </div>
+                  ) : (
+                    <div className="mt-1 pt-1 border-t border-amber-200 text-amber-600 italic">No UTR provided</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right: action buttons */}
+          <div className="flex flex-row flex-wrap gap-2 sm:flex-col sm:shrink-0 sm:min-w-[148px]">
+
+            {/* Legacy UPI verify/reject */}
+            {isPendingUpiVerification && (<>
+              <Button size="sm" className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => handleVerifyUpi(order.id)} disabled={isVerifying || isRejecting}>
+                {isVerifying ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                Verify Payment
+              </Button>
+              <Button size="sm" variant="outline" className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
+                onClick={() => handleRejectUpi(order.id)} disabled={isVerifying || isRejecting}>
+                {isRejecting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                Reject Payment
+              </Button>
+            </>)}
+
+            {/* Screenshot viewer / manual verify */}
+            {isAwaitingVerification && (
+              order.paymentScreenshotUrl ? (
+                <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={() => openConfirmPaymentModal(order.id)}>
+                  <Eye className="w-3 h-3 mr-1" />
+                  View Screenshot
+                </Button>
+              ) : (
+                <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={() => openConfirmPaymentModal(order.id)}>
+                  <UserCheck className="w-3 h-3 mr-1" />
+                  Verify Payment
+                </Button>
+              )
+            )}
+
+            {/* Approve / Reject for manual_review */}
+            {isManualReview && !isPendingUpiVerification && (<>
+              <Button size="sm" className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => openConfirmPaymentModal(order.id)} disabled={isApproving || isRejectingPayment}>
+                {isApproving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                Approve Paid
+              </Button>
+              <Button size="sm" variant="outline" className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
+                onClick={() => handleRejectPayment(order.id)} disabled={isApproving || isRejectingPayment}>
+                {isRejectingPayment ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
+                Reject
+              </Button>
+            </>)}
+
+            {/* Advance status */}
+            {nextStatus && !isPendingUpiVerification && !isManualReview && (
+              <Button size="sm" className="w-full text-xs h-8 bg-orange-500 hover:bg-orange-600 text-white"
+                onClick={() => handleStatusUpdate(order.id, nextStatus)} disabled={isUpdating}>
+                {isUpdating && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                {nextStatus === "preparing" && "Mark Preparing"}
+                {nextStatus === "ready"     && "Mark Ready"}
+                {nextStatus === "completed" && "Mark Completed"}
+              </Button>
+            )}
+
+            {/* Upload screenshot for AI verification */}
+            {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && !ocrData && (
+              <Button size="sm" variant="outline"
+                className="w-full text-xs h-8 text-blue-700 border-blue-300 hover:bg-blue-50"
+                disabled={isUploadingProof}
+                onClick={() => {
+                  uploadOrderIdRef.current = order.id;
+                  fileInputRef.current?.click();
+                }}>
+                {isUploadingProof ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
+                Upload Screenshot
+              </Button>
+            )}
+
+            {/* ── SEND PAYMENT BILL (single combined action) ── */}
+            <Button
+              size="sm"
+              className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => void handleSendPaymentBill(order.id)}
+              disabled={billLoading === order.id}
+            >
+              {billLoading === order.id
+                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                : <Send className="w-3 h-3 mr-1" />}
+              Send Payment Bill
+            </Button>
+
+            {/* ── MARK AS PAID ── */}
+            {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
+              <Button
+                size="sm"
+                className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
+                onClick={() => handleMarkPaid(order.id)}
+                disabled={isPaying}
+              >
+                {isPaying ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                Mark as Paid
+              </Button>
+            )}
+
+            {/* Cancel */}
+            {order.status !== "completed" && order.status !== "cancelled" && (
+              <Button size="sm" variant="ghost"
+                className="w-full text-xs h-8 text-destructive hover:text-destructive"
+                onClick={() => handleStatusUpdate(order.id, "cancelled")} disabled={isUpdating}>
+                Cancel Order
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground mt-2">
+          {new Date(order.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+          {" · "}
+          {new Date(order.createdAt).toLocaleDateString("en-IN")}
+        </p>
+      </div>
+    );
+  };
+
+  // ─── Active sessions (only those with at least one order) ─────────────────────
+  const activeSessions = sessions.filter(
+    (s) => s.status === "active" && s.orderCount > 0,
+  );
+
   return (
     <AppShell>
       {/* Hidden file input for screenshot upload */}
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileSelected} />
-
 
       <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
@@ -602,10 +902,102 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Orders */}
+        {/* ── Active Sessions ────────────────────────────────────────────── */}
+        {loading ? null : activeSessions.length > 0 && (
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+              <UtensilsCrossed className="w-4 h-4 text-orange-500 shrink-0" />
+              <h2 className="text-base font-semibold">Active Sessions</h2>
+              <span className="ml-2 text-xs bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 font-semibold">
+                {activeSessions.length} {activeSessions.length === 1 ? "table" : "tables"}
+              </span>
+            </div>
+            <div className="divide-y divide-border">
+              {activeSessions.map((session) => {
+                const isExpanded = expandedSessions.has(session.id);
+                const hasUnpaidOrders = session.orders.some(
+                  (o) => ACTIVE_STATUSES.includes(o.status) && o.paymentStatus !== "paid",
+                );
+                const activeOrderCount = session.orders.filter((o) => ACTIVE_STATUSES.includes(o.status)).length;
+
+                return (
+                  <div key={session.id}>
+                    {/* Session header row — always visible */}
+                    <button
+                      className="w-full p-4 flex items-center gap-3 hover:bg-muted/30 transition-colors text-left"
+                      onClick={() =>
+                        setExpandedSessions((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(session.id)) next.delete(session.id);
+                          else next.add(session.id);
+                          return next;
+                        })
+                      }
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+                        <UtensilsCrossed className="w-5 h-5 text-orange-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="font-bold text-sm">Table {session.tableNumber}</span>
+                          <span className="text-xs bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium">
+                            Active
+                          </span>
+                          {hasUnpaidOrders && (
+                            <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+                              Unpaid
+                            </span>
+                          )}
+                          {activeOrderCount > 0 && (
+                            <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full font-medium">
+                              {activeOrderCount} in-progress
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{session.orderCount} {session.orderCount === 1 ? "order" : "orders"}</span>
+                          <span>·</span>
+                          <span>{session.itemCount} {session.itemCount === 1 ? "item" : "items"}</span>
+                          <span>·</span>
+                          <span className="font-semibold text-foreground">₹{session.totalAmount}</span>
+                          <span>·</span>
+                          <span>
+                            Since {new Date(session.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-muted-foreground ml-2">
+                        {isExpanded
+                          ? <ChevronUp className="w-4 h-4" />
+                          : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                    </button>
+
+                    {/* Expanded order list */}
+                    {isExpanded && (
+                      <div className="border-t border-border">
+                        {session.orders.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-muted-foreground">No orders in this session</div>
+                        ) : (
+                          <div className="divide-y divide-border">
+                            {session.orders.map((order, i) => renderOrderCard(order as Order, i))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Individual Orders (legacy / take-away) ────────────────────── */}
         <div className="bg-card rounded-xl border border-border">
           <div className="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-            <h2 className="text-base font-semibold shrink-0">Orders</h2>
+            <h2 className="text-base font-semibold shrink-0">
+              {activeSessions.length > 0 ? "Individual Orders" : "Orders"}
+            </h2>
             <div className="flex gap-1 flex-wrap">
               {["active", "completed", "cancelled", "all"].map((f) => (
                 <button
@@ -634,298 +1026,7 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="divide-y divide-border">
-              {filteredOrders.map((order, i) => {
-                const cfg       = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.ordered;
-                const nextStatus = getNextStatus(order.status);
-                const isUpdating = updatingId === order.id;
-                const isPaying   = payingId === order.id;
-                const isActive   = ACTIVE_STATUSES.includes(order.status);
-                const isUnpaid   = order.paymentStatus !== "paid";
-                const isManualReview = order.paymentStatus === "manual_review";
-                const isAwaitingVerification = order.paymentStatus === "awaiting_verification";
-                const orderError = orderErrors[order.id];
-                const isPendingUpiVerification =
-                  order.status === "awaiting_confirmation" &&
-                  order.paymentMethod === "upi" &&
-                  order.paymentStatus !== "paid";
-                const utr = isPendingUpiVerification ? extractUtr(order.notes) : null;
-                const isVerifying        = verifyingId === order.id;
-                const isRejecting        = rejectingId === order.id;
-                const isUploadingProof   = uploadingProofId === order.id;
-                const isApproving        = approvingId === order.id;
-                const isRejectingPayment = rejectingPaymentId === order.id;
-
-                let ocrData: OcrData | null = null;
-                if (order.paymentOcrData) {
-                  try { ocrData = JSON.parse(order.paymentOcrData) as OcrData; } catch { /* ignore */ }
-                }
-
-                const verificationStatus = order.paymentVerificationStatus;
-                const isAiVerified   = verificationStatus === "ai_verified";
-                const isApproved     = verificationStatus === "approved";
-                const isRejectedPayment = verificationStatus === "rejected";
-
-                return (
-                  <div key={order.id} className={cn("p-4 transition-colors", i % 2 === 0 ? "bg-[#F9FAFB] hover:bg-[#F1F3F5]" : "bg-[#EEF2FF] hover:bg-[#E5EAFC]")}>
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-
-                      {/* Left: order info */}
-                      <div className="flex-1 min-w-0">
-                        {/* Badges */}
-                        <div className="flex items-center gap-2 flex-wrap mb-1">
-                          <span className="font-bold text-sm">#{order.id}</span>
-                          {order.tableNumber && (
-                            <span className="text-xs bg-muted px-2 py-0.5 rounded-full font-medium">Table {order.tableNumber}</span>
-                          )}
-                          <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", cfg.color)}>{cfg.label}</span>
-
-                          {order.paymentStatus === "paid" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium flex items-center gap-1">
-                              {(isAiVerified || isApproved) && <BadgeCheck className="w-3 h-3" />}
-                              ✓ Paid
-                              {isAiVerified && <span className="text-[10px] text-green-500 ml-0.5">AI</span>}
-                            </span>
-                          )}
-                          {isAwaitingVerification && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-300 font-semibold flex items-center gap-1">
-                              <UserCheck className="w-3 h-3" />
-                              Awaiting Verification
-                            </span>
-                          )}
-                          {isManualReview && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-300 font-semibold flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" />
-                              Review Required
-                            </span>
-                          )}
-                          {order.paymentStatus === "unpaid" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-300 font-semibold">UNPAID</span>
-                          )}
-                          {isRejectedPayment && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 font-medium">Rejected</span>
-                          )}
-                          {order.paymentMethod && (
-                            <span className="text-xs px-2 py-0.5 rounded-full border font-medium bg-muted text-muted-foreground border-border">
-                              {order.paymentMethod === "cash"
-                                ? "Cash Payment"
-                                : order.paymentMethod === "upi" || order.paymentMethod === "razorpay"
-                                ? "QR · Online Payment"
-                                : order.paymentMethod}
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="text-sm font-medium">{order.customerName}</p>
-                        <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
-
-                        <StatusTracker status={order.status} />
-
-                        {/* Unpaid warning — not shown for awaiting_verification (has screenshot or showing at counter) */}
-                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && (
-                          <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                            Payment pending — send payment bill to collect
-                          </div>
-                        )}
-
-                        {/* Error */}
-                        {orderError && (
-                          <div className="mt-2 flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md px-2.5 py-1.5">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                            {orderError}
-                          </div>
-                        )}
-
-                        {/* Items */}
-                        <div className="mt-2 space-y-0.5">
-                          {order.items.map((item) => (
-                            <div key={item.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className={cn("w-2 h-2 rounded-full shrink-0", item.isVeg ? "bg-green-500" : "bg-red-500")} />
-                              <span>{item.quantity}× {item.name}</span>
-                              <span className="ml-auto font-medium text-foreground">₹{item.unitPrice * item.quantity}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="mt-2 flex items-center gap-3 text-xs">
-                          <span className="text-muted-foreground">Subtotal ₹{order.subtotal}</span>
-                          {order.tax > 0 && <span className="text-muted-foreground">Tax ₹{order.tax}</span>}
-                          <span className="font-bold text-foreground">Total ₹{order.total}</span>
-                        </div>
-                        {order.notes && (
-                          <p className="mt-1 text-xs text-muted-foreground italic">Note: {order.notes}</p>
-                        )}
-
-                        {/* OCR / AI verification panel */}
-                        {ocrData && (
-                          <div className={cn(
-                            "mt-3 rounded-lg border p-3",
-                            !ocrData.ocrConfigured ? "border-slate-200 bg-slate-50"
-                              : isAiVerified        ? "border-green-200 bg-green-50"
-                              : "border-amber-200 bg-amber-50",
-                          )}>
-                            {!ocrData.ocrConfigured ? (
-                              <p className="text-xs text-slate-600 flex items-center gap-1.5">
-                                <ScanLine className="w-3.5 h-3.5 shrink-0" />
-                                OCR not configured — screenshot saved for manual review
-                              </p>
-                            ) : (
-                              <>
-                                <p className={cn("text-xs font-semibold flex items-center gap-1.5 mb-2", isAiVerified ? "text-green-800" : "text-amber-800")}>
-                                  {isAiVerified
-                                    ? <><BadgeCheck className="w-3.5 h-3.5 shrink-0" />AI Verified Payment</>
-                                    : <><AlertTriangle className="w-3.5 h-3.5 shrink-0" />Low Confidence — Manual Review</>}
-                                  <span className="ml-auto font-mono text-[10px]">{ocrData.confidence}% confidence</span>
-                                </p>
-                                <div className={cn("space-y-1 text-xs", isAiVerified ? "text-green-700" : "text-amber-700")}>
-                                  {ocrData.utr    && <div className="flex justify-between"><span className="opacity-70">UTR</span><span className="font-mono font-bold">{ocrData.utr}</span></div>}
-                                  {ocrData.amount !== null && <div className="flex justify-between"><span className="opacity-70">Amount</span><span className="font-bold">₹{ocrData.amount}</span></div>}
-                                  {ocrData.status && <div className="flex justify-between"><span className="opacity-70">Status</span><span className="font-semibold capitalize">{ocrData.status}</span></div>}
-                                  {ocrData.merchant && <div className="flex justify-between"><span className="opacity-70">Merchant</span><span>{ocrData.merchant}</span></div>}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Legacy UPI verification panel */}
-                        {isPendingUpiVerification && (
-                          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                            <p className="text-xs font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
-                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                              Payment Pending Verification
-                            </p>
-                            <div className="space-y-1 text-xs text-amber-700">
-                              <div className="flex justify-between"><span className="text-amber-600">Order</span><span className="font-mono font-bold text-amber-900">#{order.id}</span></div>
-                              <div className="flex justify-between"><span className="text-amber-600">Amount</span><span className="font-bold text-amber-900">₹{order.total}</span></div>
-                              {utr ? (
-                                <div className="flex justify-between items-center mt-1 pt-1 border-t border-amber-200">
-                                  <span className="text-amber-600">UTR</span>
-                                  <span className="font-mono font-bold tracking-wider text-amber-900 text-sm">{utr}</span>
-                                </div>
-                              ) : (
-                                <div className="mt-1 pt-1 border-t border-amber-200 text-amber-600 italic">No UTR provided</div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right: action buttons */}
-                      <div className="flex flex-row flex-wrap gap-2 sm:flex-col sm:shrink-0 sm:min-w-[148px]">
-
-                        {/* Legacy UPI verify/reject */}
-                        {isPendingUpiVerification && (<>
-                          <Button size="sm" className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => handleVerifyUpi(order.id)} disabled={isVerifying || isRejecting}>
-                            {isVerifying ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
-                            Verify Payment
-                          </Button>
-                          <Button size="sm" variant="outline" className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
-                            onClick={() => handleRejectUpi(order.id)} disabled={isVerifying || isRejecting}>
-                            {isRejecting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
-                            Reject Payment
-                          </Button>
-                        </>)}
-
-                        {/* Screenshot viewer / manual verify — for awaiting_verification */}
-                        {isAwaitingVerification && (
-                          order.paymentScreenshotUrl ? (
-                            <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                              onClick={() => openConfirmPaymentModal(order.id)}>
-                              <Eye className="w-3 h-3 mr-1" />
-                              View Screenshot
-                            </Button>
-                          ) : (
-                            <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                              onClick={() => openConfirmPaymentModal(order.id)}>
-                              <UserCheck className="w-3 h-3 mr-1" />
-                              Verify Payment
-                            </Button>
-                          )
-                        )}
-
-                        {/* Approve / Reject for manual_review (screenshot uploaded, low OCR confidence) */}
-                        {isManualReview && !isPendingUpiVerification && (<>
-                          <Button size="sm" className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => openConfirmPaymentModal(order.id)} disabled={isApproving || isRejectingPayment}>
-                            {isApproving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
-                            Approve Paid
-                          </Button>
-                          <Button size="sm" variant="outline" className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
-                            onClick={() => handleRejectPayment(order.id)} disabled={isApproving || isRejectingPayment}>
-                            {isRejectingPayment ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
-                            Reject
-                          </Button>
-                        </>)}
-
-                        {/* Advance status */}
-                        {nextStatus && !isPendingUpiVerification && !isManualReview && (
-                          <Button size="sm" className="w-full text-xs h-8 bg-orange-500 hover:bg-orange-600 text-white"
-                            onClick={() => handleStatusUpdate(order.id, nextStatus)} disabled={isUpdating}>
-                            {isUpdating && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-                            {nextStatus === "preparing" && "Mark Preparing"}
-                            {nextStatus === "ready"     && "Mark Ready"}
-                            {nextStatus === "completed" && "Mark Completed"}
-                          </Button>
-                        )}
-
-                        {/* Upload screenshot for AI verification */}
-                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && !ocrData && (
-                          <Button size="sm" variant="outline"
-                            className="w-full text-xs h-8 text-blue-700 border-blue-300 hover:bg-blue-50"
-                            disabled={isUploadingProof}
-                            onClick={() => { uploadOrderIdRef.current = order.id; fileInputRef.current?.click(); }}>
-                            {isUploadingProof ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
-                            Upload Screenshot
-                          </Button>
-                        )}
-
-                        {/* ── SEND PAYMENT BILL (single combined action) ── */}
-                        <Button
-                          size="sm"
-                          className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                          onClick={() => void handleSendPaymentBill(order.id)}
-                          disabled={billLoading === order.id}
-                        >
-                          {billLoading === order.id
-                            ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                            : <Send className="w-3 h-3 mr-1" />}
-                          Send Payment Bill
-                        </Button>
-
-                        {/* ── MARK AS PAID ── */}
-                        {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
-                          <Button
-                            size="sm"
-                            className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
-                            onClick={() => handleMarkPaid(order.id)}
-                            disabled={isPaying}
-                          >
-                            {isPaying ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
-                            Mark as Paid
-                          </Button>
-                        )}
-
-                        {/* Cancel */}
-                        {order.status !== "completed" && order.status !== "cancelled" && (
-                          <Button size="sm" variant="ghost"
-                            className="w-full text-xs h-8 text-destructive hover:text-destructive"
-                            onClick={() => handleStatusUpdate(order.id, "cancelled")} disabled={isUpdating}>
-                            Cancel Order
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {new Date(order.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                      {" · "}
-                      {new Date(order.createdAt).toLocaleDateString("en-IN")}
-                    </p>
-                  </div>
-                );
-              })}
+              {filteredOrders.map((order, i) => renderOrderCard(order, i))}
             </div>
           )}
         </div>
@@ -933,16 +1034,11 @@ export default function Dashboard() {
 
       {/* ── Payment Proof Modal (screenshot viewer + manual verification) ── */}
       {(() => {
-        // Use the individually-fetched full order (has paymentScreenshotUrl blob).
-        // Fall back to the list-state order (no blob) for metadata while loading.
         const listOrder = confirmPaymentOrderId !== null
           ? orders.find((o) => o.id === confirmPaymentOrderId) ?? null
           : null;
         const modalOrder = modalFullOrder ?? listOrder;
         const hasScreenshot = !!(modalFullOrder?.paymentScreenshotUrl ?? listOrder?.hasScreenshot);
-        // Backward-compat: stored value is always the full data URL from FileReader.readAsDataURL()
-        // (e.g. "data:image/jpeg;base64,/9j/..."). Legacy rows that somehow contain raw base64
-        // only (no "data:" prefix) are handled by the fallback branch.
         const screenshotSrc = modalFullOrder?.paymentScreenshotUrl?.startsWith("data:")
           ? modalFullOrder.paymentScreenshotUrl
           : `data:image/jpeg;base64,${modalFullOrder?.paymentScreenshotUrl}`;
