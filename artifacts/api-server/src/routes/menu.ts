@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { restaurants, menuCategories, menuItems, restaurantTables, orders, orderItems, notifications } from "@workspace/db";
+import { restaurants, menuCategories, menuItems, restaurantTables, orders, orderItems, notifications, tableSessions } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { RequestHandler } from "express";
@@ -311,10 +311,54 @@ const placeOrder: RequestHandler = async (req, res) => {
   // Cash orders start as unpaid — staff collects at table.
   const initialPaymentStatus = paymentMethod === "upi" ? "awaiting_verification" : "unpaid";
 
+  // ── Table session find-or-create ──────────────────────────────────────────
+  // Only dine-in orders (with a tableNumber) get a session.
+  // Take-away orders leave session_id null.
+  let sessionId: number | null = null;
+  const trimmedTableNumber = tableNumber?.trim() ?? null;
+
+  if (trimmedTableNumber) {
+    const [existingSession] = await db
+      .select({ id: tableSessions.id })
+      .from(tableSessions)
+      .where(
+        and(
+          eq(tableSessions.restaurantId, restaurantId),
+          eq(tableSessions.tableNumber, trimmedTableNumber),
+          eq(tableSessions.status, "active"),
+        ),
+      )
+      .limit(1);
+
+    if (existingSession) {
+      sessionId = existingSession.id;
+      req.log.info(
+        { sessionId, restaurantId, tableNumber: trimmedTableNumber },
+        "[Session] Attached order to existing session",
+      );
+    } else {
+      const [newSession] = await db
+        .insert(tableSessions)
+        .values({
+          restaurantId,
+          tableNumber: trimmedTableNumber,
+          status: "active",
+        })
+        .returning({ id: tableSessions.id });
+      sessionId = newSession.id;
+      req.log.info(
+        { sessionId, restaurantId, tableNumber: trimmedTableNumber },
+        "[Session] Created new session",
+      );
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [order] = await db.insert(orders).values({
     restaurantId,
     tableId: tableId ?? null,
     tableNumber: tableNumber ?? null,
+    sessionId,
     customerName,
     customerPhone: normalizedPhone,
     notes: notes ?? null,
