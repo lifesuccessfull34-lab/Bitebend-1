@@ -75,6 +75,30 @@ export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificat
         onNewOrder?.();
       });
 
+      es.addEventListener("screenshot-received", (e: MessageEvent) => {
+        retryDelayRef.current = 1000;
+
+        interface ScreenshotEvent { orderId: number; customerPhone: string; customerName: string | null; total: number; }
+        let event: ScreenshotEvent;
+        try {
+          event = JSON.parse(e.data as string) as ScreenshotEvent;
+        } catch {
+          return;
+        }
+
+        playNotificationSound();
+
+        const name = event.customerName ? ` · ${event.customerName}` : "";
+        const amount = `₹${event.total.toLocaleString("en-IN")}`;
+
+        toast({
+          title: "📸 Payment Screenshot Received",
+          description: `Order #${event.orderId}${name} — ${amount} via WhatsApp`,
+        });
+
+        onNewOrder?.();
+      });
+
       es.addEventListener("heartbeat", () => {
         retryDelayRef.current = 1000;
       });

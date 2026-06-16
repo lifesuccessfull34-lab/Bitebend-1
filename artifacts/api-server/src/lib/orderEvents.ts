@@ -36,3 +36,23 @@ export function emitOrderEvent(restaurantId: number, payload: OrderEventPayload)
     }
   }
 }
+
+interface ScreenshotEventPayload {
+  orderId: number;
+  customerPhone: string;
+  customerName: string | null;
+  total: number;
+}
+
+export function emitScreenshotEvent(restaurantId: number, payload: ScreenshotEventPayload) {
+  const clients = connections.get(restaurantId);
+  if (!clients || clients.size === 0) return;
+  const data = JSON.stringify(payload);
+  for (const res of clients) {
+    try {
+      res.write(`event: screenshot-received\ndata: ${data}\n\n`);
+    } catch {
+      clients.delete(res);
+    }
+  }
+}

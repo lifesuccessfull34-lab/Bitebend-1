@@ -1,0 +1,169 @@
+The WhatsApp Bridge Service is already working and can send WhatsApp messages to customers.
+
+Now implement the next feature:
+
+GOAL:
+
+When a customer sends a payment screenshot through WhatsApp, the screenshot should automatically appear inside Bitebend's "Verify Screenshot" section.
+
+Do NOT implement OCR.
+
+Do NOT implement automatic verification.
+
+Verification must remain fully manual.
+
+---
+
+## FEATURE REQUIREMENTS
+
+1. Listen for Incoming WhatsApp Messages
+
+The WhatsApp Bridge must listen for all incoming customer messages.
+
+Capture:
+
+* customer phone number
+* restaurantId
+* message type
+* timestamp
+
+2. Detect Payment Screenshots
+
+Customers may send payment proof in two formats:
+
+A. Image attachment
+
+* jpg
+* jpeg
+* png
+* image media
+
+B. Image URL inside message text
+
+Examples:
+
+https://example.com/payment.jpg
+
+https://example.com/screenshot.png
+
+If either image attachment or image URL is received, treat it as a payment screenshot.
+
+3. Upload or Store Screenshot
+
+For image attachments:
+
+* download media from WhatsApp
+* save file
+* generate public URL
+
+For image URLs:
+
+* store the URL directly
+
+4. Send Screenshot to Bitebend
+
+Call Bitebend webhook:
+
+POST /api/whatsapp/payment-screenshot
+
+Payload:
+
+{
+"restaurantId": 15,
+"customerPhone": "919876543210",
+"imageUrl": "https://stored-image-url",
+"timestamp": "ISO_DATE"
+}
+
+5. Bitebend Integration
+
+When Bitebend receives the webhook:
+
+Find latest pending order for the customer phone number.
+
+Attach screenshot to that order.
+
+Create payment verification record.
+
+Set:
+
+paymentVerificationStatus = "pending"
+
+No OCR.
+
+No auto verification.
+
+6. Verify Screenshot Queue
+
+The screenshot must appear automatically inside the existing Verify Screenshot page.
+
+Show:
+
+* Screenshot preview
+* Customer phone number
+* Order ID
+* Received timestamp
+
+7. Verify Button Behaviour
+
+When restaurant clicks Verify button:
+
+Open screenshot viewer/modal.
+
+Display full image.
+
+Allow restaurant to inspect screenshot manually.
+
+Do NOT perform OCR.
+
+Do NOT auto approve.
+
+Only display image for manual review.
+
+8. Real-Time Updates
+
+After screenshot arrives:
+
+Refresh Verify Screenshot queue automatically.
+
+Use existing websocket or polling system.
+
+Restaurant should not need to refresh the page.
+
+---
+
+## IMPORTANT RULES
+
+* Do NOT modify existing payment flow.
+* Do NOT implement OCR.
+* Do NOT implement AI verification.
+* Do NOT auto mark payment as paid.
+* Only collect screenshot and display it in Verify Screenshot queue.
+
+Expected Result:
+
+Customer sends screenshot on WhatsApp.
+
+↓
+
+WhatsApp Bridge receives screenshot.
+
+↓
+
+Bridge sends webhook to Bitebend.
+
+↓
+
+Bitebend stores screenshot.
+
+↓
+
+Screenshot appears in Verify Screenshot page.
+
+↓
+
+Restaurant clicks Verify.
+
+↓
+
+Full screenshot opens for manual inspection.

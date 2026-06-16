@@ -4,7 +4,7 @@ import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import { orders } from "@workspace/db";
 import { eq, and, desc, ne } from "drizzle-orm";
-import { emitOrderEvent } from "../lib/orderEvents";
+import { emitScreenshotEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import type { RequestHandler } from "express";
 
@@ -239,12 +239,11 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   );
 
   // ── Emit SSE event so the portal refreshes immediately ──
-  emitOrderEvent(restaurantId, {
-    id: order.id,
+  emitScreenshotEvent(restaurantId, {
+    orderId: order.id,
+    customerPhone: normalizedPhone,
     customerName: order.customerName,
-    tableNumber: order.tableNumber,
     total: order.total,
-    itemCount: 0,
   });
 
   res.json({ ok: true, orderId: order.id });

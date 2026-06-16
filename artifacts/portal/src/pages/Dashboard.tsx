@@ -414,6 +414,10 @@ export default function Dashboard() {
     return true;
   });
 
+  const screenshotQueue = orders.filter(
+    (o) => o.paymentStatus === "awaiting_verification" && !!o.paymentScreenshotUrl
+  );
+
   const subBanner = (() => {
     if (!stats) return null;
     if (stats.hasPendingUpi) return {
@@ -520,6 +524,72 @@ export default function Dashboard() {
                 {new Date(stats.verifiedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
               </span>
             )}
+          </div>
+        )}
+
+        {/* ── Screenshot Verification Queue ─────────────────────────────── */}
+        {screenshotQueue.length > 0 && (
+          <div className="bg-card rounded-xl border border-blue-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-blue-200 flex items-center gap-2 bg-blue-50">
+              <MessageCircle className="w-4 h-4 text-green-600 shrink-0" />
+              <h2 className="text-base font-semibold text-blue-900">Screenshot Verification Queue</h2>
+              <span className="ml-auto text-xs bg-blue-600 text-white rounded-full px-2 py-0.5 font-semibold">
+                {screenshotQueue.length} pending
+              </span>
+            </div>
+            <div className="divide-y divide-blue-100">
+              {screenshotQueue.map((order) => {
+                const src = order.paymentScreenshotUrl?.startsWith("data:")
+                  ? order.paymentScreenshotUrl
+                  : `data:image/jpeg;base64,${order.paymentScreenshotUrl}`;
+                return (
+                  <div key={order.id} className="p-4 flex items-center gap-4 hover:bg-blue-50/50 transition-colors">
+                    {/* Thumbnail */}
+                    <button
+                      className="w-14 h-14 rounded-lg border border-blue-200 overflow-hidden shrink-0 hover:opacity-80 transition-opacity"
+                      onClick={() => openConfirmPaymentModal(order.id)}
+                      title="Click to view full screenshot"
+                    >
+                      <img src={src} alt="Payment screenshot" className="w-full h-full object-cover" />
+                    </button>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                        <span className="font-bold text-sm">Order #{order.id}</span>
+                        {order.tableNumber && (
+                          <span className="text-xs bg-muted px-2 py-0.5 rounded-full font-medium">Table {order.tableNumber}</span>
+                        )}
+                        <span className="text-xs flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full font-medium">
+                          <MessageCircle className="w-3 h-3" />
+                          WhatsApp
+                        </span>
+                      </div>
+                      <p className="text-sm font-medium truncate">{order.customerName}</p>
+                      <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Received{" "}
+                        {new Date(order.updatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                        {" · "}
+                        {new Date(order.updatedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        {" · "}
+                        <span className="font-semibold text-foreground">₹{order.total}</span>
+                      </p>
+                    </div>
+
+                    {/* Action */}
+                    <Button
+                      size="sm"
+                      className="shrink-0 text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                      onClick={() => openConfirmPaymentModal(order.id)}
+                    >
+                      <Eye className="w-3 h-3 mr-1" />
+                      Verify
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
