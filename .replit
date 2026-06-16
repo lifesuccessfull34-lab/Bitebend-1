@@ -47,7 +47,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "fuser -k 8080/tcp 5000/tcp 5173/tcp 2>/dev/null; pnpm --filter @workspace/api-server run build && (PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.mjs) & (BASE_PATH=/menu/ PORT=5173 pnpm --filter @workspace/menu run dev) & BASE_PATH=/portal/ PORT=5000 pnpm --filter @workspace/portal run dev"
+args = "fuser -k 8080/tcp 5000/tcp 5173/tcp 2>/dev/null; export PUPPETEER_EXECUTABLE_PATH=$(which chromium); pnpm --filter @workspace/api-server run build && (PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.mjs) & (BASE_PATH=/menu/ PORT=5173 pnpm --filter @workspace/menu run dev) & BASE_PATH=/portal/ PORT=5000 pnpm --filter @workspace/portal run dev"
 waitForPort = 5000
 
   [agent]
@@ -93,6 +93,5 @@ channel = "stable-25_05"
 [userenv.shared]
 PORT = "5000"
 NODE_ENV = "development"
-PUPPETEER_EXECUTABLE_PATH = "/nix/store/qa9cnw4v5xkxyip6mb9kxqfq1z4x2dx1-chromium-138.0.7204.100/bin/chromium"
 PUPPETEER_SKIP_DOWNLOAD = "true"
   
