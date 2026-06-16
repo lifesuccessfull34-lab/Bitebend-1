@@ -43,6 +43,9 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "owner_password_reset_tokens",   column: "token"            },
   { table: "bill_links",                    column: "short_id"         },
   { table: "restaurants",                   column: "razorpay_webhook_secret" },
+  { table: "orders",                        column: "verification_method" },
+  { table: "orders",                        column: "verified_by"      },
+  { table: "orders",                        column: "verified_at"      },
 ];
 
 /**

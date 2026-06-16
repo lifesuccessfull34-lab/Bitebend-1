@@ -30,13 +30,13 @@ args = "Start application"
 name = "WhatsApp Bridge"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pnpm --filter @workspace/whatsapp-bridge run dev"
-waitForPort = 3001
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "export PUPPETEER_EXECUTABLE_PATH=$(which chromium); pnpm --filter @workspace/whatsapp-bridge run dev"
+waitForPort = 3001
 
 [[workflows.workflow]]
 name = "Start application"
@@ -65,10 +65,6 @@ externalPort = 3000
 [[ports]]
 localPort = 3001
 externalPort = 3001
-
-[[ports]]
-localPort = 5000
-externalPort = 80
 
 [[ports]]
 localPort = 5173
