@@ -89,7 +89,6 @@ export default function MenuPage() {
 
   // Legacy Razorpay checkout state — non-null only when CUSTOMER_RAZORPAY_ENABLED=true
   const [razorpayCheckout, setRazorpayCheckout] = useState<(RazorpayCheckoutState & { customerName: string; customerPhone: string }) | null>(null);
-  const [paymentMode, setPaymentMode] = useState<"cash" | "online" | null>(null);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -249,7 +248,6 @@ export default function MenuPage() {
         tableNumber: tableNum,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
-        paymentMethod: paymentMode === "cash" ? "cash" : paymentMode === "online" ? "upi" : null,
         notes:
           [
             orderType === "take_away" ? "Take Away" : null,
@@ -273,10 +271,6 @@ export default function MenuPage() {
       setPlaceError("Enter a valid 10-digit Indian mobile number");
       return;
     }
-    if (!paymentMode) {
-      setPlaceError("Please select a payment method to continue");
-      return;
-    }
     setPlacing(true);
     setPlaceError("");
     try {
@@ -295,43 +289,7 @@ export default function MenuPage() {
       setCart([]);
       setProofResult(null);
 
-      if (paymentMode === "online") {
-        // Legacy Razorpay path — only when flag is on and restaurant has Razorpay key
-        if (CUSTOMER_RAZORPAY_ENABLED && restaurant?.razorpayKeyId) {
-          const rzpRes = await fetch(`${BASE}/api/menu/${restaurant.id}/razorpay-order`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              orderId: data.id,
-              amount: total,
-              customerName: customerName.trim(),
-              customerPhone: customerPhone.trim(),
-            }),
-          });
-          const rzpData = await rzpRes.json() as {
-            razorpayOrderId: string;
-            keyId: string;
-            amount: number;
-            restaurantName: string;
-            error?: string;
-          };
-          if (!rzpRes.ok) throw new Error(rzpData.error ?? "Failed to create payment");
-          setRazorpayCheckout({
-            keyId: rzpData.keyId,
-            razorpayOrderId: rzpData.razorpayOrderId,
-            amountPaise: rzpData.amount,
-            restaurantName: rzpData.restaurantName,
-            customerName: customerName.trim(),
-            customerPhone: customerPhone.trim(),
-          });
-          setView("razorpay_checkout");
-        } else {
-          // New QR bill flow — show order bill + restaurant QR + screenshot upload
-          setView("payment_bill");
-        }
-      } else {
-        setView("success");
-      }
+      setView("success");
     } catch (err) {
       setPlaceError(err instanceof Error ? err.message : "Failed to place order");
     } finally {
@@ -440,7 +398,6 @@ export default function MenuPage() {
         proofResult={proofResult}
         onUploadProof={handleUploadProof}
         onReplaceProof={handleReplaceProof}
-        paymentMode={paymentMode}
         onGoToMenu={() => {
           setView("menu");
           setOrderId(null);
@@ -525,10 +482,7 @@ export default function MenuPage() {
           setProofResult(null);
         }}
         onNext={() => setView("success")}
-        onCashPayment={() => {
-          setPaymentMode("cash");
-          setView("success");
-        }}
+        onCashPayment={() => setView("success")}
       />
     );
   }
@@ -559,9 +513,6 @@ export default function MenuPage() {
         placeError={placeError}
         onSubmit={handlePlaceOrder}
         onBack={() => setView("cart")}
-        paymentMode={paymentMode}
-        onPaymentModeChange={setPaymentMode}
-        hasPaymentQr={restaurant.hasPaymentQr}
       />
     );
   }

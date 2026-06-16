@@ -5,7 +5,6 @@ import {
   ArrowLeft, ArrowRight, Banknote, QrCode, RefreshCw,
 } from "lucide-react";
 import type { RestaurantData, OrderType } from "./types";
-import type { PaymentMode } from "./CheckoutView";
 
 export interface ProofResult {
   ocrConfigured: boolean;
@@ -23,7 +22,7 @@ interface Props {
   orderType: OrderType | null;
   restaurant: RestaurantData;
   manualTableNumber: string;
-  paymentMode: PaymentMode | null;
+  paymentMode?: "cash" | "online" | null;
   uploadingProof: boolean;
   proofResult: ProofResult | null;
   onUploadProof: (file: File) => void;
@@ -79,9 +78,9 @@ export function OrderSuccessView({
     e.target.value = "";
   };
 
-  const paymentNote = paymentMode === "cash"
-    ? `Staff will collect payment at your ${isTakeAway ? "counter" : "table"}.`
-    : "Please scan the restaurant's QR code to complete your payment.";
+  const paymentNote = paymentMode === "online"
+    ? "Please scan the restaurant's QR code to complete your payment."
+    : `Staff will collect payment at your ${isTakeAway ? "counter" : "table"}.`;
 
   const PaymentIcon = paymentMode === "online" ? QrCode : Banknote;
 

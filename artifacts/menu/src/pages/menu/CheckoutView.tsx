@@ -7,12 +7,8 @@ import {
   Phone,
   Loader2,
   CheckCircle2,
-  Banknote,
-  QrCode,
 } from "lucide-react";
 import type { RestaurantData, CartItem, OrderType } from "./types";
-
-export type PaymentMode = "cash" | "online";
 
 interface Props {
   restaurant: RestaurantData;
@@ -30,9 +26,6 @@ interface Props {
   total: number;
   placing: boolean;
   placeError: string;
-  paymentMode: PaymentMode | null;
-  onPaymentModeChange: (mode: PaymentMode) => void;
-  hasPaymentQr: boolean;
   onSubmit: (e: FormEvent) => void;
   onBack: () => void;
 }
@@ -84,54 +77,6 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-interface PaymentCardProps {
-  selected: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-}
-
-function PaymentCard({ selected, onClick, icon, title, description }: PaymentCardProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        display: "flex",
-        alignItems: "flex-start",
-        gap: "12px",
-        width: "100%",
-        padding: "14px",
-        borderRadius: "12px",
-        border: `2px solid ${selected ? C.orange : C.border}`,
-        backgroundColor: selected ? "#fff7ed" : C.card,
-        textAlign: "left",
-        cursor: "pointer",
-      }}
-    >
-      <div style={{
-        width: "42px", height: "42px",
-        borderRadius: "10px",
-        backgroundColor: selected ? "#fed7aa" : C.mutedBg,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        flexShrink: 0,
-      }}>
-        {icon}
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontWeight: 700, fontSize: "14px", color: C.ink }}>{title}</span>
-          {selected && <CheckCircle2 style={{ width: "18px", height: "18px", color: C.orange, flexShrink: 0 }} />}
-        </div>
-        <span style={{ fontSize: "12px", color: C.muted, lineHeight: "1.45", display: "block", marginTop: "2px" }}>
-          {description}
-        </span>
-      </div>
-    </button>
-  );
-}
-
 export function CheckoutView({
   restaurant,
   cart,
@@ -148,9 +93,6 @@ export function CheckoutView({
   total,
   placing,
   placeError,
-  paymentMode,
-  onPaymentModeChange,
-  hasPaymentQr,
   onSubmit,
   onBack,
 }: Props) {
@@ -334,52 +276,6 @@ export function CheckoutView({
           </div>
         </SectionCard>
 
-        {/* ── Payment Method ────────────────────────────────────── */}
-        <SectionCard>
-          <SectionLabel>Choose Payment Method</SectionLabel>
-          <div style={{ padding: "12px 16px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            <PaymentCard
-              selected={paymentMode === "cash"}
-              onClick={() => onPaymentModeChange("cash")}
-              icon={<Banknote style={{ width: "20px", height: "20px", color: paymentMode === "cash" ? C.orange : C.muted }} />}
-              title="Cash Payment"
-              description="Pay directly at restaurant counter/table"
-            />
-            {hasPaymentQr ? (
-              <PaymentCard
-                selected={paymentMode === "online"}
-                onClick={() => onPaymentModeChange("online")}
-                icon={<QrCode style={{ width: "20px", height: "20px", color: paymentMode === "online" ? C.orange : C.muted }} />}
-                title="Scan QR & Pay"
-                description="Scan the restaurant QR and upload your payment screenshot"
-              />
-            ) : (
-              <div style={{
-                display: "flex", alignItems: "flex-start", gap: "12px",
-                width: "100%", padding: "14px", borderRadius: "12px",
-                border: `2px solid ${C.border}`,
-                backgroundColor: "#f9fafb",
-                opacity: 0.6,
-              }}>
-                <div style={{
-                  width: "42px", height: "42px", borderRadius: "10px",
-                  backgroundColor: C.mutedBg,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  flexShrink: 0,
-                }}>
-                  <QrCode style={{ width: "20px", height: "20px", color: C.muted }} />
-                </div>
-                <div>
-                  <span style={{ fontWeight: 700, fontSize: "14px", color: C.muted }}>Scan QR & Pay</span>
-                  <span style={{ fontSize: "12px", color: C.muted, display: "block", marginTop: "2px" }}>
-                    Online payment unavailable for this restaurant
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </SectionCard>
-
         {/* Error */}
         {placeError && (
           <div style={{
@@ -394,16 +290,16 @@ export function CheckoutView({
         {/* ── Place Order CTA ────────────────────────────────────── */}
         <button
           type="submit"
-          disabled={placing || !paymentMode}
+          disabled={placing}
           style={{
             width: "100%", height: "52px",
             borderRadius: "14px",
-            backgroundColor: !paymentMode ? "#d1c9bf" : C.orange,
+            backgroundColor: C.orange,
             color: "#fff",
             fontWeight: 700, fontSize: "16px",
             display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
             opacity: placing ? 0.65 : 1,
-            boxShadow: !paymentMode ? "none" : "0 4px 16px rgba(234,88,12,0.30)",
+            boxShadow: "0 4px 16px rgba(234,88,12,0.30)",
           }}
         >
           {placing ? (
@@ -411,12 +307,7 @@ export function CheckoutView({
           ) : (
             <CheckCircle2 style={{ width: "18px", height: "18px" }} />
           )}
-          {placing
-            ? "Placing Order…"
-            : !paymentMode
-              ? "Select a payment method"
-              : `Place Order · ₹${total.toFixed(2)}`
-          }
+          {placing ? "Placing Order…" : `Place Order · ₹${total.toFixed(2)}`}
         </button>
       </form>
     </div>
