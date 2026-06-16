@@ -72,43 +72,29 @@ That's it. After step 3 you can log in immediately:
 
 > **Auto-seed on first start:** If the database is empty when the server boots, it seeds automatically. You only need `pnpm seed` explicitly if you want to re-seed without restarting the server.
 
-### WhatsApp Bridge — startup and troubleshooting
+### WhatsApp Bridge — startup
 
-The WhatsApp Bridge is a separate service that runs alongside the API server. On Replit:
+The WhatsApp Bridge is **automatically managed by the API server**. No separate workflow or manual startup is required.
 
-- **Click the Run button** — it triggers the **Project** workflow, which starts the bridge and the main app in parallel. No manual bridge startup is needed.
-- The bridge listens on port 3001 and prints a startup diagnostic block:
-  ```
-  ============================================================
-  WhatsApp Bridge running on port 3001 [development]
-    Health check  : http://localhost:3001/health
-    Chromium      : /nix/store/.../chromium
-    API secret    : NOT SET (unprotected)
-  ============================================================
-  ```
-- Chromium is **auto-detected** from the system PATH. The `PUPPETEER_EXECUTABLE_PATH` env var works as an override but is not required.
+- **Click Run** — the single "Start application" workflow starts everything. The API server spawns the bridge as a child process immediately after starting.
+- The bridge is ready within ~5 seconds of the API server starting. Chromium is auto-detected from the system PATH.
+- If the bridge crashes, the API server restarts it automatically with exponential back-off.
+- Bridge logs appear inline in the "Start application" workflow output prefixed with `[bridge]`.
+- Set `MANAGE_BRIDGE_PROCESS=false` to disable automatic bridge management (e.g. when running the bridge separately for debugging).
 
 **Portal behaviour:**
 | Bridge state | Portal shows |
 |---|---|
-| Bridge not running | Amber banner: "WhatsApp Bridge is not running" |
-| Bridge running, WA not connected | Blue banner: "Bridge running — WhatsApp QR authentication required" |
+| Bridge starting up (first ~30s) | Blue banner: "WhatsApp service is starting up" + spinner |
+| Bridge running, WA not connected | Blue banner: "WhatsApp QR authentication required" |
 | Connected | Green: "WhatsApp is connected" |
-
-**Run `pnpm doctor` to diagnose any startup issue:**
-```bash
-pnpm doctor
-```
-It checks: database connection, API server, WhatsApp Bridge, Chromium availability, and required env vars.
 
 **Common issues on a fresh import:**
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Portal shows amber bridge banner | Bridge workflow not started | Use the **Project** run button, not **Start application** alone |
 | Bridge starts but QR init fails | Chromium not found | Run `which chromium` — if empty, install chromium in the Nix environment |
-| `PUPPETEER_EXECUTABLE_PATH` empty | Shell substitution failed | Set it explicitly in `.replit` or Replit secrets |
-| Bridge crashes on init | Missing `--no-sandbox` | Already set — check the bridge logs for the actual error |
+| Bridge crashes on init | Puppeteer sandbox issue | Check `[bridge:stderr]` lines in the workflow logs |
 
 ### Reset everything to a clean slate
 

@@ -162,6 +162,15 @@ try {
   logger.warn({ err: seedErr }, "[AUTO_SEED] Seed check failed — continuing startup anyway");
 }
 
+// ── WhatsApp Bridge lifecycle manager ────────────────────────────────────────
+//
+// The API server owns the bridge process. It is spawned here and monitored
+// via health-checks. This eliminates the need for a separate Replit workflow
+// and the race condition that caused "Bridge not running" on fresh imports.
+
+import { startBridgeManager } from "./lib/bridgeManager";
+startBridgeManager();
+
 // ── Cleanup jobs ──────────────────────────────────────────────────────────────
 
 import { purgeExpiredBills } from "./lib/billService";

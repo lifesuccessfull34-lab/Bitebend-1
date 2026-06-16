@@ -5,6 +5,7 @@ import { db } from "@workspace/db";
 import { orders } from "@workspace/db";
 import { eq, and, desc, ne } from "drizzle-orm";
 import { emitOrderEvent } from "../lib/orderEvents";
+import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import type { RequestHandler } from "express";
 
 const router = Router();
@@ -20,13 +21,13 @@ function bridgeHeaders() {
   };
 }
 
-async function callBridge(path: string, method: string, body?: unknown) {
+async function callBridge(path: string, method: string, body?: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(`${BRIDGE_URL}${path}`, {
     method,
     headers: bridgeHeaders(),
     body: body ? JSON.stringify(body) : undefined,
   });
-  return res.json();
+  return res.json() as Promise<Record<string, unknown>>;
 }
 
 // ── Owner: trigger WhatsApp QR / connect ──────────────────────────────────────
@@ -40,7 +41,14 @@ const connectHandler: RequestHandler = async (req, res) => {
     const data = await callBridge("/api/whatsapp/connect", "POST", { restaurantId });
     res.json(data);
   } catch {
-    res.status(503).json({ error: "WhatsApp Bridge unreachable. Make sure the bridge service is running." });
+    const bridgeState = getBridgeState();
+    const managed = isBridgeManaged();
+    if (managed && (bridgeState === "starting" || bridgeState === "restarting")) {
+      // Bridge is warming up — tell the portal to show a spinner and retry
+      res.json({ success: true, status: "initialising", bridgeStarting: true });
+    } else {
+      res.status(503).json({ error: "WhatsApp Bridge is not available." });
+    }
   }
 };
 
@@ -70,7 +78,16 @@ const statusHandler: RequestHandler = async (req, res) => {
     const data = await callBridge(`/api/whatsapp/status/${restaurantId}`, "GET");
     res.json({ ...data, bridgeReachable: true });
   } catch {
-    res.status(200).json({ success: true, status: "not_initialised", bridgeReachable: false, restaurantId });
+    const bridgeState = getBridgeState();
+    const managed = isBridgeManaged();
+
+    if (managed && (bridgeState === "starting" || bridgeState === "restarting")) {
+      // Bridge is warming up — surface as "initialising" so the portal shows
+      // a spinner instead of a "not running" error banner.
+      res.json({ success: true, status: "initialising", bridgeReachable: true, bridgeStarting: true, restaurantId });
+    } else {
+      res.json({ success: true, status: "not_initialised", bridgeReachable: false, restaurantId });
+    }
   }
 };
 
