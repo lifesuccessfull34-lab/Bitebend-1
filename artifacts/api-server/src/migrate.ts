@@ -33,6 +33,7 @@ const REQUIRED_TABLES = [
   "image_blobs",
   "bill_links",
   "resources",
+  "table_sessions",
   "sessions",
 ] as const;
 
@@ -46,6 +47,10 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "orders",                        column: "verification_method" },
   { table: "orders",                        column: "verified_by"      },
   { table: "orders",                        column: "verified_at"      },
+  { table: "orders",                        column: "session_id"       },
+  { table: "table_sessions",               column: "restaurant_id"    },
+  { table: "table_sessions",               column: "table_number"     },
+  { table: "table_sessions",               column: "status"           },
 ];
 
 /**

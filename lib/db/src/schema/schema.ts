@@ -1,5 +1,7 @@
 import {
   boolean,
+  check,
+  index,
   integer,
   pgTable,
   serial,
@@ -7,6 +9,7 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
@@ -147,13 +150,43 @@ export const restaurantTables = pgTable("restaurant_tables", {
   isOccupied: boolean("is_occupied").notNull().default(false),
 });
 
-export const orders = pgTable("orders", {
+export const tableSessions = pgTable(
+  "table_sessions",
+  {
+    id: serial("id").primaryKey(),
+    restaurantId: integer("restaurant_id")
+      .notNull()
+      .references(() => restaurants.id, { onDelete: "cascade" }),
+    tableNumber: text("table_number").notNull(),
+    status: text("status", {
+      enum: ["active", "awaiting_payment", "awaiting_verification", "paid", "closed"],
+    })
+      .notNull()
+      .default("active"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_table_sessions_restaurant_id").on(t.restaurantId),
+    index("idx_table_sessions_status").on(t.status),
+    index("idx_table_sessions_restaurant_status").on(t.restaurantId, t.status),
+    check(
+      "table_sessions_status_check",
+      sql`${t.status} IN ('active','awaiting_payment','awaiting_verification','paid','closed')`,
+    ),
+  ],
+);
+
+export const orders = pgTable(
+  "orders",
+  {
   id: serial("id").primaryKey(),
   restaurantId: integer("restaurant_id")
     .notNull()
     .references(() => restaurants.id),
   tableId: integer("table_id"),
   tableNumber: text("table_number"),
+  sessionId: integer("session_id").references(() => tableSessions.id, { onDelete: "set null" }),
   customerName: text("customer_name").notNull(),
   customerPhone: text("customer_phone").notNull(),
   status: text("status", {
@@ -194,7 +227,11 @@ export const orders = pgTable("orders", {
   paidAt: timestamp("paid_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+  },
+  (t) => [
+    index("idx_orders_session_id").on(t.sessionId),
+  ],
+);
 
 export const platformSettings = pgTable("platform_settings", {
   key: text("key").primaryKey(),
