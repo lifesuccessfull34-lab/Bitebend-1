@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "migrate": "pnpm run build && node dist/migrate.mjs",
     "validate:db": "pnpm run build && node dist/validate-db.mjs",
-    "seed:dev": "tsx src/seed-dev.ts"
+    "seed:dev": "tsx src/seed-dev.ts",
+    "seed": "pnpm run build && node dist/seed-dev.mjs",
+    "reset-db": "pnpm run build && node dist/reset-db.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",

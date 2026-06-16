@@ -43,10 +43,12 @@ async function buildAll() {
 
   await esbuild({
     entryPoints: [
-      path.resolve(artifactDir, "src/index.ts"),
-      path.resolve(artifactDir, "src/seed-admin.ts"),
-      path.resolve(artifactDir, "src/migrate.ts"),
-      path.resolve(artifactDir, "src/validate-db.ts"),
+      { in: path.resolve(artifactDir, "src/index.ts"),          out: "index" },
+      { in: path.resolve(artifactDir, "src/seed-admin.ts"),     out: "seed-admin" },
+      { in: path.resolve(artifactDir, "src/seed-dev-entry.ts"), out: "seed-dev" },
+      { in: path.resolve(artifactDir, "src/reset-db.ts"),       out: "reset-db" },
+      { in: path.resolve(artifactDir, "src/migrate.ts"),        out: "migrate" },
+      { in: path.resolve(artifactDir, "src/validate-db.ts"),    out: "validate-db" },
     ],
     platform: "node",
     bundle: true,

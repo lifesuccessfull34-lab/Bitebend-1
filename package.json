@@ -30,6 +30,9 @@
 
     "migrate": "pnpm --filter @workspace/api-server run migrate",
     "validate:db": "pnpm --filter @workspace/api-server run validate:db",
+    "db:push": "pnpm --filter @workspace/db run push",
+    "seed": "pnpm --filter @workspace/api-server run seed",
+    "reset-db": "pnpm --filter @workspace/api-server run reset-db",
 
     "verify-deployment": "pnpm run build && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
   },

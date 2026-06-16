@@ -43,18 +43,58 @@ pnpm workspace monorepo using TypeScript.
 
 Example: `/menu/1/table/3` → Spice Garden, Table T3
 
+## Fresh Install Setup
+
+Steps to go from a blank GitHub import to a fully working local instance — **no SQL backup required**.
+
+```bash
+# 1. Install dependencies
+pnpm install
+
+# 2. Apply database schema (creates all tables)
+pnpm migrate
+
+# 3. Seed demo data (admin + demo restaurant + menu)
+pnpm seed
+
+# 4. Start the app
+#    (or just click Run in Replit — auto-seed runs on first start)
+```
+
+That's it. After step 3 you can log in immediately:
+
+| Role  | Email | Password |
+|-------|-------|----------|
+| Admin (super_admin) | `admin@bitebend.in` | `admin123` |
+| Demo owner | `demo@spicegarden.com` | `demo123` |
+
+**Demo menu URL:** `/menu/1/table/1` — Spice Garden, Table T1
+
+> **Auto-seed on first start:** If the database is empty when the server boots, it seeds automatically. You only need `pnpm seed` explicitly if you want to re-seed without restarting the server.
+
+### Reset everything to a clean slate
+
+```bash
+pnpm reset-db
+```
+
+Wipes all data, resets sequences, and re-seeds fresh demo data. **Development only** — blocked in `NODE_ENV=production`.
+
 ## Key Commands
 
+- `pnpm install` — install all workspace packages
+- `pnpm migrate` — apply pending DB migrations (also runs automatically on production startup)
+- `pnpm seed` — seed admin + demo restaurant data (idempotent — safe to re-run)
+- `pnpm reset-db` — wipe all data and re-seed from scratch (dev only)
+- `pnpm db:push` — push schema changes directly without a migration file (dev only)
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
+- `pnpm run build` — build all packages
 - `pnpm run test` — run all test suites (url-utils unit tests + MenuPage regression tests)
 - `pnpm run lint` — ESLint: show all hooks errors and warnings across menu and portal
 - `pnpm run check:hooks` — ESLint hooks gate (used in CI / pre-deploy; exits non-zero on any error)
 - `pnpm run verify-deployment` — full pre-deploy gate: render safety + freshness + hooks lint
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - `pnpm --filter @workspace/db run generate` — generate a new migration file from schema changes
-- `pnpm --filter @workspace/db run migrate` — apply pending migrations (dev; production runs automatically on startup)
 
 ## Architecture
 

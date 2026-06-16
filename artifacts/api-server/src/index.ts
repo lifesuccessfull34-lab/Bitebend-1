@@ -135,6 +135,33 @@ try {
   process.exit(1);
 }
 
+// ── Auto-seed on empty database ───────────────────────────────────────────────
+//
+// On a fresh install (no users, no plans) automatically run the dev seed so
+// the app is immediately usable without any manual steps. Safe to run on every
+// start — all seed operations are idempotent upserts; if data already exists
+// the seed is skipped entirely.
+
+try {
+  const [{ count: userCount }] = await db.execute<{ count: string }>(
+    sql`SELECT COUNT(*)::text AS count FROM users`
+  ).then((r) => r.rows);
+  const [{ count: planCount }] = await db.execute<{ count: string }>(
+    sql`SELECT COUNT(*)::text AS count FROM subscription_plans`
+  ).then((r) => r.rows);
+
+  if (Number(userCount) === 0 && Number(planCount) === 0) {
+    logger.info("[AUTO_SEED] Empty database detected — running initial seed…");
+    const { seedDev } = await import("./seed-dev");
+    await seedDev();
+    logger.info("[AUTO_SEED] Seed complete — admin@bitebend.in / admin123 | demo@spicegarden.com / demo123");
+  } else {
+    logger.info({ userCount, planCount }, "[AUTO_SEED] Data exists — skipping seed");
+  }
+} catch (seedErr) {
+  logger.warn({ err: seedErr }, "[AUTO_SEED] Seed check failed — continuing startup anyway");
+}
+
 // ── Cleanup jobs ──────────────────────────────────────────────────────────────
 
 import { purgeExpiredBills } from "./lib/billService";
