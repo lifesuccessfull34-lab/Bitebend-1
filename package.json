@@ -34,6 +34,8 @@
     "seed": "pnpm --filter @workspace/api-server run seed",
     "reset-db": "pnpm --filter @workspace/api-server run reset-db",
 
+    "doctor": "pnpm --filter @workspace/scripts run doctor",
+
     "verify-deployment": "pnpm run build && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
   },
 

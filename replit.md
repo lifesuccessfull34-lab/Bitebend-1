@@ -72,6 +72,44 @@ That's it. After step 3 you can log in immediately:
 
 > **Auto-seed on first start:** If the database is empty when the server boots, it seeds automatically. You only need `pnpm seed` explicitly if you want to re-seed without restarting the server.
 
+### WhatsApp Bridge — startup and troubleshooting
+
+The WhatsApp Bridge is a separate service that runs alongside the API server. On Replit:
+
+- **Click the Run button** — it triggers the **Project** workflow, which starts the bridge and the main app in parallel. No manual bridge startup is needed.
+- The bridge listens on port 3001 and prints a startup diagnostic block:
+  ```
+  ============================================================
+  WhatsApp Bridge running on port 3001 [development]
+    Health check  : http://localhost:3001/health
+    Chromium      : /nix/store/.../chromium
+    API secret    : NOT SET (unprotected)
+  ============================================================
+  ```
+- Chromium is **auto-detected** from the system PATH. The `PUPPETEER_EXECUTABLE_PATH` env var works as an override but is not required.
+
+**Portal behaviour:**
+| Bridge state | Portal shows |
+|---|---|
+| Bridge not running | Amber banner: "WhatsApp Bridge is not running" |
+| Bridge running, WA not connected | Blue banner: "Bridge running — WhatsApp QR authentication required" |
+| Connected | Green: "WhatsApp is connected" |
+
+**Run `pnpm doctor` to diagnose any startup issue:**
+```bash
+pnpm doctor
+```
+It checks: database connection, API server, WhatsApp Bridge, Chromium availability, and required env vars.
+
+**Common issues on a fresh import:**
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Portal shows amber bridge banner | Bridge workflow not started | Use the **Project** run button, not **Start application** alone |
+| Bridge starts but QR init fails | Chromium not found | Run `which chromium` — if empty, install chromium in the Nix environment |
+| `PUPPETEER_EXECUTABLE_PATH` empty | Shell substitution failed | Set it explicitly in `.replit` or Replit secrets |
+| Bridge crashes on init | Missing `--no-sandbox` | Already set — check the bridge logs for the actual error |
+
 ### Reset everything to a clean slate
 
 ```bash

@@ -1,9 +1,58 @@
+import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { Client, LocalAuth, Message } from 'whatsapp-web.js';
 import { Server as SocketIOServer } from 'socket.io';
 import config from '../config';
 import logger from '../utils/logger';
 import { getSessionDataPath, deleteSessionFiles } from './fileSessionStore';
 import { handleIncomingMessage } from '../webhooks/incomingMessages';
+
+// ── Chromium auto-detection ────────────────────────────────────────────────────
+// Precedence:
+//   1. PUPPETEER_EXECUTABLE_PATH env var (explicit override)
+//   2. `which chromium` / `which chromium-browser` / `which google-chrome`
+//   3. Common Nix/Linux paths
+//   4. undefined → puppeteer uses its bundled copy
+const CHROMIUM_CANDIDATES = [
+  '/nix/store',                  // trigger path-scan below
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/snap/bin/chromium',
+];
+
+function findChromiumPath(): string | undefined {
+  // 1. Explicit override
+  const explicit = process.env.PUPPETEER_EXECUTABLE_PATH?.trim();
+  if (explicit && existsSync(explicit)) return explicit;
+
+  // 2. PATH lookup
+  for (const candidate of ['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable']) {
+    try {
+      const found = execSync(`which ${candidate} 2>/dev/null`, { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
+      if (found && existsSync(found)) return found;
+    } catch { /* not in PATH */ }
+  }
+
+  // 3. Well-known paths
+  for (const p of CHROMIUM_CANDIDATES) {
+    if (p === '/nix/store') continue; // handled by `which` above
+    if (existsSync(p)) return p;
+  }
+
+  return undefined;
+}
+
+export const CHROMIUM_PATH = findChromiumPath();
+
+if (CHROMIUM_PATH) {
+  logger.info(`[chromium] Using: ${CHROMIUM_PATH}`);
+} else {
+  logger.warn('[chromium] Not found in PATH or common locations — puppeteer will use its bundled version (may fail in headless environments)');
+}
 
 export type ClientStatus =
   | 'initialising'
@@ -62,9 +111,7 @@ export async function initClient(restaurantId: number): Promise<void> {
     puppeteer: {
       headless: true,
       args: puppeteerArgs,
-      ...(process.env.PUPPETEER_EXECUTABLE_PATH
-        ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
-        : {}),
+      ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
     },
   });
 

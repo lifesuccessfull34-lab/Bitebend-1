@@ -4,7 +4,7 @@ import { io, Socket } from "socket.io-client";
 import { QRCodeSVG } from "qrcode.react";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
-import { Wifi, WifiOff, Loader2, Smartphone, CheckCircle2, XCircle, RefreshCw, LogOut } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Smartphone, CheckCircle2, XCircle, RefreshCw, LogOut, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type WhatsAppStatus =
@@ -40,22 +40,26 @@ export default function WhatsAppConnect() {
   const { user, loading: authLoading } = useAuth();
   const restaurantId = user?.restaurantId;
 
-  const [status, setStatus]         = useState<WhatsAppStatus>("not_initialised");
-  const [qrString, setQrString]     = useState<string | null>(null);
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState<string | null>(null);
-  const socketRef                   = useRef<Socket | null>(null);
+  const [status, setStatus]               = useState<WhatsAppStatus>("not_initialised");
+  const [bridgeReachable, setBridgeReachable] = useState<boolean | null>(null);
+  const [qrString, setQrString]           = useState<string | null>(null);
+  const [loading, setLoading]             = useState(false);
+  const [error, setError]                 = useState<string | null>(null);
+  const socketRef                         = useRef<Socket | null>(null);
 
   // Fetch initial status from the API server
   const fetchStatus = useCallback(async () => {
     try {
       const r = await fetch("/api/owner/whatsapp/status", { credentials: "include" });
       if (r.ok) {
-        const data = await r.json() as { status: WhatsAppStatus };
+        const data = await r.json() as { status: WhatsAppStatus; bridgeReachable?: boolean };
         setStatus(data.status ?? "not_initialised");
+        if (typeof data.bridgeReachable === "boolean") {
+          setBridgeReachable(data.bridgeReachable);
+        }
       }
     } catch {
-      // bridge might not be running yet — keep "not_initialised"
+      setBridgeReachable(false);
     }
   }, []);
 
@@ -77,10 +81,12 @@ export default function WhatsAppConnect() {
     socket.on("whatsapp:qr", ({ qr }: { qr: string }) => {
       setQrString(qr);
       setStatus("qr_pending");
+      setBridgeReachable(true);
     });
 
     socket.on("whatsapp:status", ({ status: s }: { status: WhatsAppStatus }) => {
       setStatus(s);
+      setBridgeReachable(true);
       if (s === "connected") {
         setQrString(null);
         setLoading(false);
@@ -114,13 +120,21 @@ export default function WhatsAppConnect() {
       });
       const data = await r.json() as { success?: boolean; error?: string };
       if (!r.ok || !data.success) {
-        setError(data.error ?? "Failed to start WhatsApp connection");
+        if (r.status === 503) {
+          setBridgeReachable(false);
+          setError("WhatsApp Bridge is not running. Restart the application and try again.");
+        } else {
+          setError(data.error ?? "Failed to start WhatsApp connection");
+        }
         setStatus("not_initialised");
         setLoading(false);
+      } else {
+        setBridgeReachable(true);
       }
       // QR + status will arrive via Socket.IO
     } catch {
-      setError("Could not reach the WhatsApp Bridge. Make sure it is running.");
+      setBridgeReachable(false);
+      setError("Could not reach the WhatsApp Bridge. Restart the application and try again.");
       setStatus("not_initialised");
       setLoading(false);
     }
@@ -150,6 +164,7 @@ export default function WhatsAppConnect() {
   const isPending     = status === "initialising" || status === "connecting";
   const isQrPending   = status === "qr_pending";
   const showConnect   = !isConnected && !isPending && !isQrPending;
+  const bridgeDown    = bridgeReachable === false;
 
   return (
     <AppShell>
@@ -161,6 +176,33 @@ export default function WhatsAppConnect() {
             Connect your restaurant's WhatsApp account to send order confirmations and communicate with customers directly.
           </p>
         </div>
+
+        {/* Bridge offline banner */}
+        {bridgeDown && !error && (
+          <div className="mb-5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm px-4 py-3 flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600" />
+            <div>
+              <p className="font-semibold">WhatsApp Bridge is not running</p>
+              <p className="mt-0.5 text-amber-700">
+                Make sure the <strong>WhatsApp Bridge</strong> workflow is started alongside the main application.
+                On Replit, use the <strong>Project</strong> run button which starts both together.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Bridge running, WA not yet connected */}
+        {bridgeReachable === true && status === "not_initialised" && (
+          <div className="mb-5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm px-4 py-3 flex items-start gap-2.5">
+            <Wifi className="w-4 h-4 mt-0.5 shrink-0 text-blue-600" />
+            <div>
+              <p className="font-semibold">Bridge running — WhatsApp QR authentication required</p>
+              <p className="mt-0.5 text-blue-700">
+                The WhatsApp Bridge is up and ready. Click <strong>Connect WhatsApp</strong> below to scan a QR code and link your account.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Status card */}
         <div className="rounded-xl border border-border bg-card p-5 mb-5 flex items-center gap-4">

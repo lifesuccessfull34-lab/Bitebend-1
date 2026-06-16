@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config';
 import logger from './utils/logger';
 import routes from './routes';
-import { setSocketIO } from './services/whatsappClient';
+import { setSocketIO, CHROMIUM_PATH } from './services/whatsappClient';
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -69,9 +69,15 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 httpServer.listen(config.port, () => {
+  logger.info('='.repeat(60));
   logger.info(`WhatsApp Bridge running on port ${config.port} [${config.nodeEnv}]`);
+  logger.info(`  Health check  : http://localhost:${config.port}/health`);
   logger.info(`  Session store : ${config.sessionStore}`);
+  logger.info(`  Session dir   : ${config.sessionDir}`);
   logger.info(`  Bitebend hook : ${config.bitebendWebhookUrl}`);
+  logger.info(`  Chromium      : ${CHROMIUM_PATH ?? '(auto — puppeteer bundled)'}`);
+  logger.info(`  API secret    : ${config.bridgeApiSecret ? 'set' : 'NOT SET (unprotected)'}`);
+  logger.info('='.repeat(60));
 });
 
 export { app, httpServer, io };

@@ -64,9 +64,11 @@ const statusHandler: RequestHandler = async (req, res) => {
   }
   try {
     const data = await callBridge(`/api/whatsapp/status/${restaurantId}`, "GET");
-    res.json(data);
+    // Bridge reachable — include flag so the portal can distinguish this from a bridge-down state
+    res.json({ ...data, bridgeReachable: true });
   } catch {
-    res.status(200).json({ success: true, status: "not_initialised", restaurantId });
+    // Bridge not running — return graceful not_initialised but flag it clearly
+    res.status(200).json({ success: true, status: "not_initialised", bridgeReachable: false, restaurantId });
   }
 };
 

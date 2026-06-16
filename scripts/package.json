@@ -13,6 +13,7 @@
     "verify:bill-flow": "tsx ./src/verify-bill-flow.ts",
     "validate:resources-migration": "tsx ./src/validate-resources-migration.ts",
     "test:resources-integration": "tsx ./src/test-resources-integration.ts",
+    "doctor": "tsx ./src/doctor.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
