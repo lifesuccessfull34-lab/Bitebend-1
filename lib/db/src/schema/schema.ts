@@ -328,6 +328,10 @@ export const sessionBills = pgTable(
     verifiedAt: timestamp("verified_at"),
     /** User ID of staff who approved/rejected */
     verifiedBy: integer("verified_by").references(() => users.id, { onDelete: "set null" }),
+    /** When the bill was last resent (null if never resent) */
+    resentAt: timestamp("resent_at"),
+    /** How many times the bill was resent (0 = never resent, first send is not counted) */
+    resentCount: integer("resent_count").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

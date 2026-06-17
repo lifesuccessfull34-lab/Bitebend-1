@@ -142,8 +142,83 @@ export interface SessionBill {
   screenshotReceivedAt: string | null;
   verifiedAt: string | null;
   verifiedBy: number | null;
+  resentAt: string | null;
+  resentCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface HistorySessionBill {
+  id: number;
+  sessionId: number;
+  billNumber: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: "generated" | "sent" | "awaiting_verification" | "paid" | "cancelled";
+  customerPhone: string | null;
+  billGeneratedAt: string;
+  billSentAt: string | null;
+  screenshotReceivedAt: string | null;
+  verifiedAt: string | null;
+  verifiedBy: number | null;
+  verifiedByName: string | null;
+  resentAt: string | null;
+  resentCount: number;
+  hasScreenshot: boolean;
+}
+
+export interface HistoryOrderItem {
+  id: number;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  isVeg: boolean;
+  notes: string | null;
+}
+
+export interface HistoryOrder {
+  id: number;
+  customerName: string;
+  customerPhone: string;
+  status: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  paymentStatus: string;
+  createdAt: string;
+  items: HistoryOrderItem[];
+}
+
+export interface HistorySession {
+  id: number;
+  tableNumber: string;
+  status: "active" | "awaiting_payment" | "awaiting_verification" | "paid" | "closed";
+  orderCount: number;
+  itemCount: number;
+  totalAmount: number;
+  customerName: string | null;
+  customerPhone: string | null;
+  sessionOpenedAt: string;
+  sessionClosedAt: string | null;
+  bill: HistorySessionBill | null;
+}
+
+export interface HistorySessionDetail extends HistorySession {
+  orders: HistoryOrder[];
+}
+
+export interface HistoryRevenue {
+  today: number;
+  thisWeek: number;
+  thisMonth: number;
+}
+
+export interface HistoryPage {
+  sessions: HistorySession[];
+  total: number;
+  page: number;
+  totalPages: number;
 }
 
 export interface SessionSummary {

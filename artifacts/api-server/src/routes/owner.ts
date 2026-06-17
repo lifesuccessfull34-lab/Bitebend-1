@@ -2089,6 +2089,490 @@ function streamOrders(req: Request, res: Response) {
   });
 }
 
+// ─── History: paginated closed sessions + bills ───────────────────────────────
+
+const getHistory: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.json({ sessions: [], total: 0, page: 1, totalPages: 0 }); return; }
+
+  const page = Math.max(1, parseInt(String(req.query.page ?? "1")));
+  const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "20"))));
+  const search = (req.query.search as string | undefined)?.trim() ?? "";
+  const dateRange = (req.query.dateRange as string | undefined) ?? "";
+  const fromParam = req.query.from as string | undefined;
+  const toParam = req.query.to as string | undefined;
+
+  const now = new Date();
+  let fromDate: Date | null = null;
+  let toDate: Date | null = null;
+
+  if (dateRange === "today") {
+    fromDate = new Date(now); fromDate.setHours(0, 0, 0, 0);
+    toDate = new Date(now); toDate.setHours(23, 59, 59, 999);
+  } else if (dateRange === "yesterday") {
+    fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 1); fromDate.setHours(0, 0, 0, 0);
+    toDate = new Date(fromDate); toDate.setHours(23, 59, 59, 999);
+  } else if (dateRange === "7days") {
+    fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 6); fromDate.setHours(0, 0, 0, 0);
+    toDate = new Date(now); toDate.setHours(23, 59, 59, 999);
+  } else if (dateRange === "30days") {
+    fromDate = new Date(now); fromDate.setDate(fromDate.getDate() - 29); fromDate.setHours(0, 0, 0, 0);
+    toDate = new Date(now); toDate.setHours(23, 59, 59, 999);
+  } else if (dateRange === "custom" && fromParam && toParam) {
+    fromDate = new Date(`${fromParam}T00:00:00`);
+    toDate = new Date(`${toParam}T23:59:59`);
+  }
+
+  // Build the set of session IDs that match search criteria (bill number, customer, table)
+  let searchSessionIds: Set<number> | null = null;
+  if (search.length >= 2) {
+    const likeSearch = `%${search}%`;
+    // Match sessions by table number
+    const byTable = await db
+      .select({ id: tableSessions.id })
+      .from(tableSessions)
+      .where(and(
+        eq(tableSessions.restaurantId, user.restaurantId),
+        sql`${tableSessions.tableNumber} ILIKE ${likeSearch}`,
+      ));
+
+    // Match sessions by bill number (exact prefix) or customer phone/name via orders
+    const [byBill, byCustomer] = await Promise.all([
+      db.select({ sessionId: sessionBills.sessionId })
+        .from(sessionBills)
+        .where(and(
+          eq(sessionBills.restaurantId, user.restaurantId),
+          sql`${sessionBills.billNumber} ILIKE ${likeSearch}`,
+        )),
+      db.select({ sessionId: orders.sessionId })
+        .from(orders)
+        .where(and(
+          eq(orders.restaurantId, user.restaurantId),
+          sql`(${orders.customerPhone} ILIKE ${likeSearch} OR ${orders.customerName} ILIKE ${likeSearch})`,
+        )),
+    ]);
+
+    searchSessionIds = new Set([
+      ...byTable.map((r) => r.id),
+      ...byBill.map((r) => r.sessionId).filter((id): id is number => id !== null),
+      ...byCustomer.map((r) => r.sessionId).filter((id): id is number => id !== null),
+    ]);
+  }
+
+  // Count total matching sessions
+  const baseWhere = and(
+    eq(tableSessions.restaurantId, user.restaurantId),
+    eq(tableSessions.status, "closed"),
+    fromDate ? gte(tableSessions.updatedAt, fromDate) : undefined,
+    toDate ? lte(tableSessions.updatedAt, toDate) : undefined,
+    searchSessionIds !== null && searchSessionIds.size > 0
+      ? inArray(tableSessions.id, [...searchSessionIds])
+      : searchSessionIds !== null && searchSessionIds.size === 0
+        ? sql`false`
+        : undefined,
+  );
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(tableSessions)
+    .where(baseWhere);
+
+  const offset = (page - 1) * limit;
+
+  const sessionRows = await db
+    .select()
+    .from(tableSessions)
+    .where(baseWhere)
+    .orderBy(desc(tableSessions.updatedAt))
+    .limit(limit)
+    .offset(offset);
+
+  if (sessionRows.length === 0) {
+    res.json({ sessions: [], total: total ?? 0, page, totalPages: Math.ceil((total ?? 0) / limit) });
+    return;
+  }
+
+  const sessionIds = sessionRows.map((s) => s.id);
+
+  const [billRows, representativeOrders] = await Promise.all([
+    db.select({
+      id: sessionBills.id,
+      sessionId: sessionBills.sessionId,
+      billNumber: sessionBills.billNumber,
+      subtotal: sessionBills.subtotal,
+      tax: sessionBills.tax,
+      total: sessionBills.total,
+      status: sessionBills.status,
+      customerPhone: sessionBills.customerPhone,
+      createdAt: sessionBills.createdAt,
+      sentAt: sessionBills.sentAt,
+      screenshotReceivedAt: sessionBills.screenshotReceivedAt,
+      verifiedAt: sessionBills.verifiedAt,
+      verifiedBy: sessionBills.verifiedBy,
+      resentAt: sessionBills.resentAt,
+      resentCount: sessionBills.resentCount,
+      screenshotUrl: sessionBills.screenshotUrl,
+    }).from(sessionBills)
+      .where(and(
+        inArray(sessionBills.sessionId, sessionIds),
+        ne(sessionBills.status, "cancelled" as const),
+      ))
+      .orderBy(desc(sessionBills.createdAt)),
+    // One representative order per session for customer name/phone
+    db.select({
+      sessionId: orders.sessionId,
+      customerName: orders.customerName,
+      customerPhone: orders.customerPhone,
+    }).from(orders)
+      .where(inArray(orders.sessionId, sessionIds))
+      .orderBy(desc(orders.createdAt)),
+  ]);
+
+  // Resolve verifiedBy user names in one query
+  const verifierIds = [...new Set(billRows.map((b) => b.verifiedBy).filter((id): id is number => id !== null))];
+  const verifierMap = new Map<number, string>();
+  if (verifierIds.length > 0) {
+    const verifiers = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, verifierIds));
+    for (const v of verifiers) verifierMap.set(v.id, v.name);
+  }
+
+  const billBySession = new Map<number, typeof billRows[0]>();
+  for (const bill of billRows) {
+    if (!billBySession.has(bill.sessionId)) billBySession.set(bill.sessionId, bill);
+  }
+
+  const customerBySession = new Map<number, { name: string; phone: string }>();
+  for (const o of representativeOrders) {
+    if (o.sessionId !== null && !customerBySession.has(o.sessionId)) {
+      customerBySession.set(o.sessionId, { name: o.customerName, phone: o.customerPhone });
+    }
+  }
+
+  const orderCountRows = await db
+    .select({ sessionId: orders.sessionId, count: sql<number>`count(*)::int`, items: sql<number>`coalesce(sum(oi.qty),0)::int` })
+    .from(orders)
+    .leftJoin(
+      sql`(SELECT order_id, sum(quantity) as qty FROM order_items GROUP BY order_id) oi`,
+      sql`oi.order_id = orders.id`,
+    )
+    .where(inArray(orders.sessionId, sessionIds))
+    .groupBy(orders.sessionId);
+
+  const countBySession = new Map<number, { orderCount: number; itemCount: number }>();
+  for (const r of orderCountRows) {
+    if (r.sessionId !== null) countBySession.set(r.sessionId, { orderCount: r.count, itemCount: r.items });
+  }
+
+  const sessions = sessionRows.map((session) => {
+    const bill = billBySession.get(session.id) ?? null;
+    const customer = customerBySession.get(session.id) ?? null;
+    const counts = countBySession.get(session.id) ?? { orderCount: 0, itemCount: 0 };
+    return {
+      id: session.id,
+      tableNumber: session.tableNumber,
+      status: session.status,
+      orderCount: counts.orderCount,
+      itemCount: counts.itemCount,
+      totalAmount: bill?.total ?? 0,
+      customerName: customer?.name ?? null,
+      customerPhone: customer?.phone ?? null,
+      sessionOpenedAt: session.createdAt.toISOString(),
+      sessionClosedAt: session.updatedAt.toISOString(),
+      bill: bill ? {
+        id: bill.id,
+        sessionId: bill.sessionId,
+        billNumber: bill.billNumber,
+        subtotal: bill.subtotal,
+        tax: bill.tax,
+        total: bill.total,
+        status: bill.status,
+        customerPhone: bill.customerPhone ?? null,
+        billGeneratedAt: bill.createdAt.toISOString(),
+        billSentAt: bill.sentAt?.toISOString() ?? null,
+        screenshotReceivedAt: bill.screenshotReceivedAt?.toISOString() ?? null,
+        verifiedAt: bill.verifiedAt?.toISOString() ?? null,
+        verifiedBy: bill.verifiedBy ?? null,
+        verifiedByName: bill.verifiedBy ? (verifierMap.get(bill.verifiedBy) ?? null) : null,
+        resentAt: bill.resentAt?.toISOString() ?? null,
+        resentCount: bill.resentCount,
+        hasScreenshot: !!bill.screenshotUrl,
+      } : null,
+    };
+  });
+
+  res.json({ sessions, total: total ?? 0, page, totalPages: Math.ceil((total ?? 0) / limit) });
+};
+
+// ─── History: revenue summary (today / this week / this month from paid bills) ─
+
+const getHistoryRevenue: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.json({ today: 0, thisWeek: 0, thisMonth: 0 }); return; }
+
+  const now = new Date();
+
+  const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+
+  const weekStart = new Date(now);
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  weekStart.setHours(0, 0, 0, 0);
+
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const revenueRows = await db.select({
+    today: sql<number>`coalesce(sum(CASE WHEN ${sessionBills.verifiedAt} >= ${todayStart} THEN ${sessionBills.total} ELSE 0 END), 0)::int`,
+    thisWeek: sql<number>`coalesce(sum(CASE WHEN ${sessionBills.verifiedAt} >= ${weekStart} THEN ${sessionBills.total} ELSE 0 END), 0)::int`,
+    thisMonth: sql<number>`coalesce(sum(CASE WHEN ${sessionBills.verifiedAt} >= ${monthStart} THEN ${sessionBills.total} ELSE 0 END), 0)::int`,
+  })
+  .from(sessionBills)
+  .where(and(
+    eq(sessionBills.restaurantId, user.restaurantId),
+    eq(sessionBills.status, "paid"),
+  ));
+
+  const row = revenueRows[0];
+  res.json({ today: row?.today ?? 0, thisWeek: row?.thisWeek ?? 0, thisMonth: row?.thisMonth ?? 0 });
+};
+
+// ─── History: full session detail (orders + items + bill + audit) ─────────────
+
+const getHistorySession: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)))
+    .limit(1);
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  const sessionOrders = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.sessionId, sessionId))
+    .orderBy(desc(orders.createdAt));
+
+  const orderIds = sessionOrders.map((o) => o.id);
+  const allItems = orderIds.length > 0
+    ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds))
+    : [];
+
+  const itemsByOrder = new Map<number, typeof allItems>();
+  for (const item of allItems) {
+    if (!itemsByOrder.has(item.orderId)) itemsByOrder.set(item.orderId, []);
+    itemsByOrder.get(item.orderId)!.push(item);
+  }
+
+  let verifiedByName: string | null = null;
+  if (bill?.verifiedBy) {
+    const [verifier] = await db.select({ name: users.name }).from(users).where(eq(users.id, bill.verifiedBy)).limit(1);
+    verifiedByName = verifier?.name ?? null;
+  }
+
+  const representativeOrder = sessionOrders[0] ?? null;
+  const itemCount = allItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  res.json({
+    id: session.id,
+    tableNumber: session.tableNumber,
+    status: session.status,
+    orderCount: sessionOrders.length,
+    itemCount,
+    totalAmount: bill?.total ?? sessionOrders.reduce((s, o) => s + o.total, 0),
+    customerName: representativeOrder?.customerName ?? null,
+    customerPhone: representativeOrder?.customerPhone ?? null,
+    sessionOpenedAt: session.createdAt.toISOString(),
+    sessionClosedAt: session.updatedAt.toISOString(),
+    bill: bill ? {
+      id: bill.id,
+      sessionId: bill.sessionId,
+      billNumber: bill.billNumber,
+      subtotal: bill.subtotal,
+      tax: bill.tax,
+      total: bill.total,
+      status: bill.status,
+      customerPhone: bill.customerPhone ?? null,
+      billGeneratedAt: bill.createdAt.toISOString(),
+      billSentAt: bill.sentAt?.toISOString() ?? null,
+      screenshotReceivedAt: bill.screenshotReceivedAt?.toISOString() ?? null,
+      verifiedAt: bill.verifiedAt?.toISOString() ?? null,
+      verifiedBy: bill.verifiedBy ?? null,
+      verifiedByName,
+      resentAt: bill.resentAt?.toISOString() ?? null,
+      resentCount: bill.resentCount,
+      hasScreenshot: !!bill.screenshotUrl,
+    } : null,
+    orders: sessionOrders.map((o) => ({
+      id: o.id,
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
+      status: o.status,
+      subtotal: o.subtotal,
+      tax: o.tax,
+      total: o.total,
+      paymentStatus: o.paymentStatus,
+      createdAt: o.createdAt.toISOString(),
+      items: (itemsByOrder.get(o.id) ?? []).map((item) => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        isVeg: item.isVeg,
+        notes: item.notes ?? null,
+      })),
+    })),
+  });
+};
+
+// ─── History: get screenshot for a historical session bill ────────────────────
+
+const getHistoryScreenshot: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select({ id: tableSessions.id })
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)))
+    .limit(1);
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const [bill] = await db
+    .select({ screenshotUrl: sessionBills.screenshotUrl })
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill?.screenshotUrl) { res.status(404).json({ error: "No screenshot available" }); return; }
+
+  res.json({ screenshotUrl: bill.screenshotUrl });
+};
+
+// ─── History: resend bill for a historical/closed session ─────────────────────
+
+const resendHistoryBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [[session], [restaurant]] = await Promise.all([
+    db.select().from(tableSessions)
+      .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId))),
+    db.select().from(restaurants).where(eq(restaurants.id, user.restaurantId)).limit(1),
+  ]);
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+  if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
+
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill) { res.status(404).json({ error: "No bill found for this session" }); return; }
+
+  if (bill.status !== "sent" && bill.status !== "paid") {
+    res.status(400).json({ error: `Cannot resend bill in status '${bill.status}'. Only 'sent' or 'paid' bills can be resent.` });
+    return;
+  }
+
+  const customerPhone = bill.customerPhone;
+  if (!customerPhone) { res.status(400).json({ error: "No customer phone recorded on bill — cannot resend" }); return; }
+
+  // Rebuild the bill message
+  const sessionOrders = await db
+    .select()
+    .from(orders)
+    .where(and(eq(orders.sessionId, sessionId), ne(orders.status, "cancelled" as const), ne(orders.status, "payment_failed" as const)))
+    .orderBy(desc(orders.createdAt));
+
+  const orderIds = sessionOrders.map((o) => o.id);
+  const allItems = orderIds.length > 0
+    ? await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds))
+    : [];
+
+  const itemsByOrder = new Map<number, typeof allItems>();
+  for (const item of allItems) {
+    if (!itemsByOrder.has(item.orderId)) itemsByOrder.set(item.orderId, []);
+    itemsByOrder.get(item.orderId)!.push(item);
+  }
+
+  let itemLines = "";
+  for (const order of sessionOrders) {
+    const lineItems = itemsByOrder.get(order.id) ?? [];
+    for (const item of lineItems) {
+      itemLines += `  • ${item.quantity}× ${item.name} — ₹${((item.unitPrice * item.quantity) / 100).toFixed(2)}\n`;
+    }
+  }
+
+  const upiId = restaurant.upiId ?? null;
+  const totalStr = (bill.total / 100).toFixed(2);
+  const subtotalStr = (bill.subtotal / 100).toFixed(2);
+  const taxStr = (bill.tax / 100).toFixed(2);
+
+  let message = `🧾 *Bill — ${restaurant.name}*\n`;
+  message += `Table: *${session.tableNumber}*\n`;
+  message += `Bill No: ${bill.billNumber}\n\n`;
+  if (itemLines) message += `*Items:*\n${itemLines}\n`;
+  message += `Subtotal: ₹${subtotalStr}\n`;
+  if (bill.tax > 0) message += `Tax: ₹${taxStr}\n`;
+  message += `*Total: ₹${totalStr}*\n`;
+  if (upiId) {
+    message += `\n💳 *Pay via UPI:* ${upiId}\n`;
+    message += `Amount: ₹${totalStr}\n`;
+    message += `Note: ${bill.billNumber}\n`;
+  }
+  message += `\nPlease send a screenshot of your payment confirmation to this number. Thank you! 🙏`;
+
+  const sentViaBridge = await tryBridgeSend(user.restaurantId!, customerPhone, message);
+
+  let whatsappUrl: string | null = null;
+  if (!sentViaBridge) {
+    const phone = customerPhone.replace(/\D/g, "");
+    whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  }
+
+  const now = new Date();
+  await db.update(sessionBills).set({
+    resentAt: now,
+    resentCount: bill.resentCount + 1,
+    updatedAt: now,
+  }).where(eq(sessionBills.id, bill.id));
+
+  logger.info({ sessionId, billId: bill.id, billNumber: bill.billNumber, resentCount: bill.resentCount + 1, sentViaBridge }, "[resendHistoryBill] bill resent");
+
+  res.json({
+    ok: true,
+    billNumber: bill.billNumber,
+    customerPhone,
+    deliveryMethod: sentViaBridge ? "bridge" : "deeplink",
+    sent: sentViaBridge,
+    whatsappUrl: sentViaBridge ? null : whatsappUrl,
+    resentCount: bill.resentCount + 1,
+  });
+};
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 router.get("/owner/restaurant", requireOwner, getRestaurant);
@@ -2135,6 +2619,12 @@ router.get("/owner/sessions/:sessionId/bill/screenshot", requireOwner, getSessio
 router.patch("/owner/sessions/:sessionId/bill/approve", requireOwner, approveSessionBill);
 router.patch("/owner/sessions/:sessionId/bill/reject", requireOwner, rejectSessionBill);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);
+
+router.get("/owner/history", requireOwner, getHistory);
+router.get("/owner/history/revenue", requireOwner, getHistoryRevenue);
+router.get("/owner/history/:sessionId", requireOwner, getHistorySession);
+router.get("/owner/history/:sessionId/bill/screenshot", requireOwner, getHistoryScreenshot);
+router.post("/owner/history/:sessionId/bill/resend", requireOwner, resendHistoryBill);
 
 // ─── Image Upload ─────────────────────────────────────────────────────────────
 

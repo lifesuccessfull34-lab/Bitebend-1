@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
 import type { Order, DashboardStats, SessionSummary, SessionBill } from "@/lib/types";
+import { HistoryTab } from "@/pages/history/HistoryTab";
 import {
   IndianRupee,
   ShoppingBag,
@@ -162,6 +163,7 @@ function StatusTracker({ status }: { status: string }) {
 export default function Dashboard() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
+  const [activeTab, setActiveTab] = useState<"live" | "history">("live");
   const [stats, setStats]   = useState<DashboardStats | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -888,11 +890,41 @@ export default function Dashboard() {
             <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Welcome back, {user?.name}</p>
           </div>
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
-            <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 bg-muted rounded-lg p-0.5">
+              <button
+                onClick={() => setActiveTab("live")}
+                className={cn(
+                  "text-xs px-3 py-1.5 rounded-md font-medium transition-all",
+                  activeTab === "live" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                Live
+              </button>
+              <button
+                onClick={() => setActiveTab("history")}
+                className={cn(
+                  "text-xs px-3 py-1.5 rounded-md font-medium transition-all",
+                  activeTab === "history" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                History
+              </button>
+            </div>
+            {activeTab === "live" && (
+              <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+                <RefreshCw className={cn("w-4 h-4 mr-2", loading && "animate-spin")} />
+                Refresh
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* History tab */}
+        {activeTab === "history" && <HistoryTab />}
+
+        {/* Live tab content */}
+        {activeTab === "live" && <>
 
         {/* Subscription banner */}
         {subBanner && (
@@ -1231,6 +1263,8 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        </>}
       </div>
 
       {/* ── Session Bill Payment Proof Modal ─────────────────────────── */}
