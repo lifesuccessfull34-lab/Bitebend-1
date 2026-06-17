@@ -28,6 +28,7 @@
 
     "verify:bill-flow": "pnpm --filter @workspace/scripts run verify:bill-flow",
 
+    "audit-migrations": "pnpm --filter @workspace/scripts run audit-migrations",
     "migrate": "pnpm --filter @workspace/api-server run migrate",
     "validate:db": "pnpm --filter @workspace/api-server run validate:db",
     "db:push": "pnpm --filter @workspace/db run push",

@@ -33,8 +33,9 @@ const REQUIRED_TABLES = [
   "image_blobs",
   "bill_links",
   "resources",
-  "table_sessions",
   "sessions",
+  "table_sessions",
+  "session_bills",
 ] as const;
 
 const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
@@ -54,6 +55,18 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   // 0019_takeaway_sessions
   { table: "table_sessions",               column: "session_type"     },
   { table: "table_sessions",               column: "customer_phone"   },
+  // 0016_session_bills
+  { table: "session_bills",                column: "session_id"       },
+  { table: "session_bills",                column: "restaurant_id"    },
+  { table: "session_bills",                column: "bill_number"      },
+  { table: "session_bills",                column: "total"            },
+  { table: "session_bills",                column: "status"           },
+  // 0017_session_bill_payment
+  { table: "session_bills",                column: "customer_phone"   },
+  { table: "session_bills",                column: "screenshot_url"   },
+  // 0018_session_bill_resend
+  { table: "session_bills",                column: "resent_at"        },
+  { table: "session_bills",                column: "resent_count"     },
 ];
 
 /**

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "audit-migrations": "tsx ./src/audit-migrations.ts",
     "check:render-safety": "tsx ./src/check-render-safety.ts",
     "check:freshness": "tsx ./src/check-build-freshness.ts",
     "check:css-bundle": "tsx ./src/check-css-bundle.ts",
@@ -18,9 +19,11 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/pg": "^8.11.6",
     "@types/qrcode": "^1.5.6",
     "@workspace/url-utils": "workspace:*",
     "jsqr": "^1.4.0",
+    "pg": "^8.13.3",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5",
     "tsx": "catalog:"

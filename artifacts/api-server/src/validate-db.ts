@@ -29,6 +29,8 @@ const REQUIRED_TABLES = [
   "bill_links",
   "resources",
   "sessions",
+  "table_sessions",
+  "session_bills",
 ] as const;
 
 const REQUIRED_COLUMNS: Array<{ table: string; column: string; note?: string }> = [
@@ -45,6 +47,23 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string; note?: string }> 
   { table: "restaurants",                 column: "subscription_plan"                                              },
   { table: "orders",                      column: "razorpay_order_id",       note: "added in migration 0007"       },
   { table: "orders",                      column: "payment_screenshot_url",  note: "added in migration 0006"       },
+  { table: "orders",                      column: "verification_method",     note: "added in migration 0014"       },
+  { table: "orders",                      column: "verified_by",             note: "added in migration 0014"       },
+  { table: "orders",                      column: "verified_at",             note: "added in migration 0014"       },
+  { table: "orders",                      column: "session_id",              note: "added in migration 0015"       },
+  { table: "table_sessions",              column: "restaurant_id",           note: "added in migration 0015"       },
+  { table: "table_sessions",              column: "status",                  note: "added in migration 0015"       },
+  { table: "table_sessions",              column: "session_type",            note: "added in migration 0019"       },
+  { table: "table_sessions",              column: "customer_phone",          note: "added in migration 0019"       },
+  { table: "session_bills",              column: "session_id",              note: "added in migration 0016"       },
+  { table: "session_bills",              column: "restaurant_id",           note: "added in migration 0016"       },
+  { table: "session_bills",              column: "bill_number",             note: "added in migration 0016"       },
+  { table: "session_bills",              column: "total",                   note: "added in migration 0016"       },
+  { table: "session_bills",              column: "status",                  note: "added in migration 0016"       },
+  { table: "session_bills",              column: "customer_phone",          note: "added in migration 0017"       },
+  { table: "session_bills",              column: "screenshot_url",          note: "added in migration 0017"       },
+  { table: "session_bills",              column: "resent_at",               note: "added in migration 0018"       },
+  { table: "session_bills",              column: "resent_count",            note: "added in migration 0018"       },
 ];
 
 const REQUIRED_INDEXES: Array<{ indexName: string; tableName: string }> = [

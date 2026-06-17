@@ -110,6 +110,7 @@ if (existsSync(buildInfoPath)) {
 const STARTUP_REQUIRED_TABLES = [
   "users", "restaurants", "sessions",
   "resources", "orders", "owner_password_reset_tokens",
+  "table_sessions", "session_bills",
 ] as const;
 
 const dbBootStart = Date.now();

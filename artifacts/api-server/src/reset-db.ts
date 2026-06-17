@@ -22,15 +22,25 @@ async function resetDb(): Promise<void> {
   // Truncate in FK-safe order: children first, then parents.
   // RESTART IDENTITY resets serial sequences back to 1.
   // CASCADE is not used deliberately — we want an explicit ordered wipe.
+  //
+  // FK dependency graph (relevant to order):
+  //   session_bills  → table_sessions, restaurants, users
+  //   table_sessions → restaurants
+  //   orders         → table_sessions (session_id, nullable)
+  //   order_items    → orders
+  //   bill_links     → (standalone)
+  //   image_blobs    → (standalone)
   await db.execute(sql`
     TRUNCATE
       bill_links,
       image_blobs,
+      session_bills,
       order_items,
       orders,
       menu_items,
       menu_categories,
       restaurant_tables,
+      table_sessions,
       subscription_transactions,
       notifications,
       resources,

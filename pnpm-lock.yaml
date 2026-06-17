@@ -1005,6 +1005,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.2
+      '@types/pg':
+        specifier: ^8.11.6
+        version: 8.20.0
       '@types/qrcode':
         specifier: ^1.5.6
         version: 1.5.6
@@ -1014,6 +1017,9 @@ importers:
       jsqr:
         specifier: ^1.4.0
         version: 1.4.0
+      pg:
+        specifier: ^8.13.3
+        version: 8.21.0
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
@@ -8212,7 +8218,7 @@ snapshots:
 
   '@types/pg@8.20.0':
     dependencies:
-      '@types/node': 25.9.2
+      '@types/node': 20.19.43
       pg-protocol: 1.14.0
       pg-types: 2.2.0
 
