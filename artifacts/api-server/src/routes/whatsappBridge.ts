@@ -170,22 +170,28 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   }
 
   // ── Download image from bridge URL → base64 data URL ──────────────────────
+  // Bridges may send either an HTTP(S) URL to fetch, or a data: URI directly.
   let screenshotDataUrl: string;
-  try {
-    const imageRes = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000) });
-    if (!imageRes.ok) throw new Error(`HTTP ${imageRes.status} fetching image`);
-    const contentType = imageRes.headers.get("content-type") ?? "image/jpeg";
-    const buffer = await imageRes.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    screenshotDataUrl = `data:${contentType};base64,${base64}`;
-    logger.debug({ bytes: buffer.byteLength }, "[whatsapp:payment-screenshot] image downloaded and encoded");
-  } catch (fetchErr) {
-    logger.error(
-      { imageUrl, error: (fetchErr as Error).message },
-      "[whatsapp:payment-screenshot] failed to download image — aborting"
-    );
-    res.status(502).json({ error: "Failed to fetch image from bridge" });
-    return;
+  if (imageUrl.startsWith("data:")) {
+    screenshotDataUrl = imageUrl;
+    logger.debug("[whatsapp:payment-screenshot] image received as data URI — no fetch needed");
+  } else {
+    try {
+      const imageRes = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000) });
+      if (!imageRes.ok) throw new Error(`HTTP ${imageRes.status} fetching image`);
+      const contentType = imageRes.headers.get("content-type") ?? "image/jpeg";
+      const buffer = await imageRes.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
+      screenshotDataUrl = `data:${contentType};base64,${base64}`;
+      logger.debug({ bytes: buffer.byteLength }, "[whatsapp:payment-screenshot] image downloaded and encoded");
+    } catch (fetchErr) {
+      logger.error(
+        { imageUrl, error: (fetchErr as Error).message },
+        "[whatsapp:payment-screenshot] failed to download image — aborting"
+      );
+      res.status(502).json({ error: "Failed to fetch image from bridge" });
+      return;
+    }
   }
 
   const now = new Date();
