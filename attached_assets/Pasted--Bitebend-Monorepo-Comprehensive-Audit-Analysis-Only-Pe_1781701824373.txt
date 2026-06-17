@@ -1,0 +1,320 @@
+# Bitebend Monorepo Comprehensive Audit (Analysis Only)
+
+Perform a complete repository-wide audit of the entire Bitebend monorepo.
+
+## STRICT RULES
+
+This is an analysis-only task.
+
+DO NOT:
+
+* Modify any source code
+* Create commits
+* Delete files
+* Rename files
+* Move files
+* Change package.json
+* Install packages
+* Remove packages
+* Update dependencies
+* Apply migrations
+* Modify workflows
+* Change configuration files
+
+Generate a report only.
+
+---
+
+# Audit Scope
+
+Analyze all applications, services, workflows, migrations, assets, build outputs, and dependencies including:
+
+* Portal
+* Menu App
+* API Server
+* WhatsApp Bridge
+* OCR / Payment Verification pipeline
+* Database schemas and migrations
+* Startup workflows
+* Replit workflows
+* Build outputs
+* Static assets
+
+---
+
+# 1. Unused Source Code Audit
+
+Identify:
+
+* Unused React components
+* Unused pages/routes
+* Unused hooks
+* Unused utility/helper functions
+* Unused services
+* Unused API endpoints
+* Unused middleware
+* Unused database access layers
+* Unused types/interfaces
+* Unused exports
+* Unused imports
+* Unused constants/enums
+* Unused feature flags
+* Unused environment variable references
+
+For each finding provide:
+
+* File path
+* Symbol name
+* Why it appears unused
+* Search/reference evidence
+* Risk level (Low / Medium / High)
+
+---
+
+# 2. Dependency Audit
+
+Analyze package usage across the entire monorepo.
+
+Identify:
+
+* Unused npm packages
+* Packages installed but never imported
+* Duplicate packages serving the same purpose
+* Multiple versions of the same package
+* Large dependencies with significant bundle impact
+* Legacy dependencies from abandoned implementations
+* WhatsApp-related packages no longer used
+* OCR-related packages no longer used
+* Development dependencies no longer required
+
+For each package provide:
+
+* Package name
+* Where installed
+* Where referenced
+* Estimated size impact
+* Risk level
+* Possible lighter alternative (if applicable)
+
+---
+
+# 3. Frontend Bundle Audit
+
+Analyze production build outputs.
+
+Provide:
+
+* Portal bundle size breakdown
+* Menu bundle size breakdown
+* Largest JS chunks
+* Largest CSS files
+* Largest route bundles
+* Largest assets loaded by the frontend
+* Route-level bundle estimates
+* Code splitting opportunities
+* Lazy-loading opportunities
+* Duplicate code shipped to multiple bundles
+
+Include estimated size savings.
+
+---
+
+# 4. Asset Audit
+
+Identify:
+
+* Unused images
+* Unused icons
+* Unused SVG files
+* Unused static files
+* Duplicate assets
+* Oversized assets
+* Assets never referenced by source code
+
+For each asset provide:
+
+* File path
+* File size
+* Reference status
+* Estimated savings
+
+---
+
+# 5. Build Output Audit
+
+Analyze generated build artifacts.
+
+Provide:
+
+* Dist folder size breakdown
+* Portal build size breakdown
+* Menu build size breakdown
+* API build size breakdown
+* Top 20 largest generated files
+* Files generated but potentially unnecessary
+* Build artifacts that should not be committed to git
+
+Estimate recoverable storage.
+
+---
+
+# 6. Database & Migration Audit
+
+Analyze:
+
+* Unused tables
+* Unused columns
+* Unused indexes
+* Orphaned schema definitions
+* Unreferenced database models
+* Redundant migrations
+* Duplicate migration logic
+
+IMPORTANT:
+
+Do not assume a column is unused solely because code references are not found.
+
+Check for runtime usage, SQL queries, migrations, payment verification, OCR flows, reporting logic, and future compatibility concerns.
+
+---
+
+# 7. WhatsApp Bridge Audit
+
+Specifically inspect:
+
+* Legacy bridge implementations
+* Abandoned bridge experiments
+* Unused bridge helpers
+* Duplicate bridge logic
+* Dead socket handlers
+* Unused WhatsApp event handlers
+* Unused Puppeteer utilities
+* Unused Chromium configuration code
+
+Clearly distinguish:
+
+* Definitely unused
+* Possibly runtime-dependent
+* Do not remove
+
+---
+
+# 8. OCR & Payment Verification Audit
+
+Inspect:
+
+* OCR extraction pipeline
+* Payment screenshot processing
+* UTR extraction logic
+* Verification workflow
+* Payment status update flow
+
+Identify:
+
+* Dead code paths
+* Duplicate implementations
+* Legacy verification logic
+* Unused helper functions
+
+Flag anything that may affect payment verification.
+
+---
+
+# 9. Workflow & Infrastructure Audit
+
+Analyze:
+
+* Replit workflows
+* Startup commands
+* Build scripts
+* Shell scripts
+* Background services
+* Scheduled jobs
+* Environment-variable usage
+
+Identify:
+
+* Orphaned workflows
+* Unused scripts
+* Duplicate startup logic
+* Legacy deployment configurations
+
+---
+
+# 10. Cleanup Candidate Report
+
+For EVERY cleanup candidate provide:
+
+* File/package/path
+* Category
+* Why it appears unused
+* Verification method used
+* Estimated size savings
+* Estimated maintenance reduction
+* Risk level
+* Recommended action
+
+---
+
+# 11. Safety Analysis
+
+Separate findings into:
+
+## Safe To Remove Now
+
+High confidence unused items with minimal risk.
+
+## Needs Manual Verification
+
+Potentially unused items that require business-logic review.
+
+## Do Not Remove
+
+Items that appear unused but may be referenced dynamically through:
+
+* Environment variables
+* Runtime configuration
+* Startup workflows
+* Socket events
+* Dynamic imports
+* Database migrations
+* OCR processing
+* Payment verification
+* WhatsApp Bridge lifecycle
+* Replit workflow execution
+
+---
+
+# 12. Prioritized Cleanup Plan
+
+Provide:
+
+### Phase 1 (Lowest Risk, Highest Gain)
+
+Expected storage savings:
+Expected maintenance reduction:
+
+### Phase 2 (Medium Risk)
+
+Expected storage savings:
+Expected maintenance reduction:
+
+### Phase 3 (Requires Manual Review)
+
+Expected storage savings:
+Expected maintenance reduction:
+
+---
+
+# Final Summary
+
+Provide:
+
+* Total estimated unused code
+* Total estimated unused assets
+* Total estimated unused dependencies
+* Total estimated recoverable storage
+* Total estimated bundle reduction
+* Top 10 highest-impact cleanup opportunities
+
+Return only the audit report. Make absolutely no modifications to the repository.
