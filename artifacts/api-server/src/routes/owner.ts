@@ -11,8 +11,9 @@ import {
   users,
   imageBlobs,
   tableSessions,
+  sessionBills,
 } from "@workspace/db";
-import { eq, and, gte, lte, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, sql, desc, inArray, ne } from "drizzle-orm";
 import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import QRCode from "qrcode";
@@ -1370,11 +1371,12 @@ const listSessions: RequestHandler = async (req, res) => {
 
   const sessionIds = sessionRows.map((s) => s.id);
 
-  const sessionOrders = await db
-    .select()
-    .from(orders)
-    .where(inArray(orders.sessionId, sessionIds))
-    .orderBy(desc(orders.createdAt));
+  const [sessionOrders, billRows] = await Promise.all([
+    db.select().from(orders).where(inArray(orders.sessionId, sessionIds)).orderBy(desc(orders.createdAt)),
+    db.select().from(sessionBills).where(
+      and(inArray(sessionBills.sessionId, sessionIds), ne(sessionBills.status, "cancelled" as const))
+    ).orderBy(desc(sessionBills.createdAt)),
+  ]);
 
   const orderIds = sessionOrders.map((o) => o.id);
   const allItems = orderIds.length > 0
@@ -1402,6 +1404,11 @@ const listSessions: RequestHandler = async (req, res) => {
     }
   }
 
+  const billBySession = new Map<number, typeof billRows[0]>();
+  for (const bill of billRows) {
+    if (!billBySession.has(bill.sessionId)) billBySession.set(bill.sessionId, bill);
+  }
+
   res.json(
     sessionRows.map((session) => {
       const sessionOrdersList = ordersBySession.get(session.id) ?? [];
@@ -1410,6 +1417,7 @@ const listSessions: RequestHandler = async (req, res) => {
         0,
       );
       const totalAmount = sessionOrdersList.reduce((sum, o) => sum + o.total, 0);
+      const bill = billBySession.get(session.id) ?? null;
       return {
         id: session.id,
         tableNumber: session.tableNumber,
@@ -1420,9 +1428,158 @@ const listSessions: RequestHandler = async (req, res) => {
         itemCount,
         totalAmount,
         orders: sessionOrdersList,
+        bill: bill ? {
+          id: bill.id,
+          sessionId: bill.sessionId,
+          restaurantId: bill.restaurantId,
+          billNumber: bill.billNumber,
+          subtotal: bill.subtotal,
+          tax: bill.tax,
+          total: bill.total,
+          status: bill.status,
+          createdAt: bill.createdAt.toISOString(),
+          updatedAt: bill.updatedAt.toISOString(),
+        } : null,
       };
     }),
   );
+};
+
+const generateBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)));
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  if (session.status !== "active") {
+    res.status(400).json({ error: "Bill can only be generated for active sessions" });
+    return;
+  }
+
+  const existingBills = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)));
+
+  if (existingBills.length > 0) {
+    res.status(409).json({ error: "An active bill already exists for this session", bill: existingBills[0] });
+    return;
+  }
+
+  const sessionOrders = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.sessionId, sessionId));
+
+  const payableOrders = sessionOrders.filter(
+    (o) => o.status !== "cancelled" && o.status !== "payment_failed",
+  );
+
+  if (payableOrders.length === 0) {
+    res.status(400).json({ error: "No payable orders in this session" });
+    return;
+  }
+
+  const subtotal = payableOrders.reduce((sum, o) => sum + o.subtotal, 0);
+  const tax = payableOrders.reduce((sum, o) => sum + o.tax, 0);
+  const total = payableOrders.reduce((sum, o) => sum + o.total, 0);
+
+  if (total === 0) {
+    res.status(400).json({ error: "Cannot generate a ₹0 bill" });
+    return;
+  }
+
+  const newBill = await db.transaction(async (tx) => {
+    const [inserted] = await tx
+      .insert(sessionBills)
+      .values({
+        sessionId,
+        restaurantId: user.restaurantId!,
+        billNumber: `BILL-PENDING-${Date.now()}`,
+        subtotal,
+        tax,
+        total,
+        status: "generated",
+      })
+      .returning();
+
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+    const billNumber = `BILL-${user.restaurantId}-${dateStr}-${inserted.id}`;
+
+    const [finalBill] = await tx
+      .update(sessionBills)
+      .set({ billNumber, updatedAt: new Date() })
+      .where(eq(sessionBills.id, inserted.id))
+      .returning();
+
+    await tx
+      .update(tableSessions)
+      .set({ status: "awaiting_payment", updatedAt: new Date() })
+      .where(eq(tableSessions.id, sessionId));
+
+    return finalBill;
+  });
+
+  logger.info({ sessionId, billId: newBill.id, billNumber: newBill.billNumber, total }, "Session bill generated");
+
+  res.status(201).json({
+    id: newBill.id,
+    sessionId: newBill.sessionId,
+    restaurantId: newBill.restaurantId,
+    billNumber: newBill.billNumber,
+    subtotal: newBill.subtotal,
+    tax: newBill.tax,
+    total: newBill.total,
+    status: newBill.status,
+    createdAt: newBill.createdAt.toISOString(),
+    updatedAt: newBill.updatedAt.toISOString(),
+  });
+};
+
+const getSessionBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)));
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const bills = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt));
+
+  if (bills.length === 0) { res.status(404).json({ error: "No bill found for this session" }); return; }
+
+  const bill = bills[0];
+  res.json({
+    id: bill.id,
+    sessionId: bill.sessionId,
+    restaurantId: bill.restaurantId,
+    billNumber: bill.billNumber,
+    subtotal: bill.subtotal,
+    tax: bill.tax,
+    total: bill.total,
+    status: bill.status,
+    createdAt: bill.createdAt.toISOString(),
+    updatedAt: bill.updatedAt.toISOString(),
+  });
 };
 
 const getStats: RequestHandler = async (req, res) => {
@@ -1654,6 +1811,8 @@ router.post("/owner/orders/:orderId/confirm-staff-payment", requireOwner, confir
 
 router.get("/owner/stats", requireOwner, getStats);
 router.get("/owner/sessions", requireOwner, listSessions);
+router.post("/owner/sessions/:sessionId/bill", requireOwner, generateBill);
+router.get("/owner/sessions/:sessionId/bill", requireOwner, getSessionBill);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);
 
 // ─── Image Upload ─────────────────────────────────────────────────────────────

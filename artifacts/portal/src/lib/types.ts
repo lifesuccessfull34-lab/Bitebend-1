@@ -127,6 +127,19 @@ export interface OrderItem {
   notes: string | null;
 }
 
+export interface SessionBill {
+  id: number;
+  sessionId: number;
+  restaurantId: number;
+  billNumber: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: "generated" | "sent" | "awaiting_verification" | "paid" | "cancelled";
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SessionSummary {
   id: number;
   tableNumber: string;
@@ -137,6 +150,7 @@ export interface SessionSummary {
   createdAt: string;
   updatedAt: string;
   orders: Order[];
+  bill: SessionBill | null;
 }
 
 export interface Order {

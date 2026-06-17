@@ -297,6 +297,38 @@ export const billLinks = pgTable("bill_links", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const sessionBills = pgTable(
+  "session_bills",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: integer("session_id")
+      .notNull()
+      .references(() => tableSessions.id, { onDelete: "cascade" }),
+    restaurantId: integer("restaurant_id")
+      .notNull()
+      .references(() => restaurants.id, { onDelete: "cascade" }),
+    billNumber: text("bill_number").notNull().unique(),
+    subtotal: integer("subtotal").notNull(),
+    tax: integer("tax").notNull().default(0),
+    total: integer("total").notNull(),
+    status: text("status", {
+      enum: ["generated", "sent", "awaiting_verification", "paid", "cancelled"],
+    })
+      .notNull()
+      .default("generated"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_session_bills_session_id").on(t.sessionId),
+    index("idx_session_bills_restaurant_id").on(t.restaurantId),
+    check(
+      "session_bills_status_check",
+      sql`${t.status} IN ('generated','sent','awaiting_verification','paid','cancelled')`,
+    ),
+  ],
+);
+
 export const resources = pgTable("resources", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),

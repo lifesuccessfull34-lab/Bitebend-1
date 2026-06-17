@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
-import type { Order, DashboardStats, SessionSummary } from "@/lib/types";
+import type { Order, DashboardStats, SessionSummary, SessionBill } from "@/lib/types";
 import {
   IndianRupee,
   ShoppingBag,
@@ -32,6 +32,7 @@ import {
   ChevronDown,
   ChevronUp,
   UtensilsCrossed,
+  Receipt,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -192,6 +193,9 @@ export default function Dashboard() {
   // Bill state — server generates the image; we just track loading per order
   const [billLoading, setBillLoading]     = useState<number | null>(null);
 
+  // Session bill generation
+  const [generatingBillId, setGeneratingBillId] = useState<number | null>(null);
+
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const uploadOrderIdRef = useRef<number | null>(null);
 
@@ -219,6 +223,19 @@ export default function Dashboard() {
   }, [fetchData, user]);
 
   useOrderNotifications({ enabled: !!user && user.role === "owner", onNewOrder: fetchData });
+
+  const handleGenerateBill = useCallback(async (sessionId: number) => {
+    setGeneratingBillId(sessionId);
+    try {
+      await apiFetch<SessionBill>(`/owner/sessions/${sessionId}/bill`, { method: "POST" });
+      toast.success("Bill generated — table moved to awaiting payment");
+      await fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate bill");
+    } finally {
+      setGeneratingBillId(null);
+    }
+  }, [fetchData]);
 
   const clearError = (id: number) =>
     setOrderErrors((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -765,9 +782,9 @@ export default function Dashboard() {
     );
   };
 
-  // ─── Active sessions (only those with at least one order) ─────────────────────
-  const activeSessions = sessions.filter(
-    (s) => s.status === "active" && s.orderCount > 0,
+  // ─── Table sessions to display (active + awaiting_payment, with at least one order) ───
+  const displaySessions = sessions.filter(
+    (s) => (s.status === "active" || s.status === "awaiting_payment") && s.orderCount > 0,
   );
 
   return (
@@ -902,18 +919,18 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Active Sessions ────────────────────────────────────────────── */}
-        {loading ? null : activeSessions.length > 0 && (
+        {/* ── Table Sessions (active + awaiting payment) ─────────────────── */}
+        {loading ? null : displaySessions.length > 0 && (
           <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="px-4 py-3 border-b border-border flex items-center gap-2">
               <UtensilsCrossed className="w-4 h-4 text-orange-500 shrink-0" />
-              <h2 className="text-base font-semibold">Active Sessions</h2>
+              <h2 className="text-base font-semibold">Table Sessions</h2>
               <span className="ml-2 text-xs bg-orange-100 text-orange-700 rounded-full px-2 py-0.5 font-semibold">
-                {activeSessions.length} {activeSessions.length === 1 ? "table" : "tables"}
+                {displaySessions.length} {displaySessions.length === 1 ? "table" : "tables"}
               </span>
             </div>
             <div className="divide-y divide-border">
-              {activeSessions.map((session) => {
+              {displaySessions.map((session) => {
                 const isExpanded = expandedSessions.has(session.id);
                 const hasUnpaidOrders = session.orders.some(
                   (o) => ACTIVE_STATUSES.includes(o.status) && o.paymentStatus !== "paid",
@@ -922,56 +939,101 @@ export default function Dashboard() {
 
                 return (
                   <div key={session.id}>
-                    {/* Session header row — always visible */}
-                    <button
-                      className="w-full p-4 flex items-center gap-3 hover:bg-muted/30 transition-colors text-left"
-                      onClick={() =>
-                        setExpandedSessions((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(session.id)) next.delete(session.id);
-                          else next.add(session.id);
-                          return next;
-                        })
-                      }
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
-                        <UtensilsCrossed className="w-5 h-5 text-orange-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="font-bold text-sm">Table {session.tableNumber}</span>
-                          <span className="text-xs bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium">
-                            Active
-                          </span>
-                          {hasUnpaidOrders && (
-                            <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
-                              Unpaid
-                            </span>
-                          )}
-                          {activeOrderCount > 0 && (
-                            <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full font-medium">
-                              {activeOrderCount} in-progress
-                            </span>
-                          )}
+                    {/* Session header: click left area to expand, Generate Bill on right */}
+                    <div className="flex items-stretch w-full hover:bg-muted/30 transition-colors">
+                      <button
+                        className="flex-1 p-4 flex items-center gap-3 text-left min-w-0"
+                        onClick={() =>
+                          setExpandedSessions((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(session.id)) next.delete(session.id);
+                            else next.add(session.id);
+                            return next;
+                          })
+                        }
+                      >
+                        <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+                          <UtensilsCrossed className="w-5 h-5 text-orange-600" />
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{session.orderCount} {session.orderCount === 1 ? "order" : "orders"}</span>
-                          <span>·</span>
-                          <span>{session.itemCount} {session.itemCount === 1 ? "item" : "items"}</span>
-                          <span>·</span>
-                          <span className="font-semibold text-foreground">₹{session.totalAmount}</span>
-                          <span>·</span>
-                          <span>
-                            Since {new Date(session.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
-                          </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="font-bold text-sm">Table {session.tableNumber}</span>
+                            {session.status === "active" && (
+                              <span className="text-xs bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium">
+                                Active
+                              </span>
+                            )}
+                            {session.status === "awaiting_payment" && (
+                              <span className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                                Awaiting Payment
+                              </span>
+                            )}
+                            {hasUnpaidOrders && session.status === "active" && (
+                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
+                                Unpaid
+                              </span>
+                            )}
+                            {activeOrderCount > 0 && (
+                              <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full font-medium">
+                                {activeOrderCount} in-progress
+                              </span>
+                            )}
+                            {session.bill && (
+                              <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+                                Bill Generated
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                            <span>{session.orderCount} {session.orderCount === 1 ? "order" : "orders"}</span>
+                            <span>·</span>
+                            <span>{session.itemCount} {session.itemCount === 1 ? "item" : "items"}</span>
+                            <span>·</span>
+                            {session.bill ? (
+                              <>
+                                <span className="font-semibold text-foreground">₹{session.bill.total}</span>
+                                <span>·</span>
+                                <span className="font-mono text-[10px]">{session.bill.billNumber}</span>
+                                <span>·</span>
+                                <span>
+                                  {new Date(session.bill.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="font-semibold text-foreground">₹{session.totalAmount}</span>
+                                <span>·</span>
+                                <span>
+                                  Since {new Date(session.createdAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <div className="shrink-0 text-muted-foreground ml-2">
-                        {isExpanded
-                          ? <ChevronUp className="w-4 h-4" />
-                          : <ChevronDown className="w-4 h-4" />}
-                      </div>
-                    </button>
+                        <div className="shrink-0 text-muted-foreground ml-2">
+                          {isExpanded
+                            ? <ChevronUp className="w-4 h-4" />
+                            : <ChevronDown className="w-4 h-4" />}
+                        </div>
+                      </button>
+
+                      {/* Generate Bill button — only for active sessions */}
+                      {session.status === "active" && (
+                        <div className="flex items-center px-4 shrink-0 border-l border-border/50">
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs whitespace-nowrap"
+                            onClick={() => handleGenerateBill(session.id)}
+                            disabled={generatingBillId === session.id}
+                          >
+                            {generatingBillId === session.id
+                              ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                              : <Receipt className="w-3 h-3 mr-1.5" />}
+                            Generate Bill
+                          </Button>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Expanded order list */}
                     {isExpanded && (
@@ -996,7 +1058,7 @@ export default function Dashboard() {
         <div className="bg-card rounded-xl border border-border">
           <div className="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
             <h2 className="text-base font-semibold shrink-0">
-              {activeSessions.length > 0 ? "Individual Orders" : "Orders"}
+              {displaySessions.length > 0 ? "Individual Orders" : "Orders"}
             </h2>
             <div className="flex gap-1 flex-wrap">
               {["active", "completed", "cancelled", "all"].map((f) => (
