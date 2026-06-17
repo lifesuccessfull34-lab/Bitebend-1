@@ -56,3 +56,25 @@ export function emitScreenshotEvent(restaurantId: number, payload: ScreenshotEve
     }
   }
 }
+
+interface SessionScreenshotEventPayload {
+  sessionId: number;
+  billId: number;
+  tableNumber: string;
+  billNumber: string;
+  total: number;
+  customerPhone: string;
+}
+
+export function emitSessionScreenshotEvent(restaurantId: number, payload: SessionScreenshotEventPayload) {
+  const clients = connections.get(restaurantId);
+  if (!clients || clients.size === 0) return;
+  const data = JSON.stringify(payload);
+  for (const res of clients) {
+    try {
+      res.write(`event: session-screenshot-received\ndata: ${data}\n\n`);
+    } catch {
+      clients.delete(res);
+    }
+  }
+}

@@ -1,2 +1,3 @@
-2026/06/16-12:06:18.253 1245 Creating DB /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/shared_proto_db since it was missing.
-2026/06/16-12:06:18.278 1245 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/shared_proto_db/MANIFEST-000001
+2026/06/17-06:23:00.738 6ae Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/shared_proto_db/MANIFEST-000001
+2026/06/17-06:23:00.738 6ae Recovering log #3
+2026/06/17-06:23:00.741 6ae Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/shared_proto_db/000003.log 

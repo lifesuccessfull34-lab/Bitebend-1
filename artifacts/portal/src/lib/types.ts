@@ -136,6 +136,12 @@ export interface SessionBill {
   tax: number;
   total: number;
   status: "generated" | "sent" | "awaiting_verification" | "paid" | "cancelled";
+  customerPhone: string | null;
+  sentAt: string | null;
+  hasScreenshot: boolean;
+  screenshotReceivedAt: string | null;
+  verifiedAt: string | null;
+  verifiedBy: number | null;
   createdAt: string;
   updatedAt: string;
 }

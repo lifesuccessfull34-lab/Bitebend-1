@@ -1437,6 +1437,12 @@ const listSessions: RequestHandler = async (req, res) => {
           tax: bill.tax,
           total: bill.total,
           status: bill.status,
+          customerPhone: bill.customerPhone ?? null,
+          sentAt: bill.sentAt?.toISOString() ?? null,
+          hasScreenshot: !!bill.screenshotUrl,
+          screenshotReceivedAt: bill.screenshotReceivedAt?.toISOString() ?? null,
+          verifiedAt: bill.verifiedAt?.toISOString() ?? null,
+          verifiedBy: bill.verifiedBy ?? null,
           createdAt: bill.createdAt.toISOString(),
           updatedAt: bill.updatedAt.toISOString(),
         } : null,
@@ -1581,6 +1587,317 @@ const getSessionBill: RequestHandler = async (req, res) => {
     updatedAt: bill.updatedAt.toISOString(),
   });
 };
+
+// ─── Sessions: send bill via WhatsApp ─────────────────────────────────────────
+
+const sendSessionBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  // Load session + restaurant in parallel
+  const [[session], [restaurant]] = await Promise.all([
+    db.select().from(tableSessions)
+      .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId))),
+    db.select().from(restaurants).where(eq(restaurants.id, user.restaurantId)).limit(1),
+  ]);
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+  if (!restaurant) { res.status(404).json({ error: "Restaurant not found" }); return; }
+
+  // Load the active bill
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(
+      eq(sessionBills.sessionId, sessionId),
+      ne(sessionBills.status, "cancelled" as const),
+    ))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill) { res.status(404).json({ error: "No bill found for this session" }); return; }
+
+  if (bill.status !== "generated" && bill.status !== "sent") {
+    res.status(400).json({ error: `Cannot send bill in status '${bill.status}'` });
+    return;
+  }
+
+  // Load orders in session to get customer phone + build message
+  const sessionOrders = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.sessionId, sessionId))
+    .orderBy(desc(orders.createdAt));
+
+  const payableOrders = sessionOrders.filter(
+    (o) => o.status !== "cancelled" && o.status !== "payment_failed"
+  );
+
+  if (payableOrders.length === 0) {
+    res.status(400).json({ error: "No payable orders in this session" });
+    return;
+  }
+
+  // Use most recent order's phone as the customer phone (deterministic matching)
+  const customerPhone = payableOrders[0]!.customerPhone;
+  const customerName = payableOrders[0]!.customerName;
+
+  // Build bill message
+  const upiId = restaurant.upiId ?? null;
+  const restaurantName = restaurant.name;
+  const tableNumber = session.tableNumber;
+
+  let itemLines = "";
+  for (const order of payableOrders) {
+    const lineItems = await db
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, order.id));
+    for (const item of lineItems) {
+      itemLines += `  • ${item.quantity}× ${item.name} — ₹${((item.unitPrice * item.quantity) / 100).toFixed(2)}\n`;
+    }
+  }
+
+  const totalStr = (bill.total / 100).toFixed(2);
+  const subtotalStr = (bill.subtotal / 100).toFixed(2);
+  const taxStr = (bill.tax / 100).toFixed(2);
+
+  let message = `🧾 *Bill — ${restaurantName}*\n`;
+  message += `Table: *${tableNumber}*\n`;
+  message += `Bill No: ${bill.billNumber}\n\n`;
+  if (itemLines) {
+    message += `*Items:*\n${itemLines}\n`;
+  }
+  message += `Subtotal: ₹${subtotalStr}\n`;
+  if (bill.tax > 0) message += `Tax: ₹${taxStr}\n`;
+  message += `*Total: ₹${totalStr}*\n`;
+  if (upiId) {
+    message += `\n💳 *Pay via UPI:* ${upiId}\n`;
+    message += `Amount: ₹${totalStr}\n`;
+    message += `Note: ${bill.billNumber}\n`;
+  }
+  message += `\nPlease send a screenshot of your payment confirmation to this number. Thank you! 🙏`;
+
+  // Try WhatsApp bridge first, fall back to deeplink
+  let sentViaBridge = false;
+  let whatsappUrl: string | null = null;
+
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const bridgeSecret = process.env.BRIDGE_API_SECRET ?? "";
+    if (bridgeSecret) headers["x-bridge-secret"] = bridgeSecret;
+
+    const bridgeUrl = process.env.BRIDGE_URL ?? "http://localhost:3001";
+
+    const statusRes = await fetch(`${bridgeUrl}/api/whatsapp/status/${user.restaurantId}`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(3000),
+    });
+    const statusData = (await statusRes.json()) as { status?: string };
+
+    if (statusData.status === "connected") {
+      const sendRes = await fetch(`${bridgeUrl}/api/send-message`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ restaurantId: user.restaurantId, phone: customerPhone, message }),
+        signal: AbortSignal.timeout(10000),
+      });
+      const sendData = (await sendRes.json()) as { success?: boolean };
+      sentViaBridge = sendData.success === true;
+    }
+  } catch (err) {
+    logger.warn({ error: (err as Error).message }, "[sendSessionBill] bridge exception — using deeplink fallback");
+  }
+
+  if (!sentViaBridge) {
+    const encodedMessage = encodeURIComponent(message);
+    const phone = customerPhone.replace(/\D/g, "");
+    whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
+  }
+
+  // Store customer_phone and mark bill as sent
+  const now = new Date();
+  await db
+    .update(sessionBills)
+    .set({
+      status: "sent",
+      customerPhone,
+      sentAt: now,
+      updatedAt: now,
+    })
+    .where(eq(sessionBills.id, bill.id));
+
+  logger.info(
+    {
+      sessionId,
+      billId: bill.id,
+      billNumber: bill.billNumber,
+      customerPhone,
+      sentViaBridge,
+    },
+    "[sendSessionBill] bill sent"
+  );
+
+  res.json({
+    ok: true,
+    billNumber: bill.billNumber,
+    customerPhone,
+    customerName,
+    deliveryMethod: sentViaBridge ? "bridge" : "deeplink",
+    sent: sentViaBridge,
+    whatsappUrl: sentViaBridge ? null : whatsappUrl,
+    message,
+  });
+};
+
+// ─── Sessions: get session bill screenshot (base64 data URL) ──────────────────
+
+const getSessionBillScreenshot: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)));
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill) { res.status(404).json({ error: "No bill found for this session" }); return; }
+  if (!bill.screenshotUrl) { res.status(404).json({ error: "No screenshot available for this bill" }); return; }
+
+  res.json({ screenshotUrl: bill.screenshotUrl });
+};
+
+// ─── Sessions: approve payment (bill paid → session closed) ───────────────────
+
+const approveSessionBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)));
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill) { res.status(404).json({ error: "No bill found for this session" }); return; }
+
+  if (bill.status !== "awaiting_verification") {
+    res.status(400).json({ error: `Bill must be in 'awaiting_verification' status to approve (current: ${bill.status})` });
+    return;
+  }
+
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    // Mark bill as paid
+    await tx
+      .update(sessionBills)
+      .set({ status: "paid", verifiedAt: now, verifiedBy: user.id, updatedAt: now })
+      .where(eq(sessionBills.id, bill.id));
+
+    // Close the session
+    await tx
+      .update(tableSessions)
+      .set({ status: "closed", updatedAt: now })
+      .where(eq(tableSessions.id, sessionId));
+
+    // Mark all orders in the session as paid
+    await tx
+      .update(orders)
+      .set({ paymentStatus: "paid", verifiedBy: user.id, verifiedAt: now, updatedAt: now })
+      .where(eq(orders.sessionId, sessionId));
+  });
+
+  logger.info(
+    { sessionId, billId: bill.id, billNumber: bill.billNumber, verifiedBy: user.id },
+    "[approveSessionBill] payment approved — session closed"
+  );
+
+  res.json({ ok: true, sessionId, billId: bill.id });
+};
+
+// ─── Sessions: reject payment (bill back to 'sent', screenshot preserved) ────
+
+const rejectSessionBill: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)));
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill) { res.status(404).json({ error: "No bill found for this session" }); return; }
+
+  if (bill.status !== "awaiting_verification") {
+    res.status(400).json({ error: `Bill must be in 'awaiting_verification' status to reject (current: ${bill.status})` });
+    return;
+  }
+
+  const now = new Date();
+
+  await db.transaction(async (tx) => {
+    // Roll bill back to 'sent' — screenshot is preserved for reference
+    await tx
+      .update(sessionBills)
+      .set({ status: "sent", verifiedAt: now, verifiedBy: user.id, updatedAt: now })
+      .where(eq(sessionBills.id, bill.id));
+
+    // Roll session back to awaiting_payment
+    await tx
+      .update(tableSessions)
+      .set({ status: "awaiting_payment", updatedAt: now })
+      .where(eq(tableSessions.id, sessionId));
+  });
+
+  logger.info(
+    { sessionId, billId: bill.id, billNumber: bill.billNumber, rejectedBy: user.id },
+    "[rejectSessionBill] payment rejected — bill rolled back to sent, awaiting new screenshot"
+  );
+
+  res.json({ ok: true, sessionId, billId: bill.id });
+};
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
 
 const getStats: RequestHandler = async (req, res) => {
   const user = req.user!;
@@ -1813,6 +2130,10 @@ router.get("/owner/stats", requireOwner, getStats);
 router.get("/owner/sessions", requireOwner, listSessions);
 router.post("/owner/sessions/:sessionId/bill", requireOwner, generateBill);
 router.get("/owner/sessions/:sessionId/bill", requireOwner, getSessionBill);
+router.post("/owner/sessions/:sessionId/bill/send", requireOwner, sendSessionBill);
+router.get("/owner/sessions/:sessionId/bill/screenshot", requireOwner, getSessionBillScreenshot);
+router.patch("/owner/sessions/:sessionId/bill/approve", requireOwner, approveSessionBill);
+router.patch("/owner/sessions/:sessionId/bill/reject", requireOwner, rejectSessionBill);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);
 
 // ─── Image Upload ─────────────────────────────────────────────────────────────

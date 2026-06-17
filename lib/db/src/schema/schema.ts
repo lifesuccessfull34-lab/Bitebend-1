@@ -316,6 +316,18 @@ export const sessionBills = pgTable(
     })
       .notNull()
       .default("generated"),
+    /** Deterministic screenshot matching: phone stored at send-time */
+    customerPhone: text("customer_phone"),
+    /** When bill was delivered via WhatsApp */
+    sentAt: timestamp("sent_at"),
+    /** Payment proof screenshot (base64 data URL) — owned by session bill, not orders */
+    screenshotUrl: text("screenshot_url"),
+    /** When the screenshot arrived from the customer */
+    screenshotReceivedAt: timestamp("screenshot_received_at"),
+    /** When staff approved or rejected */
+    verifiedAt: timestamp("verified_at"),
+    /** User ID of staff who approved/rejected */
+    verifiedBy: integer("verified_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

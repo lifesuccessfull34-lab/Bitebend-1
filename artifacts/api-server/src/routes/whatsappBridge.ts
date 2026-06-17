@@ -2,9 +2,9 @@ import { Router } from "express";
 import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
-import { orders } from "@workspace/db";
+import { orders, sessionBills, tableSessions } from "@workspace/db";
 import { eq, and, desc, ne } from "drizzle-orm";
-import { emitScreenshotEvent } from "../lib/orderEvents";
+import { emitScreenshotEvent, emitSessionScreenshotEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import type { RequestHandler } from "express";
 
@@ -44,7 +44,6 @@ const connectHandler: RequestHandler = async (req, res) => {
     const bridgeState = getBridgeState();
     const managed = isBridgeManaged();
     if (managed && (bridgeState === "starting" || bridgeState === "restarting")) {
-      // Bridge is warming up — tell the portal to show a spinner and retry
       res.json({ success: true, status: "initialising", bridgeStarting: true });
     } else {
       res.status(503).json({ error: "WhatsApp Bridge is not available." });
@@ -82,8 +81,6 @@ const statusHandler: RequestHandler = async (req, res) => {
     const managed = isBridgeManaged();
 
     if (managed && (bridgeState === "starting" || bridgeState === "restarting")) {
-      // Bridge is warming up — surface as "initialising" so the portal shows
-      // a spinner instead of a "not running" error banner.
       res.json({ success: true, status: "initialising", bridgeReachable: true, bridgeStarting: true, restaurantId });
     } else {
       res.json({ success: true, status: "not_initialised", bridgeReachable: false, restaurantId });
@@ -124,8 +121,17 @@ router.post("/whatsapp/incoming", ((req, res) => {
 
 // ── Payment screenshot webhook from the bridge ────────────────────────────────
 // Called when a customer sends an image via WhatsApp.
-// Finds the latest unpaid order for that phone, stores the screenshot,
-// and marks it as awaiting manual verification.
+//
+// Matching priority:
+//   1. Session bill match (deterministic):
+//      incoming phone === session_bill.customer_phone
+//      AND session_bill.status = 'sent'
+//      AND session_bill.restaurant_id = restaurantId
+//      → Screenshot attached to session bill; session moves to awaiting_verification
+//
+//   2. Fallback — order-level match (legacy / individual orders without sessions):
+//      Find latest unpaid order for that phone + restaurant
+//      → Screenshot attached to the order
 router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   const secret = req.headers["x-webhook-secret"];
   if (BITEBEND_WEBHOOK_SECRET && secret !== BITEBEND_WEBHOOK_SECRET) {
@@ -150,9 +156,7 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     "[whatsapp:payment-screenshot] screenshot received"
   );
 
-  // ── Normalize phone: strip non-digits, ensure 91 prefix ──
-  // WhatsApp delivers phone as "919876543210" (12 digits, starts with 91).
-  // Orders are stored after normalizePhone() which also produces "919876543210".
+  // ── Normalize phone ────────────────────────────────────────────────────────
   const digits = customerPhone.replace(/\D/g, "").replace(/^0+/, "");
   let normalizedPhone: string | null = null;
   if (digits.length === 10) normalizedPhone = `91${digits}`;
@@ -165,7 +169,92 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     return;
   }
 
-  // ── Find latest unpaid order for this restaurant + phone ──
+  // ── Download image from bridge URL → base64 data URL ──────────────────────
+  let screenshotDataUrl: string;
+  try {
+    const imageRes = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000) });
+    if (!imageRes.ok) throw new Error(`HTTP ${imageRes.status} fetching image`);
+    const contentType = imageRes.headers.get("content-type") ?? "image/jpeg";
+    const buffer = await imageRes.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    screenshotDataUrl = `data:${contentType};base64,${base64}`;
+    logger.debug({ bytes: buffer.byteLength }, "[whatsapp:payment-screenshot] image downloaded and encoded");
+  } catch (fetchErr) {
+    logger.error(
+      { imageUrl, error: (fetchErr as Error).message },
+      "[whatsapp:payment-screenshot] failed to download image — aborting"
+    );
+    res.status(502).json({ error: "Failed to fetch image from bridge" });
+    return;
+  }
+
+  const now = new Date();
+
+  // ── Priority 1: Session bill match (deterministic phone-based) ─────────────
+  // Match incoming phone === session_bill.customer_phone AND status = 'sent'
+  const [sessionBill] = await db
+    .select()
+    .from(sessionBills)
+    .where(
+      and(
+        eq(sessionBills.restaurantId, restaurantId),
+        eq(sessionBills.customerPhone, normalizedPhone),
+        eq(sessionBills.status, "sent"),
+      )
+    )
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (sessionBill) {
+    // Attach screenshot to the session bill
+    await db
+      .update(sessionBills)
+      .set({
+        screenshotUrl: screenshotDataUrl,
+        screenshotReceivedAt: now,
+        status: "awaiting_verification",
+        updatedAt: now,
+      })
+      .where(eq(sessionBills.id, sessionBill.id));
+
+    // Advance session to awaiting_verification
+    await db
+      .update(tableSessions)
+      .set({ status: "awaiting_verification", updatedAt: now })
+      .where(eq(tableSessions.id, sessionBill.sessionId));
+
+    // Fetch session for the table number (needed for SSE payload)
+    const [session] = await db
+      .select()
+      .from(tableSessions)
+      .where(eq(tableSessions.id, sessionBill.sessionId))
+      .limit(1);
+
+    logger.info(
+      {
+        event: "session_screenshot_received",
+        sessionBillId: sessionBill.id,
+        sessionId: sessionBill.sessionId,
+        restaurantId,
+        customerPhone: normalizedPhone,
+      },
+      "[whatsapp:payment-screenshot] screenshot attached to session bill — awaiting_verification"
+    );
+
+    emitSessionScreenshotEvent(restaurantId, {
+      sessionId: sessionBill.sessionId,
+      billId: sessionBill.id,
+      tableNumber: session?.tableNumber ?? "?",
+      billNumber: sessionBill.billNumber,
+      total: sessionBill.total,
+      customerPhone: normalizedPhone,
+    });
+
+    res.json({ ok: true, matched: "session_bill", sessionBillId: sessionBill.id });
+    return;
+  }
+
+  // ── Priority 2: Fallback — latest unpaid order for this phone ─────────────
   const [order] = await db
     .select()
     .from(orders)
@@ -182,41 +271,13 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   if (!order) {
     logger.warn(
       { restaurantId, normalizedPhone },
-      "[whatsapp:payment-screenshot] no unpaid order found for phone — screenshot ignored"
+      "[whatsapp:payment-screenshot] no session bill or unpaid order found — screenshot ignored"
     );
-    res.status(404).json({ error: "No unpaid order found for this customer" });
+    res.status(404).json({ error: "No matching session bill or unpaid order found for this customer" });
     return;
   }
 
-  // ── Download image from bridge URL and convert to base64 data URL ──
-  // The bridge serves uploaded images at http://localhost:3001/uploads/<filename>.
-  // We convert to a data URL so the portal can display it inline without needing
-  // direct access to the bridge's internal port.
-  let screenshotDataUrl: string;
-  try {
-    const imageRes = await fetch(imageUrl, { signal: AbortSignal.timeout(10_000) });
-    if (!imageRes.ok) {
-      throw new Error(`HTTP ${imageRes.status} fetching image`);
-    }
-    const contentType = imageRes.headers.get("content-type") ?? "image/jpeg";
-    const buffer = await imageRes.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString("base64");
-    screenshotDataUrl = `data:${contentType};base64,${base64}`;
-    logger.debug(
-      { orderId: order.id, bytes: buffer.byteLength },
-      "[whatsapp:payment-screenshot] image downloaded and encoded"
-    );
-  } catch (fetchErr) {
-    logger.error(
-      { imageUrl, error: (fetchErr as Error).message },
-      "[whatsapp:payment-screenshot] failed to download image — aborting"
-    );
-    res.status(502).json({ error: "Failed to fetch image from bridge" });
-    return;
-  }
-
-  // ── Attach screenshot to order ──
-  const now = new Date();
+  // Attach screenshot to order (legacy flow)
   await db
     .update(orders)
     .set({
@@ -235,10 +296,9 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
       restaurantId,
       customerPhone: normalizedPhone,
     },
-    "[whatsapp:payment-screenshot] screenshot attached to order — awaiting manual verification"
+    "[whatsapp:payment-screenshot] screenshot attached to order (fallback) — awaiting manual verification"
   );
 
-  // ── Emit SSE event so the portal refreshes immediately ──
   emitScreenshotEvent(restaurantId, {
     orderId: order.id,
     customerPhone: normalizedPhone,
@@ -246,7 +306,7 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     total: order.total,
   });
 
-  res.json({ ok: true, orderId: order.id });
+  res.json({ ok: true, matched: "order", orderId: order.id });
 }) as RequestHandler);
 
 export default router;

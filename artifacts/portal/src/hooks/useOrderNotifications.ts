@@ -99,6 +99,34 @@ export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificat
         onNewOrder?.();
       });
 
+      es.addEventListener("session-screenshot-received", (e: MessageEvent) => {
+        retryDelayRef.current = 1000;
+
+        interface SessionScreenshotEvent {
+          sessionId: number;
+          billId: number;
+          tableNumber: string;
+          billNumber: string;
+          total: number;
+          customerPhone: string;
+        }
+        let event: SessionScreenshotEvent;
+        try {
+          event = JSON.parse(e.data as string) as SessionScreenshotEvent;
+        } catch {
+          return;
+        }
+
+        playNotificationSound();
+
+        toast({
+          title: "📸 Payment Screenshot Received",
+          description: `Table ${event.tableNumber} — ${event.billNumber} — ₹${event.total.toLocaleString("en-IN")}`,
+        });
+
+        onNewOrder?.();
+      });
+
       es.addEventListener("heartbeat", () => {
         retryDelayRef.current = 1000;
       });

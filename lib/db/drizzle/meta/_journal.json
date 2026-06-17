@@ -120,6 +120,13 @@
       "when": 1750176000000,
       "tag": "0016_session_bills",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1750262400000,
+      "tag": "0017_session_bill_payment",
+      "breakpoints": true
     }
   ]
 }

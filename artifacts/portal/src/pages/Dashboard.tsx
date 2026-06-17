@@ -33,6 +33,7 @@ import {
   ChevronUp,
   UtensilsCrossed,
   Receipt,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -196,6 +197,17 @@ export default function Dashboard() {
   // Session bill generation
   const [generatingBillId, setGeneratingBillId] = useState<number | null>(null);
 
+  // Session bill: send / approve / reject
+  const [sendingBillSessionId, setSendingBillSessionId] = useState<number | null>(null);
+  const [approvingBillSessionId, setApprovingBillSessionId] = useState<number | null>(null);
+  const [rejectingBillSessionId, setRejectingBillSessionId] = useState<number | null>(null);
+
+  // Session bill screenshot viewer
+  const [sessionScreenshots, setSessionScreenshots] = useState<Map<number, string>>(new Map());
+  const [loadingScreenshotSessionId, setLoadingScreenshotSessionId] = useState<number | null>(null);
+  const [viewingScreenshotSessionId, setViewingScreenshotSessionId] = useState<number | null>(null);
+  const [sessionBillImageZoomed, setSessionBillImageZoomed] = useState(false);
+
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const uploadOrderIdRef = useRef<number | null>(null);
 
@@ -236,6 +248,81 @@ export default function Dashboard() {
       setGeneratingBillId(null);
     }
   }, [fetchData]);
+
+  const handleSendSessionBill = useCallback(async (sessionId: number) => {
+    setSendingBillSessionId(sessionId);
+    try {
+      const data = await apiFetch<{
+        ok: boolean;
+        billNumber: string;
+        customerPhone: string;
+        customerName: string;
+        deliveryMethod: "bridge" | "deeplink";
+        sent: boolean;
+        whatsappUrl: string | null;
+      }>(`/owner/sessions/${sessionId}/bill/send`, { method: "POST" });
+
+      if (data.deliveryMethod === "bridge" && data.sent) {
+        toast.success(`Bill sent to ${data.customerName} via WhatsApp ✓`);
+      } else if (data.whatsappUrl) {
+        if (waWindowRef.current && !waWindowRef.current.closed) waWindowRef.current.close();
+        waWindowRef.current = window.open(data.whatsappUrl, "_blank") ?? null;
+        toast.success("WhatsApp opened — tap Send to deliver the bill");
+      }
+      await fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to send bill");
+    } finally {
+      setSendingBillSessionId(null);
+    }
+  }, [fetchData]);
+
+  const handleApproveSessionBill = useCallback(async (sessionId: number) => {
+    setApprovingBillSessionId(sessionId);
+    try {
+      await apiFetch(`/owner/sessions/${sessionId}/bill/approve`, { method: "PATCH" });
+      toast.success("Payment approved — session closed ✓");
+      setViewingScreenshotSessionId(null);
+      await fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to approve payment");
+    } finally {
+      setApprovingBillSessionId(null);
+    }
+  }, [fetchData]);
+
+  const handleRejectSessionBill = useCallback(async (sessionId: number) => {
+    setRejectingBillSessionId(sessionId);
+    try {
+      await apiFetch(`/owner/sessions/${sessionId}/bill/reject`, { method: "PATCH" });
+      toast.success("Payment rejected — waiting for new screenshot");
+      setViewingScreenshotSessionId(null);
+      await fetchData();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to reject payment");
+    } finally {
+      setRejectingBillSessionId(null);
+    }
+  }, [fetchData]);
+
+  const loadSessionScreenshot = useCallback(async (sessionId: number) => {
+    if (sessionScreenshots.has(sessionId)) {
+      setViewingScreenshotSessionId(sessionId);
+      setSessionBillImageZoomed(false);
+      return;
+    }
+    setLoadingScreenshotSessionId(sessionId);
+    try {
+      const data = await apiFetch<{ screenshotUrl: string }>(`/owner/sessions/${sessionId}/bill/screenshot`);
+      setSessionScreenshots((prev) => new Map(prev).set(sessionId, data.screenshotUrl));
+      setViewingScreenshotSessionId(sessionId);
+      setSessionBillImageZoomed(false);
+    } catch {
+      toast.error("Could not load screenshot");
+    } finally {
+      setLoadingScreenshotSessionId(null);
+    }
+  }, [sessionScreenshots]);
 
   const clearError = (id: number) =>
     setOrderErrors((prev) => { const next = { ...prev }; delete next[id]; return next; });
@@ -782,9 +869,11 @@ export default function Dashboard() {
     );
   };
 
-  // ─── Table sessions to display (active + awaiting_payment, with at least one order) ───
+  // ─── Table sessions to display (active + awaiting_payment + awaiting_verification, with at least one order) ───
   const displaySessions = sessions.filter(
-    (s) => (s.status === "active" || s.status === "awaiting_payment") && s.orderCount > 0,
+    (s) =>
+      (s.status === "active" || s.status === "awaiting_payment" || s.status === "awaiting_verification") &&
+      s.orderCount > 0,
   );
 
   return (
@@ -968,6 +1057,12 @@ export default function Dashboard() {
                                 Awaiting Payment
                               </span>
                             )}
+                            {session.status === "awaiting_verification" && (
+                              <span className="text-xs bg-violet-100 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                <Camera className="w-3 h-3" />
+                                Screenshot Received
+                              </span>
+                            )}
                             {hasUnpaidOrders && session.status === "active" && (
                               <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
                                 Unpaid
@@ -978,9 +1073,21 @@ export default function Dashboard() {
                                 {activeOrderCount} in-progress
                               </span>
                             )}
-                            {session.bill && (
+                            {session.bill && session.bill.status === "generated" && (
                               <span className="text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
-                                Bill Generated
+                                Bill Ready
+                              </span>
+                            )}
+                            {session.bill && session.bill.status === "sent" && (
+                              <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                <Send className="w-3 h-3" />
+                                Bill Sent
+                              </span>
+                            )}
+                            {session.bill && session.bill.hasScreenshot && session.bill.status !== "paid" && (
+                              <span className="text-xs bg-violet-100 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
+                                <Camera className="w-3 h-3" />
+                                Proof Received
                               </span>
                             )}
                           </div>
@@ -1017,9 +1124,11 @@ export default function Dashboard() {
                         </div>
                       </button>
 
-                      {/* Generate Bill button — only for active sessions */}
-                      {session.status === "active" && (
-                        <div className="flex items-center px-4 shrink-0 border-l border-border/50">
+                      {/* Right-side action panel */}
+                      <div className="flex items-center gap-2 px-4 shrink-0 border-l border-border/50">
+
+                        {/* Generate Bill — only for active sessions without a bill */}
+                        {session.status === "active" && !session.bill && (
                           <Button
                             size="sm"
                             className="h-8 text-xs whitespace-nowrap"
@@ -1031,8 +1140,38 @@ export default function Dashboard() {
                               : <Receipt className="w-3 h-3 mr-1.5" />}
                             Generate Bill
                           </Button>
-                        </div>
-                      )}
+                        )}
+
+                        {/* Send Bill — bill is generated or re-send after rejection */}
+                        {session.bill && (session.bill.status === "generated" || session.bill.status === "sent") && (
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs whitespace-nowrap bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => void handleSendSessionBill(session.id)}
+                            disabled={sendingBillSessionId === session.id}
+                          >
+                            {sendingBillSessionId === session.id
+                              ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                              : <Send className="w-3 h-3 mr-1.5" />}
+                            {session.bill.status === "sent" ? "Resend Bill" : "Send Bill"}
+                          </Button>
+                        )}
+
+                        {/* View Screenshot + Approve/Reject — awaiting verification */}
+                        {session.bill?.status === "awaiting_verification" && (
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs whitespace-nowrap bg-violet-600 hover:bg-violet-700 text-white"
+                            onClick={() => void loadSessionScreenshot(session.id)}
+                            disabled={loadingScreenshotSessionId === session.id}
+                          >
+                            {loadingScreenshotSessionId === session.id
+                              ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                              : <Camera className="w-3 h-3 mr-1.5" />}
+                            View Proof
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Expanded order list */}
@@ -1093,6 +1232,139 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* ── Session Bill Payment Proof Modal ─────────────────────────── */}
+      {(() => {
+        const activeSession = viewingScreenshotSessionId !== null
+          ? sessions.find((s) => s.id === viewingScreenshotSessionId) ?? null
+          : null;
+        const activeBill = activeSession?.bill ?? null;
+        const sessionScreenshotSrc = viewingScreenshotSessionId !== null
+          ? sessionScreenshots.get(viewingScreenshotSessionId)
+          : undefined;
+
+        return (
+          <Dialog
+            open={viewingScreenshotSessionId !== null}
+            onOpenChange={(open) => { if (!open) setViewingScreenshotSessionId(null); }}
+          >
+            <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-violet-600" />
+                  Payment Proof — Table {activeSession?.tableNumber}
+                </DialogTitle>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                {/* Bill summary */}
+                {activeBill && (
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Bill</span>
+                      <span className="font-mono font-bold">{activeBill.billNumber}</span>
+                    </div>
+                    {activeBill.customerPhone && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Customer Phone</span>
+                        <span className="font-medium">{activeBill.customerPhone}</span>
+                      </div>
+                    )}
+                    {activeBill.screenshotReceivedAt && (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Received</span>
+                        <span className="font-medium">
+                          {new Date(activeBill.screenshotReceivedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                          {" · "}
+                          {new Date(activeBill.screenshotReceivedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between border-t pt-1 mt-1">
+                      <span className="text-muted-foreground font-semibold">Total</span>
+                      <span className="font-bold text-foreground">₹{(activeBill.total / 100).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Screenshot */}
+                {sessionScreenshotSrc ? (
+                  <div className="rounded-lg border overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-muted border-b">
+                      <p className="text-xs font-semibold text-muted-foreground">Payment Screenshot (via WhatsApp)</p>
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1"
+                          onClick={() => setSessionBillImageZoomed((z) => !z)}>
+                          {sessionBillImageZoomed
+                            ? <><ZoomOut className="w-3 h-3" /> Zoom Out</>
+                            : <><ZoomIn className="w-3 h-3" /> Zoom In</>}
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1"
+                          onClick={() => {
+                            const win = window.open("", "_blank");
+                            if (win) {
+                              win.document.write(
+                                `<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;justify-content:center"><img src="${sessionScreenshotSrc}" style="max-width:100%;height:auto"></body></html>`,
+                              );
+                            }
+                          }}>
+                          <ExternalLink className="w-3 h-3" /> Full Screen
+                        </Button>
+                      </div>
+                    </div>
+                    <div className={sessionBillImageZoomed ? "overflow-auto cursor-zoom-out" : "overflow-hidden cursor-zoom-in"}>
+                      <img
+                        src={sessionScreenshotSrc}
+                        alt="Payment screenshot"
+                        className="w-full object-contain transition-transform duration-200"
+                        style={sessionBillImageZoomed
+                          ? { maxHeight: "none", transform: "scale(2)", transformOrigin: "top center", marginBottom: "100%" }
+                          : { maxHeight: "320px" }}
+                        onClick={() => setSessionBillImageZoomed((z) => !z)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-6 text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    Loading screenshot…
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                  variant="outline" size="sm"
+                  className="text-red-600 border-red-300 hover:bg-red-50 sm:mr-auto"
+                  onClick={() => activeSession && void handleRejectSessionBill(activeSession.id)}
+                  disabled={approvingBillSessionId !== null || rejectingBillSessionId !== null}
+                >
+                  {rejectingBillSessionId === viewingScreenshotSessionId
+                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Rejecting...</>
+                    : <><XCircle className="w-3 h-3 mr-1" /> Reject</>}
+                </Button>
+                <Button
+                  variant="outline" size="sm"
+                  onClick={() => setViewingScreenshotSessionId(null)}
+                  disabled={approvingBillSessionId !== null || rejectingBillSessionId !== null}
+                >
+                  Close
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => activeSession && void handleApproveSessionBill(activeSession.id)}
+                  disabled={approvingBillSessionId !== null || rejectingBillSessionId !== null}
+                >
+                  {approvingBillSessionId === viewingScreenshotSessionId
+                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Approving...</>
+                    : <><CheckCircle2 className="w-3 h-3 mr-1" /> Approve Payment</>}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Payment Proof Modal (screenshot viewer + manual verification) ── */}
       {(() => {
