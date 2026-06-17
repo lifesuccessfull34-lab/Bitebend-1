@@ -11,7 +11,7 @@ export default function Logout() {
         (import.meta.env.BASE_URL || "/portal/") + "restaurant/auth"
       );
     });
-  }, []);
+  }, [logout]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">

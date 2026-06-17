@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { apiFetch, setUnauthorizedHandler } from "@/lib/api";
 import type { AuthUser } from "@/lib/types";
 
@@ -74,10 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data.user;
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await apiFetch("/auth/logout", { method: "POST" });
     setUser(null);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>

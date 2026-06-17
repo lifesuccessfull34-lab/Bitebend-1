@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { apiFetch } from "@/lib/api";
 import {
@@ -97,7 +97,7 @@ export default function CustomerAnalytics() {
   const [rangeDays, setRangeDays] = useState(30);
   const [orderType, setOrderType] = useState("all");
 
-  const fetchData = () => {
+  const fetchData = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams();
     if (rangeDays > 0) {
@@ -109,9 +109,9 @@ export default function CustomerAnalytics() {
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  };
+  }, [rangeDays, orderType]);
 
-  useEffect(() => { fetchData(); }, [rangeDays, orderType]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   const growthFilled = useMemo(() => {
     if (!data?.growth.length) return [];
