@@ -51,6 +51,9 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   { table: "table_sessions",               column: "restaurant_id"    },
   { table: "table_sessions",               column: "table_number"     },
   { table: "table_sessions",               column: "status"           },
+  // 0019_takeaway_sessions
+  { table: "table_sessions",               column: "session_type"     },
+  { table: "table_sessions",               column: "customer_phone"   },
 ];
 
 /**
