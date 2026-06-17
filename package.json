@@ -8,6 +8,9 @@
     "preinstall": "rm -f package-lock.json yarn.lock",
 
     "build": "pnpm --filter @workspace/api-server build",
+    "build:menu": "BASE_PATH=/menu/ pnpm --filter @workspace/menu build",
+    "build:portal": "pnpm --filter @workspace/portal build",
+    "build:all": "pnpm run build:menu && pnpm run build:portal && pnpm run build",
     "start": "pnpm --filter @workspace/api-server start",
 
     "typecheck:libs": "tsc --build",
@@ -37,7 +40,7 @@
 
     "doctor": "pnpm --filter @workspace/scripts run doctor",
 
-    "verify-deployment": "pnpm run build && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
+    "verify-deployment": "pnpm run build:all && pnpm run audit-migrations && pnpm run check:hooks && pnpm run check:render-safety && pnpm run check:freshness && pnpm run check:css-bundle && pnpm run check:no-http-links && pnpm run check:qr-generation"
   },
 
   "packageManager": "pnpm@10.26.1",
