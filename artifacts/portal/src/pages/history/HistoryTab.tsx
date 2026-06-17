@@ -250,9 +250,20 @@ function SessionDetailModal({
           <div className="space-y-4 pt-1">
             {/* Session summary */}
             <div className="rounded-lg border bg-muted/40 px-3 py-2.5 space-y-1.5 text-xs">
-              <AuditRow label="Table" value={detail.tableNumber} />
+              <AuditRow
+                label="Type"
+                value={detail.sessionType === "takeaway" ? "Takeaway" : "Dine-in"}
+              />
+              {detail.sessionType === "dine_in" && detail.tableNumber && (
+                <AuditRow label="Table" value={detail.tableNumber} />
+              )}
+              {detail.sessionType === "takeaway" && detail.customerPhone && (
+                <AuditRow label="Phone" value={`+${detail.customerPhone}`} />
+              )}
               <AuditRow label="Customer" value={detail.customerName ?? undefined} />
-              <AuditRow label="Phone" value={detail.customerPhone ?? undefined} />
+              {detail.sessionType === "dine_in" && (
+                <AuditRow label="Phone" value={detail.customerPhone ?? undefined} />
+              )}
               <AuditRow label="Opened" value={fmtDateTime(detail.sessionOpenedAt)} />
               <AuditRow
                 label="Closed"
@@ -446,7 +457,14 @@ function SessionCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
-            <span className="font-bold text-sm">Table {session.tableNumber}</span>
+            {session.sessionType === "takeaway" ? (
+              <span className="font-bold text-sm">Takeaway</span>
+            ) : (
+              <span className="font-bold text-sm">Table {session.tableNumber}</span>
+            )}
+            {session.sessionType === "takeaway" && session.customerPhone && (
+              <span className="text-xs text-muted-foreground font-mono">+{session.customerPhone}</span>
+            )}
             {bill && <BillStatusBadge status={bill.status} />}
             {bill && bill.resentCount > 0 && (
               <span className="inline-flex items-center gap-1 text-[10px] bg-slate-100 text-slate-500 border border-slate-200 rounded-full px-1.5 py-0.5">

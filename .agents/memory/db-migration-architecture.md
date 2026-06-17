@@ -13,7 +13,14 @@ runtime `ensure*Table()` functions in migrate.ts. When the DB was wiped (heliumd
 restart), the server couldn't start and required manual psql execution to recover.
 Moving these to proper migration files makes `pnpm migrate` the single source of truth.
 
-## Current migration inventory (as of migration 0012)
+## CRITICAL: Drizzle journal stamps without running SQL
+When a migration SQL file is written and the journal entry is added manually,
+`pnpm migrate` records the hash but does NOT re-execute the SQL — it sees the hash
+as already stamped. The Drizzle runner only applies SQL for entries not yet in
+`drizzle.__drizzle_migrations`. Always apply new migration SQL directly via psql
+after manually adding a journal entry, then verify columns with `\d <table>`.
+
+## Current migration inventory (as of migration 0019)
 - 0000: core tables (users, restaurants, menu_*, orders, etc.)
 - 0001–0010: incremental column additions
 - 0011: owner_password_reset_tokens (user_id, token, expires_at, used_at)

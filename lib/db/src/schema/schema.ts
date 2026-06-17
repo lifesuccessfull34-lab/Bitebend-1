@@ -157,12 +157,19 @@ export const tableSessions = pgTable(
     restaurantId: integer("restaurant_id")
       .notNull()
       .references(() => restaurants.id, { onDelete: "cascade" }),
-    tableNumber: text("table_number").notNull(),
+    /** Null for takeaway sessions (no physical table) */
+    tableNumber: text("table_number"),
     status: text("status", {
       enum: ["active", "awaiting_payment", "awaiting_verification", "paid", "closed"],
     })
       .notNull()
       .default("active"),
+    /** Discriminator: 'dine_in' (default) | 'takeaway' */
+    sessionType: text("session_type", { enum: ["dine_in", "takeaway"] })
+      .notNull()
+      .default("dine_in"),
+    /** Normalized phone for takeaway session grouping (e.g. "919876543210") */
+    customerPhone: text("customer_phone"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -173,6 +180,10 @@ export const tableSessions = pgTable(
     check(
       "table_sessions_status_check",
       sql`${t.status} IN ('active','awaiting_payment','awaiting_verification','paid','closed')`,
+    ),
+    check(
+      "table_sessions_session_type_check",
+      sql`${t.sessionType} IN ('dine_in','takeaway')`,
     ),
   ],
 );

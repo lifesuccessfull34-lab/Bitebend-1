@@ -192,7 +192,9 @@ export interface HistoryOrder {
 
 export interface HistorySession {
   id: number;
-  tableNumber: string;
+  /** Null for takeaway sessions */
+  tableNumber: string | null;
+  sessionType: "dine_in" | "takeaway";
   status: "active" | "awaiting_payment" | "awaiting_verification" | "paid" | "closed";
   orderCount: number;
   itemCount: number;
@@ -223,7 +225,11 @@ export interface HistoryPage {
 
 export interface SessionSummary {
   id: number;
-  tableNumber: string;
+  /** Null for takeaway sessions */
+  tableNumber: string | null;
+  sessionType: "dine_in" | "takeaway";
+  /** Normalized phone used to group takeaway orders (e.g. "919876543210") */
+  customerPhone: string | null;
   status: "active" | "awaiting_payment" | "awaiting_verification" | "paid" | "closed";
   orderCount: number;
   itemCount: number;

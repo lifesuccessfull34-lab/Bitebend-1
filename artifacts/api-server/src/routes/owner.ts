@@ -1420,7 +1420,9 @@ const listSessions: RequestHandler = async (req, res) => {
       const bill = billBySession.get(session.id) ?? null;
       return {
         id: session.id,
-        tableNumber: session.tableNumber,
+        tableNumber: session.tableNumber ?? null,
+        sessionType: session.sessionType,
+        customerPhone: session.customerPhone ?? null,
         status: session.status,
         createdAt: session.createdAt.toISOString(),
         updatedAt: session.updatedAt.toISOString(),
@@ -2269,7 +2271,8 @@ const getHistory: RequestHandler = async (req, res) => {
     const counts = countBySession.get(session.id) ?? { orderCount: 0, itemCount: 0 };
     return {
       id: session.id,
-      tableNumber: session.tableNumber,
+      tableNumber: session.tableNumber ?? null,
+      sessionType: session.sessionType,
       status: session.status,
       orderCount: counts.orderCount,
       itemCount: counts.itemCount,

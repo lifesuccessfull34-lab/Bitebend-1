@@ -312,12 +312,15 @@ const placeOrder: RequestHandler = async (req, res) => {
   const initialPaymentStatus = paymentMethod === "upi" ? "awaiting_verification" : "unpaid";
 
   // ── Table session find-or-create ──────────────────────────────────────────
-  // Only dine-in orders (with a tableNumber) get a session.
-  // Take-away orders leave session_id null.
+  // Dine-in:  group by tableNumber (existing behaviour)
+  // Takeaway: group by normalizedPhone — reuse any open session
+  //           (active | awaiting_payment | awaiting_verification).
+  //           Only create a new session when none is open.
   let sessionId: number | null = null;
   const trimmedTableNumber = tableNumber?.trim() ?? null;
 
   if (trimmedTableNumber) {
+    // ── Dine-in ────────────────────────────────────────────────────────────
     const [existingSession] = await db
       .select({ id: tableSessions.id })
       .from(tableSessions)
@@ -325,6 +328,7 @@ const placeOrder: RequestHandler = async (req, res) => {
         and(
           eq(tableSessions.restaurantId, restaurantId),
           eq(tableSessions.tableNumber, trimmedTableNumber),
+          eq(tableSessions.sessionType, "dine_in"),
           eq(tableSessions.status, "active"),
         ),
       )
@@ -334,7 +338,7 @@ const placeOrder: RequestHandler = async (req, res) => {
       sessionId = existingSession.id;
       req.log.info(
         { sessionId, restaurantId, tableNumber: trimmedTableNumber },
-        "[Session] Attached order to existing session",
+        "[Session] Dine-in: attached order to existing session",
       );
     } else {
       const [newSession] = await db
@@ -342,13 +346,55 @@ const placeOrder: RequestHandler = async (req, res) => {
         .values({
           restaurantId,
           tableNumber: trimmedTableNumber,
+          sessionType: "dine_in",
           status: "active",
         })
         .returning({ id: tableSessions.id });
       sessionId = newSession.id;
       req.log.info(
         { sessionId, restaurantId, tableNumber: trimmedTableNumber },
-        "[Session] Created new session",
+        "[Session] Dine-in: created new session",
+      );
+    }
+  } else {
+    // ── Takeaway ───────────────────────────────────────────────────────────
+    // Reuse any open session for this phone (active/awaiting_payment/awaiting_verification).
+    // Session closes only when payment is approved (bill.status=paid → session.status=closed).
+    const [existingTakeawaySession] = await db
+      .select({ id: tableSessions.id })
+      .from(tableSessions)
+      .where(
+        and(
+          eq(tableSessions.restaurantId, restaurantId),
+          eq(tableSessions.sessionType, "takeaway"),
+          eq(tableSessions.customerPhone, normalizedPhone),
+          sql`${tableSessions.status} IN ('active','awaiting_payment','awaiting_verification')`,
+        ),
+      )
+      .orderBy(desc(tableSessions.createdAt))
+      .limit(1);
+
+    if (existingTakeawaySession) {
+      sessionId = existingTakeawaySession.id;
+      req.log.info(
+        { sessionId, restaurantId, customerPhone: normalizedPhone },
+        "[Session] Takeaway: attached order to existing open session",
+      );
+    } else {
+      const [newSession] = await db
+        .insert(tableSessions)
+        .values({
+          restaurantId,
+          tableNumber: null,
+          sessionType: "takeaway",
+          customerPhone: normalizedPhone,
+          status: "active",
+        })
+        .returning({ id: tableSessions.id });
+      sessionId = newSession.id;
+      req.log.info(
+        { sessionId, restaurantId, customerPhone: normalizedPhone },
+        "[Session] Takeaway: created new session",
       );
     }
   }

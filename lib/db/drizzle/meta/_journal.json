@@ -134,6 +134,13 @@
       "when": 1750348800000,
       "tag": "0018_session_bill_resend",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1750435200000,
+      "tag": "0019_takeaway_sessions",
+      "breakpoints": true
     }
   ]
 }

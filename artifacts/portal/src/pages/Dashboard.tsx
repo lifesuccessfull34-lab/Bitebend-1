@@ -1073,12 +1073,24 @@ export default function Dashboard() {
                           })
                         }
                       >
-                        <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
-                          <UtensilsCrossed className="w-5 h-5 text-orange-600" />
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                          session.sessionType === "takeaway" ? "bg-blue-100" : "bg-orange-100",
+                        )}>
+                          {session.sessionType === "takeaway"
+                            ? <ShoppingBag className="w-5 h-5 text-blue-600" />
+                            : <UtensilsCrossed className="w-5 h-5 text-orange-600" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                            <span className="font-bold text-sm">Table {session.tableNumber}</span>
+                            {session.sessionType === "takeaway" ? (
+                              <span className="font-bold text-sm">Takeaway</span>
+                            ) : (
+                              <span className="font-bold text-sm">Table {session.tableNumber}</span>
+                            )}
+                            {session.sessionType === "takeaway" && session.customerPhone && (
+                              <span className="text-xs text-muted-foreground font-mono">+{session.customerPhone}</span>
+                            )}
                             {session.status === "active" && (
                               <span className="text-xs bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium">
                                 Active
