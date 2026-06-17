@@ -1,0 +1,204 @@
+Phase 7 — Session History & Bill History
+
+Goal:
+
+Allow restaurant owners to view, search, filter, and re-open historical sessions and bills after payment is completed.
+
+Current situation:
+
+* Sessions can be created.
+* Bills can be generated.
+* Bills can be sent via WhatsApp.
+* Payment screenshots can be verified.
+* Sessions can be closed.
+
+Once a session is closed, restaurant owners need historical visibility.
+
+---
+
+PART A — Closed Sessions View
+
+Create a new Dashboard tab:
+
+History
+
+Show:
+
+* Closed Sessions
+* Paid Bills
+* Cancelled Bills
+
+Each history card should show:
+
+* Table Number
+* Bill Number
+* Customer Name
+* Total Amount
+* Payment Status
+* Session Status
+* Closed Time
+
+---
+
+PART B — Session Details View
+
+When opening a historical session:
+
+Show:
+
+* All orders in the session
+* Items ordered
+* Quantities
+* Totals
+* Bill information
+* Payment screenshot (if available)
+* Verification information
+
+Show:
+
+* Verified By
+* Verified At
+
+---
+
+PART C — Search & Filters
+
+Allow searching by:
+
+* Bill Number
+* Customer Phone
+* Customer Name
+* Table Number
+
+Allow filtering by:
+
+* Today
+* Yesterday
+* Last 7 Days
+* Last 30 Days
+* Custom Date Range
+
+---
+
+PART D — Bill Reprint
+
+Add:
+
+View Bill
+
+Button
+
+When clicked:
+
+Show the complete generated bill again.
+
+Restaurant staff should be able to review past bills.
+
+Do NOT generate PDF yet.
+
+Use existing bill data.
+
+---
+
+PART E — Resend Bill
+
+Add:
+
+Resend Bill
+
+Button
+
+Rules:
+
+Only available when:
+
+* bill.status = sent
+  OR
+* bill.status = paid
+
+Use existing WhatsApp Bridge.
+
+Do NOT create a new bill.
+
+Reuse the existing bill.
+
+Track:
+
+resentAt
+resentCount
+
+---
+
+PART F — Revenue Summary
+
+At top of History page show:
+
+Today Revenue
+This Week Revenue
+This Month Revenue
+
+Using only:
+
+paid bills
+
+Cancelled bills must not count.
+
+---
+
+PART G — Pagination
+
+History must support:
+
+* pagination
+* sorting
+* date filtering
+
+Do not load all historical records at once.
+
+---
+
+Do NOT Implement
+
+* PDF export
+* OCR
+* AI verification
+* Accounting exports
+
+---
+
+Before Coding
+
+Show:
+
+1. Database changes
+2. APIs required
+3. Dashboard changes
+4. Search strategy
+5. Pagination strategy
+
+---
+
+After Implementation
+
+Show:
+
+1. Files changed
+2. Migration files
+3. API responses
+4. Dashboard screenshots
+5. Search examples
+6. Revenue calculations
+7. End-to-end test results
+
+Success Criteria
+
+A restaurant owner should be able to:
+
+Open History
+→ Search Bill
+→ View Session
+→ View Screenshot
+→ View Verification Details
+→ Resend Bill
+
+without accessing the active sessions dashboard.
