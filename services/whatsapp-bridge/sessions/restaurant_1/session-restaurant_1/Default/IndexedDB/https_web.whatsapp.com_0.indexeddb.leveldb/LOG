@@ -1,44 +1,46 @@
-2026/06/18-07:58:49.611 1165 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2026/06/18-07:58:49.613 1165 Recovering log #197
-2026/06/18-07:58:49.743 1165 Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000197.log 
-2026/06/18-07:58:51.931 1165 Level-0 table #207: started
-2026/06/18-07:58:51.950 1165 Level-0 table #207: 374972 bytes OK
-2026/06/18-07:58:51.953 1165 Delete type=0 #197
-2026/06/18-07:58:51.954 1164 Manual compaction at level-0 from '\x00\x1c\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x1d\x00\x00\x00' @ 0 : 0; will stop at (end)
-2026/06/18-07:58:52.050 1165 Compacting 1@1 + 7@2 files
-2026/06/18-07:58:52.123 1165 Generated table #208@1: 29697 keys, 2203790 bytes
-2026/06/18-07:58:52.163 1165 Generated table #209@1: 1008 keys, 2136286 bytes
-2026/06/18-07:58:52.232 1165 Generated table #210@1: 10103 keys, 2183706 bytes
-2026/06/18-07:58:52.304 1165 Generated table #211@1: 14347 keys, 2186069 bytes
-2026/06/18-07:58:52.395 1165 Generated table #212@1: 81229 keys, 2226666 bytes
-2026/06/18-07:58:52.597 1165 Generated table #213@1: 91307 keys, 2102631 bytes
-2026/06/18-07:58:52.597 1165 Compacted 1@1 + 7@2 files => 13039148 bytes
-2026/06/18-07:58:52.665 1165 compacted to: files[ 0 0 6 0 0 0 0 ]
-2026/06/18-07:58:52.665 1165 Delete type=2 #136
-2026/06/18-07:58:52.666 1165 Delete type=2 #199
-2026/06/18-07:58:52.666 1165 Delete type=2 #200
-2026/06/18-07:58:52.666 1165 Delete type=2 #201
-2026/06/18-07:58:52.666 1165 Delete type=2 #202
-2026/06/18-07:58:52.667 1165 Delete type=2 #203
-2026/06/18-07:58:52.667 1165 Delete type=2 #204
-2026/06/18-07:58:52.667 1165 Delete type=2 #207
-2026/06/18-08:06:29.778 1165 Level-0 table #215: started
-2026/06/18-08:06:29.883 1165 Level-0 table #215: 1153632 bytes OK
-2026/06/18-08:06:29.887 1165 Delete type=0 #206
-2026/06/18-08:12:08.991 1165 Compacting 1@1 + 6@2 files
-2026/06/18-08:12:09.052 1165 Generated table #216@1: 29748 keys, 2181022 bytes
-2026/06/18-08:12:09.085 1165 Generated table #217@1: 995 keys, 2136605 bytes
-2026/06/18-08:12:09.123 1165 Generated table #218@1: 9245 keys, 2178212 bytes
-2026/06/18-08:12:09.226 1165 Generated table #219@1: 15234 keys, 2191081 bytes
-2026/06/18-08:12:09.296 1165 Generated table #220@1: 74968 keys, 2216668 bytes
-2026/06/18-08:12:09.352 1165 Generated table #221@1: 97174 keys, 2249233 bytes
-2026/06/18-08:12:09.358 1165 Generated table #222@1: 5299 keys, 132108 bytes
-2026/06/18-08:12:09.358 1165 Compacted 1@1 + 6@2 files => 13284929 bytes
-2026/06/18-08:12:09.362 1165 compacted to: files[ 0 0 7 0 0 0 0 ]
-2026/06/18-08:12:09.362 1165 Delete type=2 #208
-2026/06/18-08:12:09.362 1165 Delete type=2 #209
-2026/06/18-08:12:09.362 1165 Delete type=2 #210
-2026/06/18-08:12:09.362 1165 Delete type=2 #211
-2026/06/18-08:12:09.362 1165 Delete type=2 #212
-2026/06/18-08:12:09.362 1165 Delete type=2 #213
-2026/06/18-08:12:09.362 1165 Delete type=2 #215
+2026/06/18-08:17:24.984 1663 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2026/06/18-08:17:24.986 1663 Recovering log #214
+2026/06/18-08:17:25.016 1663 Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/IndexedDB/https_web.whatsapp.com_0.indexeddb.leveldb/000214.log 
+2026/06/18-08:17:27.176 1658 Level-0 table #225: started
+2026/06/18-08:17:27.201 1658 Level-0 table #225: 296578 bytes OK
+2026/06/18-08:17:27.205 1658 Delete type=0 #214
+2026/06/18-08:17:27.206 1656 Manual compaction at level-0 from '\x00\x1d\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x1e\x00\x00\x00' @ 0 : 0; will stop at (end)
+2026/06/18-08:17:27.257 1657 Compacting 1@1 + 7@2 files
+2026/06/18-08:17:27.321 1657 Generated table #226@1: 29775 keys, 2182838 bytes
+2026/06/18-08:17:27.353 1657 Generated table #227@1: 990 keys, 2134758 bytes
+2026/06/18-08:17:27.518 1657 Generated table #228@1: 9529 keys, 2180429 bytes
+2026/06/18-08:17:27.604 1657 Generated table #229@1: 14976 keys, 2189374 bytes
+2026/06/18-08:17:27.713 1657 Generated table #230@1: 76151 keys, 2219263 bytes
+2026/06/18-08:17:27.834 1657 Generated table #231@1: 96828 keys, 2248423 bytes
+2026/06/18-08:17:27.842 1657 Generated table #232@1: 4668 keys, 121884 bytes
+2026/06/18-08:17:27.843 1657 Compacted 1@1 + 7@2 files => 13276969 bytes
+2026/06/18-08:17:27.850 1657 compacted to: files[ 0 0 7 0 0 0 0 ]
+2026/06/18-08:17:27.852 1657 Delete type=2 #216
+2026/06/18-08:17:27.852 1657 Delete type=2 #217
+2026/06/18-08:17:27.852 1657 Delete type=2 #218
+2026/06/18-08:17:27.852 1657 Delete type=2 #219
+2026/06/18-08:17:27.852 1657 Delete type=2 #220
+2026/06/18-08:17:27.852 1657 Delete type=2 #221
+2026/06/18-08:17:27.854 1657 Delete type=2 #222
+2026/06/18-08:17:27.854 1657 Delete type=2 #225
+2026/06/18-08:17:33.919 1656 Level-0 table #234: started
+2026/06/18-08:17:34.044 1656 Level-0 table #234: 1316035 bytes OK
+2026/06/18-08:17:34.055 1656 Delete type=0 #224
+2026/06/18-08:17:34.320 1656 Compacting 1@1 + 7@2 files
+2026/06/18-08:17:34.418 1656 Generated table #235@1: 51707 keys, 2210322 bytes
+2026/06/18-08:17:34.456 1656 Generated table #236@1: 962 keys, 2136238 bytes
+2026/06/18-08:17:34.495 1656 Generated table #237@1: 4936 keys, 2152054 bytes
+2026/06/18-08:17:34.554 1656 Generated table #238@1: 19388 keys, 2221651 bytes
+2026/06/18-08:17:34.624 1656 Generated table #239@1: 45395 keys, 2175965 bytes
+2026/06/18-08:17:34.724 1656 Generated table #240@1: 98833 keys, 2250226 bytes
+2026/06/18-08:17:34.775 1656 Generated table #241@1: 58418 keys, 1446444 bytes
+2026/06/18-08:17:34.775 1656 Compacted 1@1 + 7@2 files => 14592900 bytes
+2026/06/18-08:17:34.787 1656 compacted to: files[ 0 0 7 0 0 0 0 ]
+2026/06/18-08:17:34.788 1656 Delete type=2 #226
+2026/06/18-08:17:34.788 1656 Delete type=2 #227
+2026/06/18-08:17:34.789 1656 Delete type=2 #228
+2026/06/18-08:17:34.789 1656 Delete type=2 #229
+2026/06/18-08:17:34.789 1656 Delete type=2 #230
+2026/06/18-08:17:34.789 1656 Delete type=2 #231
+2026/06/18-08:17:34.789 1656 Delete type=2 #232
+2026/06/18-08:17:34.789 1656 Delete type=2 #234
