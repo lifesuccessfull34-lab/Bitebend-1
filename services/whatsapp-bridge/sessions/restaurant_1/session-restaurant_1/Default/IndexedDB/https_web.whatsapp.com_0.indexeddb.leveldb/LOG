@@ -540,3 +540,22 @@
 2026/06/18-06:51:35.603 5ea Delete type=2 #187
 2026/06/18-06:51:35.603 5ea Delete type=2 #188
 2026/06/18-06:51:35.603 5ea Delete type=2 #190
+2026/06/18-07:08:50.377 5d0 Level-0 table #198: started
+2026/06/18-07:08:50.410 5d0 Level-0 table #198: 977511 bytes OK
+2026/06/18-07:08:50.415 5d0 Delete type=0 #189
+2026/06/18-07:16:15.993 5d1 Compacting 1@1 + 6@2 files
+2026/06/18-07:16:16.120 5d1 Generated table #199@1: 30469 keys, 2182347 bytes
+2026/06/18-07:16:16.142 5d1 Generated table #200@1: 993 keys, 2136105 bytes
+2026/06/18-07:16:16.171 5d1 Generated table #201@1: 9560 keys, 2180894 bytes
+2026/06/18-07:16:16.208 5d1 Generated table #202@1: 14828 keys, 2189809 bytes
+2026/06/18-07:16:16.250 5d1 Generated table #203@1: 80176 keys, 2225071 bytes
+2026/06/18-07:16:16.299 5d1 Generated table #204@1: 91984 keys, 2104864 bytes
+2026/06/18-07:16:16.299 5d1 Compacted 1@1 + 6@2 files => 13019090 bytes
+2026/06/18-07:16:16.314 5d1 compacted to: files[ 0 0 7 0 0 0 0 ]
+2026/06/18-07:16:16.315 5d1 Delete type=2 #191
+2026/06/18-07:16:16.315 5d1 Delete type=2 #192
+2026/06/18-07:16:16.315 5d1 Delete type=2 #193
+2026/06/18-07:16:16.315 5d1 Delete type=2 #194
+2026/06/18-07:16:16.315 5d1 Delete type=2 #195
+2026/06/18-07:16:16.316 5d1 Delete type=2 #196
+2026/06/18-07:16:16.316 5d1 Delete type=2 #198
