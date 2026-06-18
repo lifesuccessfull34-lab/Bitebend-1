@@ -511,10 +511,10 @@ export default function Dashboard() {
     e.target.value = "";
   };
 
-  // Orders in active sessions — excluded from the legacy orders list
+  // Orders belonging to any displayed session — excluded from the standalone orders list
   const activeSessionOrderIds = new Set(
     sessions
-      .filter((s) => s.status === "active")
+      .filter((s) => s.status === "active" || s.status === "awaiting_payment" || s.status === "awaiting_verification")
       .flatMap((s) => s.orders.map((o) => o.id)),
   );
 
@@ -573,9 +573,14 @@ export default function Dashboard() {
     return null;
   })();
 
-  // ─── Order card renderer (shared between sessions view and legacy orders) ─────
+  // ─── Order card renderer (shared between sessions view and standalone orders) ──
+  //
+  // inSession=true  → order belongs to a table session; payment actions live at the
+  //                   session level, so we suppress Upload Screenshot / Send Payment
+  //                   Bill / Mark as Paid from the individual order card.
+  // inSession=false → standalone order; full set of payment actions shown here.
 
-  const renderOrderCard = (order: Order, i: number) => {
+  const renderOrderCard = (order: Order, i: number, inSession = false) => {
     const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.ordered;
     const nextStatus = getNextStatus(order.status);
     const isUpdating = updatingId === order.id;
@@ -811,8 +816,8 @@ export default function Dashboard() {
               </Button>
             )}
 
-            {/* Upload screenshot for AI verification */}
-            {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && !ocrData && (
+            {/* Upload screenshot — standalone orders only */}
+            {!inSession && isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && !ocrData && (
               <Button size="sm" variant="outline"
                 className="w-full text-xs h-8 text-blue-700 border-blue-300 hover:bg-blue-50"
                 disabled={isUploadingProof}
@@ -825,21 +830,23 @@ export default function Dashboard() {
               </Button>
             )}
 
-            {/* ── SEND PAYMENT BILL (single combined action) ── */}
-            <Button
-              size="sm"
-              className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => void handleSendPaymentBill(order.id)}
-              disabled={billLoading === order.id}
-            >
-              {billLoading === order.id
-                ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                : <Send className="w-3 h-3 mr-1" />}
-              Send Payment Bill
-            </Button>
+            {/* Send Payment Bill — standalone orders only; session orders use session-level bill flow */}
+            {!inSession && (
+              <Button
+                size="sm"
+                className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={() => void handleSendPaymentBill(order.id)}
+                disabled={billLoading === order.id}
+              >
+                {billLoading === order.id
+                  ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  : <Send className="w-3 h-3 mr-1" />}
+                Send Payment Bill
+              </Button>
+            )}
 
-            {/* ── MARK AS PAID ── */}
-            {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
+            {/* Mark as Paid — standalone orders only */}
+            {!inSession && isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
               <Button
                 size="sm"
                 className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
@@ -1218,14 +1225,14 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Expanded order list */}
+                    {/* Expanded order list — payment actions handled at session level above */}
                     {isExpanded && (
                       <div className="border-t border-border">
                         {session.orders.length === 0 ? (
                           <div className="py-6 text-center text-xs text-muted-foreground">No orders in this session</div>
                         ) : (
                           <div className="divide-y divide-border">
-                            {session.orders.map((order, i) => renderOrderCard(order as Order, i))}
+                            {session.orders.map((order, i) => renderOrderCard(order as Order, i, true))}
                           </div>
                         )}
                       </div>
@@ -1237,12 +1244,17 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Individual Orders (legacy / take-away) ────────────────────── */}
+        {/* ── Standalone Orders (not part of any table session) ─────────── */}
         <div className="bg-card rounded-xl border border-border">
           <div className="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-            <h2 className="text-base font-semibold shrink-0">
-              {displaySessions.length > 0 ? "Individual Orders" : "Orders"}
-            </h2>
+            <div className="shrink-0">
+              <h2 className="text-base font-semibold">
+                {displaySessions.length > 0 ? "Standalone Orders" : "Orders"}
+              </h2>
+              {displaySessions.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-0.5">Direct orders not linked to a table session</p>
+              )}
+            </div>
             <div className="flex gap-1 flex-wrap">
               {["active", "completed", "cancelled", "all"].map((f) => (
                 <button

@@ -1,1 +1,3 @@
-2026/06/17-09:27:43.004 666 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Sync Data/LevelDB/MANIFEST-000001
+2026/06/17-09:31:56.136 6dd Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Sync Data/LevelDB/MANIFEST-000001
+2026/06/17-09:31:56.139 6dd Recovering log #3
+2026/06/17-09:31:56.139 6dd Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Sync Data/LevelDB/000003.log 
