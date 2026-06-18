@@ -9,7 +9,7 @@ import type { SubscriptionPlan } from "@/lib/types";
 import {
   Loader2, LogIn, UserPlus, Eye, EyeOff,
   ChevronRight, AlertTriangle, CheckCircle2, KeyRound,
-  ArrowLeft, Copy, Check,
+  ArrowLeft, Copy, Check, BookOpen,
 } from "lucide-react";
 import logo from "@/assets/logo.png";
 import { cn } from "@/lib/utils";
@@ -551,6 +551,18 @@ export default function RestaurantAuth() {
                   </>
                 )}
               </p>
+
+              <div className="text-center mt-4 pt-4 border-t border-gray-100">
+                <a
+                  href="/portal/resources"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-orange-500 transition-colors"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  Resources &amp; Guides
+                </a>
+              </div>
 
             </div>
           </div>

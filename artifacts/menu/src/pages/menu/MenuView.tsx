@@ -16,6 +16,7 @@ interface Props {
   takeAwayOnly: boolean;
   itemCount: number;
   subtotal: number;
+  tableId?: string;
   getQty: (id: number) => number;
   onAdd: (item: MenuItemData) => void;
   onRemove: (itemId: number) => void;
@@ -37,6 +38,7 @@ export function MenuView({
   takeAwayOnly,
   itemCount,
   subtotal,
+  tableId,
   getQty,
   onAdd,
   onRemove,
@@ -53,6 +55,7 @@ export function MenuView({
         manualTableNumber={manualTableNumber}
         takeAwayOnly={takeAwayOnly}
         onChangeMode={onChangeMode}
+        tableId={tableId}
       />
       <CategoryTabs
         categories={categories}

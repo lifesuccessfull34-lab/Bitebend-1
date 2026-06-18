@@ -32,13 +32,21 @@ function playNotificationSound() {
 interface UseOrderNotificationsOptions {
   enabled: boolean;
   onNewOrder?: () => void;
+  onSessionScreenshotReceived?: (sessionId: number) => void;
 }
 
-export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificationsOptions) {
+export function useOrderNotifications({ enabled, onNewOrder, onSessionScreenshotReceived }: UseOrderNotificationsOptions) {
   const { toast } = useToast();
   const retryDelayRef = useRef(1000);
   const esRef = useRef<EventSource | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Store callbacks in refs so the SSE connection is never torn down/rebuilt
+  // just because the callback identity changes between renders.
+  const onNewOrderRef = useRef(onNewOrder);
+  const onSessionScreenshotRef = useRef(onSessionScreenshotReceived);
+  useEffect(() => { onNewOrderRef.current = onNewOrder; }, [onNewOrder]);
+  useEffect(() => { onSessionScreenshotRef.current = onSessionScreenshotReceived; }, [onSessionScreenshotReceived]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -72,7 +80,7 @@ export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificat
           description: `${table}${name} — ${order.itemCount} item${order.itemCount !== 1 ? "s" : ""} — ${amount}`,
         });
 
-        onNewOrder?.();
+        onNewOrderRef.current?.();
       });
 
       es.addEventListener("screenshot-received", (e: MessageEvent) => {
@@ -96,7 +104,7 @@ export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificat
           description: `Order #${event.orderId}${name} — ${amount} via WhatsApp`,
         });
 
-        onNewOrder?.();
+        onNewOrderRef.current?.();
       });
 
       es.addEventListener("session-screenshot-received", (e: MessageEvent) => {
@@ -124,7 +132,10 @@ export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificat
           description: `Table ${event.tableNumber} — ${event.billNumber} — ₹${event.total.toLocaleString("en-IN")}`,
         });
 
-        onNewOrder?.();
+        // Invalidate cached screenshot for this session so next "Verify Payment"
+        // click loads a fresh image even if a previous screenshot was cached.
+        onSessionScreenshotRef.current?.(event.sessionId);
+        onNewOrderRef.current?.();
       });
 
       es.addEventListener("heartbeat", () => {
@@ -152,5 +163,5 @@ export function useOrderNotifications({ enabled, onNewOrder }: UseOrderNotificat
         esRef.current = null;
       }
     };
-  }, [enabled, onNewOrder, toast]);
+  }, [enabled, toast]);
 }

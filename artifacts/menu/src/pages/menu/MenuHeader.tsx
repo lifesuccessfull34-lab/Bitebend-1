@@ -8,6 +8,7 @@ interface Props {
   manualTableNumber: string;
   takeAwayOnly: boolean;
   onChangeMode: () => void;
+  tableId?: string;
 }
 
 export function MenuHeader({
@@ -16,6 +17,7 @@ export function MenuHeader({
   manualTableNumber,
   takeAwayOnly,
   onChangeMode,
+  tableId,
 }: Props) {
   const [, setLocation] = useLocation();
   const modeLabel =
@@ -128,7 +130,7 @@ export function MenuHeader({
 
         {/* My Orders button */}
         <button
-          onClick={() => setLocation("/my-orders")}
+          onClick={() => setLocation(`/my-orders?rid=${restaurant.id}${tableId ? `&tid=${tableId}` : ""}`)}
           aria-label="My Orders"
           title="My Orders"
           style={{

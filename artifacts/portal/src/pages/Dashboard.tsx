@@ -168,6 +168,15 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(() => new Set());
+  const [newOrderSessionIds, setNewOrderSessionIds] = useState<Set<number>>(new Set());
+  const prevSessionOrderCountsRef = useRef<Map<number, number>>(new Map());
+  const [showPasswordReminder, setShowPasswordReminder] = useState(() => {
+    try {
+      const ts = localStorage.getItem("bb_pw_reminder_dismissed_at");
+      if (!ts) return true;
+      return Date.now() - parseInt(ts, 10) > 30 * 24 * 60 * 60 * 1000;
+    } catch { return false; }
+  });
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId]       = useState<number | null>(null);
   const [payingId, setPayingId]           = useState<number | null>(null);
@@ -213,6 +222,10 @@ export default function Dashboard() {
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const uploadOrderIdRef = useRef<number | null>(null);
 
+  const handleSessionScreenshotReceived = useCallback((sessionId: number) => {
+    setSessionScreenshots((prev) => { const next = new Map(prev); next.delete(sessionId); return next; });
+  }, []);
+
   const fetchData = useCallback(async () => {
     if (!user) return;
     try {
@@ -224,6 +237,21 @@ export default function Dashboard() {
       setStats(statsData);
       setOrders(ordersData);
       setSessions(sessionsData);
+      // Detect new orders added to existing sessions (not brand-new sessions)
+      const prevCounts = prevSessionOrderCountsRef.current;
+      const gainedIds: number[] = [];
+      for (const session of sessionsData) {
+        const prev = prevCounts.get(session.id);
+        if (prev !== undefined && session.orderCount > prev) gainedIds.push(session.id);
+        prevCounts.set(session.id, session.orderCount);
+      }
+      if (gainedIds.length > 0) {
+        setNewOrderSessionIds((prev) => {
+          const next = new Set(prev);
+          for (const id of gainedIds) next.add(id);
+          return next;
+        });
+      }
     } catch { /* silently fail on poll */ } finally {
       setLoading(false);
     }

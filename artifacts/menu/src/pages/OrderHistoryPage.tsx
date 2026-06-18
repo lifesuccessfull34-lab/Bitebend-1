@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useLocation } from "wouter";
 import {
   ArrowLeft, ShoppingCart, Loader2, AlertCircle,
   ShoppingBag, ChevronDown, ChevronUp, QrCode, Upload,
@@ -529,6 +530,15 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
 }
 
 export default function OrderHistoryPage() {
+  const [, navigate] = useLocation();
+  const backUrl = useMemo(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const rid = sp.get("rid");
+    const tid = sp.get("tid");
+    if (!rid) return null;
+    return tid ? `/menu/${rid}/table/${tid}` : `/menu/${rid}`;
+  }, []);
+
   const [inputPhone, setInputPhone] = useState(() => lsGet("ts_phone") ?? "");
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -583,7 +593,7 @@ export default function OrderHistoryPage() {
       }}>
         <div style={{ height: "56px", padding: "0 16px", display: "flex", alignItems: "center", gap: "12px" }}>
           <button
-            onClick={() => window.history.back()}
+            onClick={() => backUrl ? navigate(backUrl) : window.history.back()}
             aria-label="Go back"
             style={{
               width: "36px", height: "36px", borderRadius: "50%",

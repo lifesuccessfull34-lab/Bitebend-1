@@ -9,7 +9,6 @@ import {
   X,
   CreditCard,
   Users,
-  BookOpen,
   MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -32,7 +31,6 @@ const NAV: NavItem[] = [
   { name: "Customers",   href: "/restaurant/customers/analytics",   icon: Users },
   { name: "Subscription", href: "/restaurant/subscription",        icon: CreditCard, ownerOnly: true },
   { name: "WhatsApp",    href: "/restaurant/whatsapp",             icon: MessageCircle },
-  { name: "Resources",   href: "/restaurant/resources",            icon: BookOpen },
   { name: "Profile",     href: "/restaurant/profile",              icon: Settings },
 ];
 

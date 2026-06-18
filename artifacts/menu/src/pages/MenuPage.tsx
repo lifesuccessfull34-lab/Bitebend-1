@@ -405,7 +405,7 @@ export default function MenuPage() {
           setPlaceError("");
           setProofResult(null);
         }}
-        onGoToOrders={() => setLocation("/my-orders")}
+        onGoToOrders={() => setLocation(`/my-orders?rid=${rawParam.restaurantId}${params.tableId ? `&tid=${params.tableId}` : ""}`)}
       />
     );
   }
@@ -547,6 +547,7 @@ export default function MenuPage() {
       takeAwayOnly={takeAwayOnly}
       itemCount={itemCount}
       subtotal={subtotal}
+      tableId={params.tableId}
       getQty={getQty}
       onAdd={addToCart}
       onRemove={removeFromCart}

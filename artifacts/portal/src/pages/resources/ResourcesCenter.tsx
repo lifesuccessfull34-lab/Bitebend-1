@@ -93,12 +93,6 @@ export default function ResourcesCenter() {
           <span className="text-slate-300 text-lg font-light ml-1 hidden sm:block">/</span>
           <span className="text-slate-500 text-sm hidden sm:block">Resources</span>
           <div className="flex-1" />
-          <a
-            href="/restaurant/auth"
-            className="text-xs font-semibold text-orange-600 hover:text-orange-700 transition-colors border border-orange-200 rounded-lg px-3 py-1.5 hover:bg-orange-50"
-          >
-            Owner Login
-          </a>
         </div>
       </header>
 
