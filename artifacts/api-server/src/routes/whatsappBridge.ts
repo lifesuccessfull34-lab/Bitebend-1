@@ -164,9 +164,42 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   else if (digits.length === 11 && digits.startsWith("0")) normalizedPhone = `91${digits.slice(1)}`;
 
   if (!normalizedPhone) {
-    logger.warn({ customerPhone }, "[whatsapp:payment-screenshot] could not normalize phone — skipping");
-    res.status(422).json({ error: "Could not normalize phone number" });
-    return;
+    // ── LID / unresolvable phone fallback ───────────────────────────────────
+    // WhatsApp's newer linked-device architecture can deliver msg.from as an
+    // @lid JID (e.g. "268641748652129@lid").  whatsapp-web.js contact.number
+    // returns the LID digits, not the real phone — so Indian-pattern normali-
+    // sation always fails for these senders.
+    //
+    // Fallback: if exactly ONE session bill is in 'sent' status for this
+    // restaurant, the incoming image is unambiguously from that customer.
+    // Resolve their phone from the bill and continue the normal flow.
+    // If there are zero or multiple pending bills we cannot safely assign the
+    // screenshot and return 422 as before.
+    const pendingBills = await db
+      .select({ id: sessionBills.id, customerPhone: sessionBills.customerPhone })
+      .from(sessionBills)
+      .where(
+        and(
+          eq(sessionBills.restaurantId, restaurantId),
+          eq(sessionBills.status, "sent"),
+        )
+      )
+      .limit(2);
+
+    if (pendingBills.length === 1) {
+      normalizedPhone = pendingBills[0].customerPhone;
+      logger.info(
+        { customerPhone, resolvedTo: normalizedPhone, sessionBillId: pendingBills[0].id },
+        "[whatsapp:payment-screenshot] unresolvable phone resolved via single pending bill fallback"
+      );
+    } else {
+      logger.warn(
+        { customerPhone, pendingBillCount: pendingBills.length },
+        "[whatsapp:payment-screenshot] could not normalize phone and no single pending bill — skipping"
+      );
+      res.status(422).json({ error: "Could not normalize phone number" });
+      return;
+    }
   }
 
   // ── Download image from bridge URL → base64 data URL ──────────────────────
