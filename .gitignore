@@ -50,3 +50,8 @@ Thumbs.db
 
 # WhatsApp Bridge — Chromium session cache (auth tokens, profile data)
 services/whatsapp-bridge/.wwebjs_auth/
+services/whatsapp-bridge/sessions/
+
+# Replit workspace artifacts (not part of the project)
+zipFile.zip
+attached_assets/
