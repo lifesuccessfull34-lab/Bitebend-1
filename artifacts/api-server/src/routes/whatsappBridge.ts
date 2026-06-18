@@ -3,7 +3,7 @@ import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import { orders, sessionBills, tableSessions } from "@workspace/db";
-import { eq, and, desc, ne } from "drizzle-orm";
+import { eq, and, desc, ne, gte } from "drizzle-orm";
 import { emitScreenshotEvent, emitSessionScreenshotEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import type { RequestHandler } from "express";
@@ -175,27 +175,48 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     // Resolve their phone from the bill and continue the normal flow.
     // If there are zero or multiple pending bills we cannot safely assign the
     // screenshot and return 422 as before.
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
     const pendingBills = await db
-      .select({ id: sessionBills.id, customerPhone: sessionBills.customerPhone })
+      .select({ id: sessionBills.id, customerPhone: sessionBills.customerPhone, sentAt: sessionBills.sentAt })
       .from(sessionBills)
       .where(
         and(
           eq(sessionBills.restaurantId, restaurantId),
           eq(sessionBills.status, "sent"),
+          gte(sessionBills.sentAt, thirtyMinutesAgo),
         )
       )
       .limit(2);
 
+    logger.info(
+      { customerPhone, restaurantId, pendingBillCount: pendingBills.length, windowMinutes: 30 },
+      "[whatsapp:payment-screenshot:fallback] queried recent sent bills"
+    );
+
     if (pendingBills.length === 1) {
-      normalizedPhone = pendingBills[0].customerPhone;
+      const bill = pendingBills[0];
+      normalizedPhone = bill.customerPhone;
       logger.info(
-        { customerPhone, resolvedTo: normalizedPhone, sessionBillId: pendingBills[0].id },
-        "[whatsapp:payment-screenshot] unresolvable phone resolved via single pending bill fallback"
+        {
+          customerPhone,
+          resolvedTo: normalizedPhone,
+          sessionBillId: bill.id,
+          sentAt: bill.sentAt,
+          fallbackAccepted: true,
+        },
+        "[whatsapp:payment-screenshot:fallback] accepted — exactly 1 recent pending bill, phone resolved"
       );
     } else {
       logger.warn(
-        { customerPhone, pendingBillCount: pendingBills.length },
-        "[whatsapp:payment-screenshot] could not normalize phone and no single pending bill — skipping"
+        {
+          customerPhone,
+          restaurantId,
+          pendingBillCount: pendingBills.length,
+          windowMinutes: 30,
+          fallbackAccepted: false,
+          reason: pendingBills.length === 0 ? "no_recent_pending_bills" : "multiple_pending_bills",
+        },
+        "[whatsapp:payment-screenshot:fallback] rejected — cannot safely assign screenshot"
       );
       res.status(422).json({ error: "Could not normalize phone number" });
       return;
