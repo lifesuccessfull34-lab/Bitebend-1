@@ -1,6 +1,5 @@
-2026/06/18-08:17:23.751 1656 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Local Storage/leveldb/MANIFEST-000001
-2026/06/18-08:17:23.754 1656 Recovering log #3
-2026/06/18-08:17:23.760 1656 Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Local Storage/leveldb/000003.log 
-2026/06/18-08:17:39.393 1657 Level-0 table #5: started
-2026/06/18-08:17:39.398 1657 Level-0 table #5: 16034 bytes OK
-2026/06/18-08:17:39.402 1657 Delete type=0 #3
+2026/06/18-11:48:47.678 94a Creating DB /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Local Storage/leveldb since it was missing.
+2026/06/18-11:48:47.685 94a Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Local Storage/leveldb/MANIFEST-000001
+2026/06/18-12:24:24.355 94a Level-0 table #5: started
+2026/06/18-12:24:24.361 94a Level-0 table #5: 15256 bytes OK
+2026/06/18-12:24:24.367 94a Delete type=0 #3

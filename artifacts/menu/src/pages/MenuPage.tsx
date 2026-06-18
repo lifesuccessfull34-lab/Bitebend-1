@@ -405,7 +405,7 @@ export default function MenuPage() {
           setPlaceError("");
           setProofResult(null);
         }}
-        onGoToOrders={() => setLocation(`/my-orders?rid=${rawParam.restaurantId}${params.tableId ? `&tid=${params.tableId}` : ""}`)}
+        onGoToOrders={() => setLocation(`/my-orders?rid=${rawParam}${params.tableId ? `&tid=${params.tableId}` : ""}`)}
       />
     );
   }

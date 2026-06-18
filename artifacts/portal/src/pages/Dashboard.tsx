@@ -314,6 +314,7 @@ export default function Dashboard() {
       toast.success("Payment approved — session closed ✓");
       setViewingScreenshotSessionId(null);
       await fetchData();
+      setActiveTab("history");
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Failed to approve payment");
     } finally {

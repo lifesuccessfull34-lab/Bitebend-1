@@ -1,3 +1,2 @@
-2026/06/18-08:17:23.771 1658 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Site Characteristics Database/MANIFEST-000001
-2026/06/18-08:17:23.772 1658 Recovering log #3
-2026/06/18-08:17:23.772 1658 Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Site Characteristics Database/000003.log 
+2026/06/18-11:48:47.703 952 Creating DB /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Site Characteristics Database since it was missing.
+2026/06/18-11:48:47.712 952 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Site Characteristics Database/MANIFEST-000001
