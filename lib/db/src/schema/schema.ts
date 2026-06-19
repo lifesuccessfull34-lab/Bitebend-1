@@ -168,7 +168,15 @@ export const tableSessions = pgTable(
     sessionType: text("session_type", { enum: ["dine_in", "takeaway"] })
       .notNull()
       .default("dine_in"),
-    /** Normalized phone for takeaway session grouping (e.g. "919876543210") */
+    /**
+     * Normalized phone for session ownership (e.g. "919876543210").
+     * Always stored for all session types (dine_in + takeaway).
+     * Used for:
+     *  - Phone-first session reuse across tables (Rule 1)
+     *  - Table ownership conflict detection (Rule 3)
+     *  - Bill-lock guard (Rule 4)
+     *  - WhatsApp screenshot matching unambiguity
+     */
     customerPhone: text("customer_phone"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -177,6 +185,10 @@ export const tableSessions = pgTable(
     index("idx_table_sessions_restaurant_id").on(t.restaurantId),
     index("idx_table_sessions_status").on(t.status),
     index("idx_table_sessions_restaurant_status").on(t.restaurantId, t.status),
+    // Partial index: fast dine-in session lookup by phone (Rule 1 & Rule 3)
+    index("idx_table_sessions_dine_in_phone").on(t.restaurantId, t.customerPhone, t.status).where(sql`${t.sessionType} = 'dine_in'`),
+    // Partial index: fast takeaway session lookup by phone
+    index("idx_table_sessions_takeaway_phone").on(t.restaurantId, t.customerPhone, t.status).where(sql`${t.sessionType} = 'takeaway'`),
     check(
       "table_sessions_status_check",
       sql`${t.status} IN ('active','awaiting_payment','awaiting_verification','paid','closed')`,

@@ -141,6 +141,13 @@
       "when": 1750435200000,
       "tag": "0019_takeaway_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1750521600000,
+      "tag": "0020_dine_in_session_phone_index",
+      "breakpoints": true
     }
   ]
 }

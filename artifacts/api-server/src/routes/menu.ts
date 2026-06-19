@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { restaurants, menuCategories, menuItems, restaurantTables, orders, orderItems, notifications, tableSessions } from "@workspace/db";
+import { restaurants, menuCategories, menuItems, restaurantTables, orders, orderItems, notifications, tableSessions, sessionBills } from "@workspace/db";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { RequestHandler } from "express";
@@ -311,55 +311,180 @@ const placeOrder: RequestHandler = async (req, res) => {
   // Cash orders start as unpaid — staff collects at table.
   const initialPaymentStatus = paymentMethod === "upi" ? "awaiting_verification" : "unpaid";
 
-  // ── Table session find-or-create ──────────────────────────────────────────
-  // Dine-in:  group by tableNumber (existing behaviour)
-  // Takeaway: group by normalizedPhone — reuse any open session
-  //           (active | awaiting_payment | awaiting_verification).
-  //           Only create a new session when none is open.
+  // ── Session ownership guards + find-or-create ─────────────────────────────
+  //
+  // RULE 4 — Bill lock (dine-in + takeaway):
+  //   If this phone already has a session bill in status 'sent' or
+  //   'awaiting_verification' in this restaurant, block any new order.
+  //   This guarantees one phone = one unpaid bill at a time, which keeps
+  //   WhatsApp screenshot matching unambiguous.
+  //
+  // RULE 1 — Phone-first session reuse (dine-in):
+  //   If the phone already owns an ACTIVE dine-in session in this restaurant,
+  //   reuse it regardless of which table the new order comes from.
+  //
+  // RULE 2 — Store phone on new dine-in sessions:
+  //   customerPhone is always persisted on the session row at creation time.
+  //
+  // RULE 3 — Table ownership lock (dine-in):
+  //   If the requested table has an active session owned by a DIFFERENT phone,
+  //   reject the order entirely.
+  //
+  // RULE 5 — Active-only reuse:
+  //   All session reuse queries require status = 'active'. Billed sessions
+  //   (awaiting_payment, awaiting_verification, paid, closed) are never reused.
+  //
+  // RULE 6 / RULE 7 — All existing order, kitchen, and payment behaviour
+  //   is fully preserved. Only the session layer changes.
+
+  // ── RULE 4: Bill lock ─────────────────────────────────────────────────────
+  const [existingUnpaidBill] = await db
+    .select({ id: sessionBills.id, status: sessionBills.status, billNumber: sessionBills.billNumber })
+    .from(sessionBills)
+    .where(
+      and(
+        eq(sessionBills.restaurantId, restaurantId),
+        eq(sessionBills.customerPhone, normalizedPhone),
+        sql`${sessionBills.status} IN ('sent', 'awaiting_verification')`,
+      ),
+    )
+    .limit(1);
+
+  if (existingUnpaidBill) {
+    req.log.warn(
+      {
+        restaurantId,
+        customerPhone: normalizedPhone,
+        billId: existingUnpaidBill.id,
+        billNumber: existingUnpaidBill.billNumber,
+        billStatus: existingUnpaidBill.status,
+        rule: "RULE_4_BILL_LOCK",
+      },
+      "[Session] Blocking new order — unpaid bill exists for this phone",
+    );
+    res.status(402).json({
+      error: "Please complete payment of your previous bill before starting a new session.",
+      code: "UNPAID_BILL_EXISTS",
+    });
+    return;
+  }
+
   let sessionId: number | null = null;
   const trimmedTableNumber = tableNumber?.trim() ?? null;
 
   if (trimmedTableNumber) {
     // ── Dine-in ────────────────────────────────────────────────────────────
-    const [existingSession] = await db
-      .select({ id: tableSessions.id })
+
+    // RULE 1: Phone-first — does this phone already own an ACTIVE dine-in
+    // session in this restaurant? If so reuse it, even if the table differs.
+    const [phoneOwnedSession] = await db
+      .select({ id: tableSessions.id, tableNumber: tableSessions.tableNumber })
       .from(tableSessions)
       .where(
         and(
           eq(tableSessions.restaurantId, restaurantId),
-          eq(tableSessions.tableNumber, trimmedTableNumber),
           eq(tableSessions.sessionType, "dine_in"),
+          eq(tableSessions.customerPhone, normalizedPhone),
           eq(tableSessions.status, "active"),
         ),
       )
+      .orderBy(desc(tableSessions.createdAt))
       .limit(1);
 
-    if (existingSession) {
-      sessionId = existingSession.id;
+    if (phoneOwnedSession) {
+      // RULE 1: Reuse existing active session owned by this phone
+      sessionId = phoneOwnedSession.id;
       req.log.info(
-        { sessionId, restaurantId, tableNumber: trimmedTableNumber },
-        "[Session] Dine-in: attached order to existing session",
+        {
+          sessionId,
+          restaurantId,
+          requestedTable: trimmedTableNumber,
+          sessionTable: phoneOwnedSession.tableNumber,
+          customerPhone: normalizedPhone,
+          rule: "RULE_1_PHONE_SESSION_REUSE",
+        },
+        "[Session] Dine-in: reused phone-owned active session",
       );
     } else {
-      const [newSession] = await db
-        .insert(tableSessions)
-        .values({
-          restaurantId,
-          tableNumber: trimmedTableNumber,
-          sessionType: "dine_in",
-          status: "active",
-        })
-        .returning({ id: tableSessions.id });
-      sessionId = newSession.id;
-      req.log.info(
-        { sessionId, restaurantId, tableNumber: trimmedTableNumber },
-        "[Session] Dine-in: created new session",
-      );
+      // No active session for this phone — check if the requested table is
+      // already occupied by a different phone (RULE 3).
+      const [tableOwnedSession] = await db
+        .select({ id: tableSessions.id, customerPhone: tableSessions.customerPhone })
+        .from(tableSessions)
+        .where(
+          and(
+            eq(tableSessions.restaurantId, restaurantId),
+            eq(tableSessions.tableNumber, trimmedTableNumber),
+            eq(tableSessions.sessionType, "dine_in"),
+            eq(tableSessions.status, "active"),
+          ),
+        )
+        .limit(1);
+
+      if (tableOwnedSession) {
+        if (tableOwnedSession.customerPhone !== null && tableOwnedSession.customerPhone !== normalizedPhone) {
+          // RULE 3: Table is occupied by a different phone — reject
+          req.log.warn(
+            {
+              restaurantId,
+              tableNumber: trimmedTableNumber,
+              existingPhone: tableOwnedSession.customerPhone,
+              incomingPhone: normalizedPhone,
+              existingSessionId: tableOwnedSession.id,
+              rule: "RULE_3_TABLE_CONFLICT",
+            },
+            "[Session] Dine-in: table ownership conflict — rejecting order",
+          );
+          res.status(409).json({
+            error: "This table already has an active session. Please contact restaurant staff.",
+            code: "TABLE_SESSION_CONFLICT",
+          });
+          return;
+        }
+
+        // Session exists but phone is NULL (legacy unclaimed session — heal it).
+        sessionId = tableOwnedSession.id;
+        if (tableOwnedSession.customerPhone === null) {
+          await db
+            .update(tableSessions)
+            .set({ customerPhone: normalizedPhone, updatedAt: new Date() })
+            .where(eq(tableSessions.id, tableOwnedSession.id));
+          req.log.info(
+            { sessionId, restaurantId, tableNumber: trimmedTableNumber, customerPhone: normalizedPhone },
+            "[Session] Dine-in: claimed legacy unclaimed session (backfill heal)",
+          );
+        }
+      } else {
+        // No session for this table and no session for this phone — create new.
+        // RULE 2: Always persist customerPhone on the new session.
+        const [newSession] = await db
+          .insert(tableSessions)
+          .values({
+            restaurantId,
+            tableNumber: trimmedTableNumber,
+            sessionType: "dine_in",
+            customerPhone: normalizedPhone,
+            status: "active",
+            updatedAt: new Date(),
+          })
+          .returning({ id: tableSessions.id });
+        sessionId = newSession.id;
+        req.log.info(
+          {
+            sessionId,
+            restaurantId,
+            tableNumber: trimmedTableNumber,
+            customerPhone: normalizedPhone,
+            rule: "RULE_2_PHONE_STORED",
+          },
+          "[Session] Dine-in: created new session with phone owner",
+        );
+      }
     }
   } else {
     // ── Takeaway ───────────────────────────────────────────────────────────
-    // Reuse any open session for this phone (active/awaiting_payment/awaiting_verification).
-    // Session closes only when payment is approved (bill.status=paid → session.status=closed).
+    // Reuse any ACTIVE session for this phone.
+    // RULE 5: Only 'active' sessions are reused — billed sessions are never reused.
     const [existingTakeawaySession] = await db
       .select({ id: tableSessions.id })
       .from(tableSessions)
@@ -368,7 +493,7 @@ const placeOrder: RequestHandler = async (req, res) => {
           eq(tableSessions.restaurantId, restaurantId),
           eq(tableSessions.sessionType, "takeaway"),
           eq(tableSessions.customerPhone, normalizedPhone),
-          sql`${tableSessions.status} IN ('active','awaiting_payment','awaiting_verification')`,
+          eq(tableSessions.status, "active"),
         ),
       )
       .orderBy(desc(tableSessions.createdAt))
@@ -378,7 +503,7 @@ const placeOrder: RequestHandler = async (req, res) => {
       sessionId = existingTakeawaySession.id;
       req.log.info(
         { sessionId, restaurantId, customerPhone: normalizedPhone },
-        "[Session] Takeaway: attached order to existing open session",
+        "[Session] Takeaway: attached order to existing active session",
       );
     } else {
       const [newSession] = await db
@@ -389,6 +514,7 @@ const placeOrder: RequestHandler = async (req, res) => {
           sessionType: "takeaway",
           customerPhone: normalizedPhone,
           status: "active",
+          updatedAt: new Date(),
         })
         .returning({ id: tableSessions.id });
       sessionId = newSession.id;
