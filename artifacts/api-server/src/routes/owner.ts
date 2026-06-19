@@ -621,6 +621,26 @@ const getWhatsappBill: RequestHandler = async (req, res) => {
   res.json({ url, message: msg });
 };
 
+// ─── Table label helper ───────────────────────────────────────────────────────
+// Derives a display label from the table numbers across all orders in a session.
+// Single table  → "T2"
+// Multiple tables → "T2, T6"  (sorted, deduplicated)
+// No table numbers found → falls back to the session-row's tableNumber column.
+function deriveTableLabel(
+  sessionOrders: Array<{ tableNumber: string | null }>,
+  sessionTableNumber: string | null,
+): string | null {
+  const tables = [
+    ...new Set(
+      sessionOrders
+        .map((o) => o.tableNumber)
+        .filter((t): t is string => t !== null && t.trim() !== ""),
+    ),
+  ].sort();
+  if (tables.length === 0) return sessionTableNumber;
+  return tables.join(", ");
+}
+
 // ─── Bill image generator (server-side) ──────────────────────────────────────
 // Produces a 600×N pixel PNG payment bill with embedded UPI QR code using sharp.
 // No browser Canvas needed — runs entirely on the server.
@@ -1650,7 +1670,11 @@ const sendSessionBill: RequestHandler = async (req, res) => {
   // Build bill message
   const upiId = restaurant.upiId ?? null;
   const restaurantName = restaurant.name;
-  const tableNumber = session.tableNumber;
+  const tableLabel = deriveTableLabel(payableOrders, session.tableNumber);
+  const tablePrefix = (() => {
+    const uniqueTables = [...new Set(payableOrders.map((o) => o.tableNumber).filter(Boolean))];
+    return uniqueTables.length > 1 ? "Tables" : "Table";
+  })();
 
   let itemLines = "";
   for (const order of payableOrders) {
@@ -1668,7 +1692,7 @@ const sendSessionBill: RequestHandler = async (req, res) => {
   const taxStr = (bill.tax / 100).toFixed(2);
 
   let message = `🧾 *Bill — ${restaurantName}*\n`;
-  message += `Table: *${tableNumber}*\n`;
+  message += `${tablePrefix}: *${tableLabel}*\n`;
   message += `Bill No: ${bill.billNumber}\n\n`;
   if (itemLines) {
     message += `*Items:*\n${itemLines}\n`;
@@ -2534,8 +2558,14 @@ const resendHistoryBill: RequestHandler = async (req, res) => {
   const subtotalStr = (bill.subtotal / 100).toFixed(2);
   const taxStr = (bill.tax / 100).toFixed(2);
 
+  const resendTableLabel = deriveTableLabel(sessionOrders, session.tableNumber);
+  const resendTablePrefix = (() => {
+    const uniqueTables = [...new Set(sessionOrders.map((o) => o.tableNumber).filter(Boolean))];
+    return uniqueTables.length > 1 ? "Tables" : "Table";
+  })();
+
   let message = `🧾 *Bill — ${restaurant.name}*\n`;
-  message += `Table: *${session.tableNumber}*\n`;
+  message += `${resendTablePrefix}: *${resendTableLabel}*\n`;
   message += `Bill No: ${bill.billNumber}\n\n`;
   if (itemLines) message += `*Items:*\n${itemLines}\n`;
   message += `Subtotal: ₹${subtotalStr}\n`;

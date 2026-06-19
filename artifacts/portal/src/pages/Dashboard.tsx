@@ -620,6 +620,28 @@ export default function Dashboard() {
     return null;
   })();
 
+  // ─── Session table label helper ───────────────────────────────────────────────
+  // Derives a display label from the table numbers across all orders in a session.
+  // Single table  → prefix "Table",  label "T2"
+  // Multiple tables → prefix "Tables", label "T2, T6" (sorted, deduplicated)
+  // Falls back to session.tableNumber if no per-order table numbers are present.
+  const deriveSessionTableLabel = (session: SessionSummary): { prefix: string; label: string } => {
+    const tables = [
+      ...new Set(
+        session.orders
+          .map((o) => o.tableNumber)
+          .filter((t): t is string => t !== null && t.trim() !== ""),
+      ),
+    ].sort();
+    if (tables.length === 0) {
+      return { prefix: "Table", label: session.tableNumber ?? "" };
+    }
+    return {
+      prefix: tables.length > 1 ? "Tables" : "Table",
+      label: tables.join(", "),
+    };
+  };
+
   // ─── Order card renderer (shared between sessions view and standalone orders) ──
   //
   // inSession=true  → order belongs to a table session; payment actions live at the
@@ -1053,7 +1075,12 @@ export default function Dashboard() {
                             {session.sessionType === "takeaway" ? (
                               <span className="font-bold text-sm">Takeaway</span>
                             ) : (
-                              <span className="font-bold text-sm">Table {session.tableNumber}</span>
+                              <span className="font-bold text-sm">
+                                {(() => {
+                                  const { prefix, label } = deriveSessionTableLabel(session);
+                                  return `${prefix} ${label}`;
+                                })()}
+                              </span>
                             )}
                             {session.sessionType === "takeaway" && session.customerPhone && (
                               <span className="text-xs text-muted-foreground font-mono">+{session.customerPhone}</span>
@@ -1275,7 +1302,7 @@ export default function Dashboard() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Camera className="w-5 h-5 text-violet-600" />
-                  Payment Proof — Table {activeSession?.tableNumber}
+                  Payment Proof — {activeSession ? (() => { const { prefix, label } = deriveSessionTableLabel(activeSession); return `${prefix} ${label}`; })() : ""}
                 </DialogTitle>
               </DialogHeader>
 
