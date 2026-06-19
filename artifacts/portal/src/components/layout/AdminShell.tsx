@@ -171,5 +171,5 @@ export const ADMIN_NAV_ITEMS = (
   { key: "notifications", label: "Notifications", icon: Bell },
   { key: "legal", label: "Legal Pages", icon: FileText },
   { key: "bills", label: "Bill Metrics", icon: Receipt },
-  { key: "resources", label: "Resources", icon: BookOpen },
+  { key: "resources", label: "Tutorials", icon: BookOpen },
 ];

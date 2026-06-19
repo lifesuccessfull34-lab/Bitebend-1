@@ -560,7 +560,7 @@ export default function RestaurantAuth() {
                   className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-orange-500 transition-colors"
                 >
                   <BookOpen className="w-3 h-3" />
-                  Resources &amp; Guides
+                  Tutorials
                 </a>
               </div>
 

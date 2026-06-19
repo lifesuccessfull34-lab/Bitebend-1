@@ -1,4 +1,4 @@
-import { ArrowLeft, ShoppingCart, Minus, Plus, ArrowRight } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Minus, Plus, ArrowRight, Receipt } from "lucide-react";
 import type { RestaurantData, CartItem, MenuItemData } from "./types";
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   onRemove: (itemId: number) => void;
   onClose: () => void;
   onCheckout: () => void;
+  onMyOrders: () => void;
 }
 
 const C = {
@@ -37,6 +38,7 @@ export function CartView({
   onRemove,
   onClose,
   onCheckout,
+  onMyOrders,
 }: Props) {
   return (
     <div style={{ minHeight: "100dvh", backgroundColor: C.bg }}>
@@ -71,6 +73,20 @@ export function CartView({
           }}
         >
           <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
+        </button>
+
+        <button
+          onClick={onMyOrders}
+          aria-label="My Orders"
+          title="My Orders"
+          style={{
+            width: "36px", height: "36px", borderRadius: "50%",
+            backgroundColor: C.mutedBg,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Receipt style={{ width: "17px", height: "17px", color: C.muted }} />
         </button>
 
         <h1 style={{ flex: 1, fontWeight: 700, fontSize: "17px", color: C.ink }}>

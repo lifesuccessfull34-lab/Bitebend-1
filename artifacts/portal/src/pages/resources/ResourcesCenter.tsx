@@ -91,7 +91,7 @@ export default function ResourcesCenter() {
           </div>
           <span className="font-bold text-slate-800 text-base tracking-tight">Bitebend</span>
           <span className="text-slate-300 text-lg font-light ml-1 hidden sm:block">/</span>
-          <span className="text-slate-500 text-sm hidden sm:block">Resources</span>
+          <span className="text-slate-500 text-sm hidden sm:block">Tutorials</span>
           <div className="flex-1" />
         </div>
       </header>
@@ -104,10 +104,10 @@ export default function ResourcesCenter() {
             <BookOpen className="w-3.5 h-3.5" /> Knowledge Hub
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold text-slate-900 mb-3 tracking-tight">
-            Resources Center
+            Tutorials
           </h1>
           <p className="text-slate-500 max-w-xl mx-auto text-sm sm:text-base leading-relaxed">
-            Everything you need to learn, setup, and grow with Bitebend — videos, guides, plans, and more.
+            Everything you need to learn, set up, and grow with Bitebend — videos, guides, plans, and more.
           </p>
         </div>
 

@@ -935,7 +935,7 @@ export default function Admin() {
     notifications: { title: "Send Notification", desc: "Broadcast to restaurants", icon: Bell },
     legal: { title: "Legal Pages", desc: "Terms & Conditions · Privacy Policy", icon: FileText },
     bills: { title: "Bill Metrics", desc: "Payment bill delivery analytics", icon: Receipt },
-    resources: { title: "Resources", desc: `${adminResources.length} resources · ${adminResources.filter((r) => r.approvalStatus === "pending").length} pending`, icon: BookOpen },
+    resources: { title: "Tutorials", desc: `${adminResources.length} tutorials · ${adminResources.filter((r) => r.approvalStatus === "pending").length} pending`, icon: BookOpen },
   };
   const current = PAGE_TITLES[tab];
 
@@ -2552,14 +2552,14 @@ export default function Admin() {
           </div>
         )}
 
-        {/* ── Resources — now managed in a dedicated CMS page ── */}
+        {/* ── Tutorials — now managed in a dedicated CMS page ── */}
         {tab === "resources" && (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-slate-500">
             <BookOpen className="w-12 h-12 opacity-20" />
             <div className="text-center">
-              <p className="font-semibold text-slate-700 text-base mb-1">Resources are managed in a dedicated page</p>
+              <p className="font-semibold text-slate-700 text-base mb-1">Tutorials are managed in a dedicated page</p>
               <p className="text-sm text-slate-400 max-w-sm">
-                Create, approve, and publish resources from the Resources CMS. The public portal at{" "}
+                Create, approve, and publish tutorials from the Tutorials CMS. The public portal at{" "}
                 <span className="font-mono text-xs bg-slate-100 px-1 py-0.5 rounded">/portal/resources</span> shows approved public content.
               </p>
             </div>
@@ -2567,7 +2567,7 @@ export default function Admin() {
               href="/portal/admin/resources"
               className="inline-flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors shadow-sm"
             >
-              <BookOpen className="w-4 h-4" /> Open Resources CMS
+              <BookOpen className="w-4 h-4" /> Open Tutorials CMS
             </a>
             <a
               href="/portal/resources"
@@ -2575,7 +2575,7 @@ export default function Admin() {
               rel="noopener noreferrer"
               className="text-xs text-indigo-500 hover:underline"
             >
-              Preview public Resources page ↗
+              Preview public Tutorials page ↗
             </a>
           </div>
         )}

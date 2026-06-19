@@ -530,6 +530,7 @@ export default function MenuPage() {
         onRemove={removeFromCart}
         onClose={() => setView("menu")}
         onCheckout={() => setView("form")}
+        onMyOrders={() => setLocation(`/my-orders?rid=${rawParam}${params.tableId ? `&tid=${params.tableId}` : ""}`)}
       />
     );
   }

@@ -168,8 +168,10 @@ export default function Dashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(() => new Set());
-  const [newOrderSessionIds, setNewOrderSessionIds] = useState<Set<number>>(new Set());
-  const prevSessionOrderCountsRef = useRef<Map<number, number>>(new Map());
+  const [newOrderSessionIds, setNewOrderSessionIds] = useState<Set<number>>(() => {
+    try { return new Set<number>(JSON.parse(localStorage.getItem("bb_new_session_badges") ?? "[]")); }
+    catch { return new Set(); }
+  });
   const [showPasswordReminder, setShowPasswordReminder] = useState(() => {
     try {
       const ts = localStorage.getItem("bb_pw_reminder_dismissed_at");
@@ -237,21 +239,25 @@ export default function Dashboard() {
       setStats(statsData);
       setOrders(ordersData);
       setSessions(sessionsData);
-      // Detect new orders added to existing sessions (not brand-new sessions)
-      const prevCounts = prevSessionOrderCountsRef.current;
-      const gainedIds: number[] = [];
-      for (const session of sessionsData) {
-        const prev = prevCounts.get(session.id);
-        if (prev !== undefined && session.orderCount > prev) gainedIds.push(session.id);
-        prevCounts.set(session.id, session.orderCount);
-      }
-      if (gainedIds.length > 0) {
-        setNewOrderSessionIds((prev) => {
-          const next = new Set(prev);
-          for (const id of gainedIds) next.add(id);
-          return next;
-        });
-      }
+      // Detect new orders added to existing sessions — localStorage-backed so badge survives refresh
+      try {
+        const storedCounts: Record<string, number> = JSON.parse(localStorage.getItem("bb_session_order_counts") ?? "{}");
+        const storedBadges: number[] = JSON.parse(localStorage.getItem("bb_new_session_badges") ?? "[]");
+        const badges = new Set<number>(storedBadges);
+        const updatedCounts: Record<string, number> = { ...storedCounts };
+        for (const session of sessionsData) {
+          const knownCount = storedCounts[String(session.id)];
+          if (knownCount !== undefined && session.orderCount > Number(knownCount)) badges.add(session.id);
+          updatedCounts[String(session.id)] = session.orderCount;
+        }
+        // Clean up badges for sessions that are no longer in the active list
+        for (const badgeId of badges) {
+          if (!sessionsData.find((s) => s.id === badgeId)) badges.delete(badgeId);
+        }
+        localStorage.setItem("bb_session_order_counts", JSON.stringify(updatedCounts));
+        localStorage.setItem("bb_new_session_badges", JSON.stringify([...badges]));
+        setNewOrderSessionIds(badges);
+      } catch { /* ignore storage errors */ }
     } catch { /* silently fail on poll */ } finally {
       setLoading(false);
     }
@@ -363,6 +369,21 @@ export default function Dashboard() {
     setUpdatingId(orderId);
     try {
       await apiFetch(`/owner/orders/${orderId}`, { method: "PUT", body: JSON.stringify({ status }) });
+      // Clear the NEW badge when staff clicks "Mark Preparing" on any order in the session
+      if (status === "preparing") {
+        const owningSession = sessions.find((s) => s.orders.some((o) => o.id === orderId));
+        if (owningSession) {
+          setNewOrderSessionIds((prev) => {
+            const next = new Set(prev);
+            next.delete(owningSession.id);
+            try {
+              const stored: number[] = JSON.parse(localStorage.getItem("bb_new_session_badges") ?? "[]");
+              localStorage.setItem("bb_new_session_badges", JSON.stringify(stored.filter((id) => id !== owningSession.id)));
+            } catch { /* ignore */ }
+            return next;
+          });
+        }
+      }
       await fetchData();
     } catch (err: unknown) {
       setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed" }));
@@ -857,21 +878,6 @@ export default function Dashboard() {
               </Button>
             )}
 
-            {/* Send Payment Bill — standalone orders only; session orders use session-level bill flow */}
-            {!inSession && (
-              <Button
-                size="sm"
-                className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={() => void handleSendPaymentBill(order.id)}
-                disabled={billLoading === order.id}
-              >
-                {billLoading === order.id
-                  ? <Loader2 className="w-3 h-3 animate-spin mr-1" />
-                  : <Send className="w-3 h-3 mr-1" />}
-                Send Payment Bill
-              </Button>
-            )}
-
             {/* Mark as Paid — standalone orders only */}
             {!inSession && isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
               <Button
@@ -885,14 +891,6 @@ export default function Dashboard() {
               </Button>
             )}
 
-            {/* Cancel */}
-            {order.status !== "completed" && order.status !== "cancelled" && (
-              <Button size="sm" variant="ghost"
-                className="w-full text-xs h-8 text-destructive hover:text-destructive"
-                onClick={() => handleStatusUpdate(order.id, "cancelled")} disabled={isUpdating}>
-                Cancel Order
-              </Button>
-            )}
           </div>
         </div>
 
@@ -1084,6 +1082,11 @@ export default function Dashboard() {
                             {activeOrderCount > 0 && (
                               <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full font-medium">
                                 {activeOrderCount} in-progress
+                              </span>
+                            )}
+                            {newOrderSessionIds.has(session.id) && (
+                              <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
+                                NEW
                               </span>
                             )}
                             {session.bill && session.bill.status === "generated" && (
