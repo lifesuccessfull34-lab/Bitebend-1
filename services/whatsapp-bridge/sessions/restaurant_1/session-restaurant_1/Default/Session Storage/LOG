@@ -1,2 +1,3 @@
-2026/06/19-05:52:03.230 2d1 Creating DB /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Session Storage since it was missing.
-2026/06/19-05:52:03.238 2d1 Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Session Storage/MANIFEST-000001
+2026/06/19-07:31:26.483 afd Reusing MANIFEST /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Session Storage/MANIFEST-000001
+2026/06/19-07:31:26.484 afd Recovering log #3
+2026/06/19-07:31:26.484 afd Reusing old log /home/runner/workspace/services/whatsapp-bridge/sessions/restaurant_1/session-restaurant_1/Default/Session Storage/000003.log 
