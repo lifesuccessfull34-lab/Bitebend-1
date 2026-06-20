@@ -2,9 +2,9 @@ import { Router } from "express";
 import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
-import { orders, sessionBills, tableSessions } from "@workspace/db";
-import { eq, and, desc, ne, gte } from "drizzle-orm";
-import { emitScreenshotEvent, emitSessionScreenshotEvent } from "../lib/orderEvents";
+import { sessionBills, tableSessions } from "@workspace/db";
+import { eq, and, desc, gte } from "drizzle-orm";
+import { emitSessionScreenshotEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import type { RequestHandler } from "express";
 
@@ -258,7 +258,7 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     .where(
       and(
         eq(sessionBills.restaurantId, restaurantId),
-        eq(sessionBills.customerPhone, normalizedPhone),
+        eq(sessionBills.customerPhone, normalizedPhone ?? ""),
         eq(sessionBills.status, "sent"),
       )
     )
@@ -309,7 +309,7 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
       tableNumber: session?.tableNumber ?? "?",
       billNumber: sessionBill.billNumber,
       total: sessionBill.total,
-      customerPhone: normalizedPhone,
+      customerPhone: normalizedPhone ?? "",
     });
 
     res.json({ ok: true, matched: "session_bill", sessionBillId: sessionBill.id });
@@ -403,7 +403,7 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
         tableNumber: mismatchSession?.tableNumber ?? "?",
         billNumber: mismatchBill.billNumber,
         total: mismatchBill.total,
-        customerPhone: mismatchBill.customerPhone ?? normalizedPhone,
+        customerPhone: mismatchBill.customerPhone ?? normalizedPhone ?? "",
       });
 
       res.json({ ok: true, matched: "session_bill_mismatch", sessionBillId: mismatchBill.id });
@@ -416,59 +416,20 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     );
   }
 
-  // ── Priority 2: Fallback — latest unpaid order for this phone ─────────────
-  const [order] = await db
-    .select()
-    .from(orders)
-    .where(
-      and(
-        eq(orders.restaurantId, restaurantId),
-        eq(orders.customerPhone, normalizedPhone),
-        ne(orders.paymentStatus, "paid"),
-      )
-    )
-    .orderBy(desc(orders.createdAt))
-    .limit(1);
-
-  if (!order) {
-    logger.warn(
-      { restaurantId, normalizedPhone },
-      "[whatsapp:payment-screenshot] no session bill or unpaid order found — screenshot ignored"
-    );
-    res.status(404).json({ error: "No matching session bill or unpaid order found for this customer" });
-    return;
-  }
-
-  // Attach screenshot to order (legacy flow)
-  await db
-    .update(orders)
-    .set({
-      paymentScreenshotUrl: screenshotDataUrl,
-      paymentVerificationStatus: "manual_review",
-      paymentStatus: "awaiting_verification",
-      verificationMethod: null,
-      updatedAt: now,
-    })
-    .where(eq(orders.id, order.id));
-
-  logger.info(
+  // ── No matching sent bill — screenshot is unmatched, log and discard ─────────
+  // A screenshot arrived but there is no session bill in 'sent' status that can
+  // receive it (zero or multiple pending bills, and no phone match).
+  // We do NOT attach it to any order.  Standalone-order payment flow is removed.
+  logger.warn(
     {
-      event: "whatsapp_screenshot_received",
-      orderId: order.id,
+      event: "screenshot_unmatched",
       restaurantId,
-      customerPhone: normalizedPhone,
+      senderPhone: normalizedPhone,
+      reason: "no_sent_bill_to_match",
     },
-    "[whatsapp:payment-screenshot] screenshot attached to order (fallback) — awaiting manual verification"
+    "[whatsapp:payment-screenshot] screenshot discarded — no matching 'sent' session bill found"
   );
-
-  emitScreenshotEvent(restaurantId, {
-    orderId: order.id,
-    customerPhone: normalizedPhone,
-    customerName: order.customerName,
-    total: order.total,
-  });
-
-  res.json({ ok: true, matched: "order", orderId: order.id });
+  res.json({ ok: true, matched: "none", reason: "no_sent_bill_to_match" });
 }) as RequestHandler);
 
 export default router;

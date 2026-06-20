@@ -21,12 +21,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   ShieldCheck,
-  Upload,
   BadgeCheck,
   ScanLine,
   Send,
   UserCheck,
-  Eye,
   ZoomIn,
   ZoomOut,
   ExternalLink,
@@ -44,8 +42,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
 // ─── Status config ─────────────────────────────────────────────────────────────
@@ -102,18 +98,6 @@ interface OcrData {
   error?: string;
 }
 
-interface BillData {
-  billUrl: string;
-  whatsappUrl: string;
-  message: string;
-  total: number;
-  customerName: string;
-  customerPhone: string;
-  restaurantName: string;
-  tableNumber: string | null;
-  deliveryMethod?: "bridge" | "deeplink";
-  sent?: boolean;
-}
 
 // ─── Status tracker ────────────────────────────────────────────────────────────
 
@@ -181,31 +165,15 @@ export default function Dashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId]       = useState<number | null>(null);
-  const [payingId, setPayingId]           = useState<number | null>(null);
   const [verifyingId, setVerifyingId]     = useState<number | null>(null);
   const [rejectingId, setRejectingId]     = useState<number | null>(null);
   const [filter, setFilter] = useState<string>("active");
   const [orderErrors, setOrderErrors] = useState<Record<number, string>>({});
 
-  // Payment verification state
-  const [uploadingProofId, setUploadingProofId]       = useState<number | null>(null);
-  const [approvingId, setApprovingId]                 = useState<number | null>(null);
-  const [rejectingPaymentId, setRejectingPaymentId]   = useState<number | null>(null);
-
-  // Staff confirm-payment modal state (screenshot viewer + manual verification)
-  const [confirmPaymentOrderId, setConfirmPaymentOrderId] = useState<number | null>(null);
-  const [modalFullOrder, setModalFullOrder]               = useState<Order | null>(null);
-  const [modalOrderLoading, setModalOrderLoading]         = useState(false);
-  const [confirmUtr, setConfirmUtr]                       = useState("");
-  const [confirmNotes, setConfirmNotes]                   = useState("");
-  const [isConfirmingPayment, setIsConfirmingPayment]     = useState(false);
-  const [isRejectingFromModal, setIsRejectingFromModal]   = useState(false);
 
   // Tracks the last WhatsApp tab opened by "Send Bill".
   const waWindowRef = useRef<Window | null>(null);
 
-  // Bill state — server generates the image; we just track loading per order
-  const [billLoading, setBillLoading]     = useState<number | null>(null);
 
   // Session bill generation
   const [generatingBillId, setGeneratingBillId] = useState<number | null>(null);
@@ -225,8 +193,6 @@ export default function Dashboard() {
   // Incomplete-orders guard modal — shown when Generate Bill is clicked before all orders are completed
   const [incompleteOrdersModal, setIncompleteOrdersModal] = useState<{ sessionId: number; orders: Order[] } | null>(null);
 
-  const fileInputRef    = useRef<HTMLInputElement>(null);
-  const uploadOrderIdRef = useRef<number | null>(null);
 
   const handleSessionScreenshotReceived = useCallback((sessionId: number) => {
     setSessionScreenshots((prev) => { const next = new Map(prev); next.delete(sessionId); return next; });
@@ -448,148 +414,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleMarkPaid = async (orderId: number) => {
-    clearError(orderId);
-    setPayingId(orderId);
-    try {
-      await apiFetch(`/owner/orders/${orderId}`, {
-        method: "PUT",
-        body: JSON.stringify({ paymentStatus: "paid", paymentMethod: "upi" }),
-      });
-      await fetchData();
-    } catch (err: unknown) {
-      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed" }));
-    } finally {
-      setPayingId(null);
-    }
-  };
-
-  const handleSendPaymentBill = async (orderId: number) => {
-    clearError(orderId);
-    setBillLoading(orderId);
-    try {
-      const data = await apiFetch<BillData>(`/owner/orders/${orderId}/bill`);
-
-      if (data.deliveryMethod === "bridge" && data.sent) {
-        toast.success(`Bill sent to ${data.customerName} via WhatsApp ✓`);
-      } else {
-        if (!data.whatsappUrl) throw new Error("No WhatsApp URL returned");
-        if (waWindowRef.current && !waWindowRef.current.closed) {
-          waWindowRef.current.close();
-        }
-        waWindowRef.current = window.open(data.whatsappUrl, "_blank") ?? null;
-        toast.success("WhatsApp opened — tap Send to deliver the bill");
-      }
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Unable to send payment bill");
-      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed to send bill" }));
-    } finally {
-      setBillLoading(null);
-    }
-  };
-
-  const handleUploadProof = async (orderId: number, file: File) => {
-    clearError(orderId);
-    setUploadingProofId(orderId);
-    try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      await apiFetch(`/owner/orders/${orderId}/verify-payment`, {
-        method: "POST",
-        body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type }),
-      });
-      await fetchData();
-    } catch (err: unknown) {
-      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed" }));
-    } finally {
-      setUploadingProofId(null);
-    }
-  };
-
-  const handleApprovePayment = async (orderId: number) => {
-    clearError(orderId);
-    setApprovingId(orderId);
-    try {
-      await apiFetch(`/owner/orders/${orderId}/approve-payment`, { method: "PATCH" });
-      await fetchData();
-    } catch (err: unknown) {
-      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed" }));
-    } finally {
-      setApprovingId(null);
-    }
-  };
-
-  const handleRejectPayment = async (orderId: number) => {
-    clearError(orderId);
-    setRejectingPaymentId(orderId);
-    try {
-      await apiFetch(`/owner/orders/${orderId}/reject-payment`, { method: "PATCH" });
-      await fetchData();
-    } catch (err: unknown) {
-      setOrderErrors((prev) => ({ ...prev, [orderId]: err instanceof Error ? err.message : "Failed" }));
-    } finally {
-      setRejectingPaymentId(null);
-    }
-  };
-
-  const [imageZoomed, setImageZoomed] = useState(false);
-
-  const openConfirmPaymentModal = (orderId: number) => {
-    setConfirmPaymentOrderId(orderId);
-    setModalFullOrder(null);
-    setConfirmUtr("");
-    setConfirmNotes("");
-    setImageZoomed(false);
-    setModalOrderLoading(true);
-    apiFetch<Order>(`/owner/orders/${orderId}`)
-      .then((o) => setModalFullOrder(o))
-      .catch(() => { /* fall back to list-state order */ })
-      .finally(() => setModalOrderLoading(false));
-  };
-
-  const handleConfirmStaffPayment = async () => {
-    if (!confirmPaymentOrderId) return;
-    setIsConfirmingPayment(true);
-    try {
-      await apiFetch(`/owner/orders/${confirmPaymentOrderId}/confirm-staff-payment`, {
-        method: "POST",
-        body: JSON.stringify({ utr: confirmUtr.trim() || undefined, notes: confirmNotes.trim() || undefined }),
-      });
-      toast.success("Payment confirmed");
-      setConfirmPaymentOrderId(null);
-      await fetchData();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to confirm payment");
-    } finally {
-      setIsConfirmingPayment(false);
-    }
-  };
-
-  const handleRejectFromModal = async () => {
-    if (!confirmPaymentOrderId) return;
-    setIsRejectingFromModal(true);
-    try {
-      await apiFetch(`/owner/orders/${confirmPaymentOrderId}/reject-payment`, { method: "PATCH" });
-      toast.success("Payment rejected");
-      setConfirmPaymentOrderId(null);
-      await fetchData();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "Failed to reject payment");
-    } finally {
-      setIsRejectingFromModal(false);
-    }
-  };
-
-  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    const orderId = uploadOrderIdRef.current;
-    if (file && orderId) void handleUploadProof(orderId, file);
-    e.target.value = "";
-  };
 
   // Orders belonging to any displayed session — excluded from the standalone orders list
   const activeSessionOrderIds = new Set(
@@ -683,7 +507,6 @@ export default function Dashboard() {
     const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.ordered;
     const nextStatus = getNextStatus(order.status);
     const isUpdating = updatingId === order.id;
-    const isPaying   = payingId === order.id;
     const isActive   = ACTIVE_STATUSES.includes(order.status);
     const isUnpaid   = order.paymentStatus !== "paid";
     const isManualReview = order.paymentStatus === "manual_review";
@@ -696,9 +519,6 @@ export default function Dashboard() {
     const utr = isPendingUpiVerification ? extractUtr(order.notes) : null;
     const isVerifying        = verifyingId === order.id;
     const isRejecting        = rejectingId === order.id;
-    const isUploadingProof   = uploadingProofId === order.id;
-    const isApproving        = approvingId === order.id;
-    const isRejectingPayment = rejectingPaymentId === order.id;
 
     let ocrData: OcrData | null = null;
     if (order.paymentOcrData) {
@@ -873,38 +693,6 @@ export default function Dashboard() {
               </Button>
             </>)}
 
-            {/* Screenshot viewer / manual verify — standalone orders only;
-                session orders use the session-level Verify Payment button */}
-            {!inSession && isAwaitingVerification && (
-              order.paymentScreenshotUrl ? (
-                <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                  onClick={() => openConfirmPaymentModal(order.id)}>
-                  <Eye className="w-3 h-3 mr-1" />
-                  View Screenshot
-                </Button>
-              ) : (
-                <Button size="sm" className="w-full text-xs h-8 bg-blue-600 hover:bg-blue-700 text-white"
-                  onClick={() => openConfirmPaymentModal(order.id)}>
-                  <UserCheck className="w-3 h-3 mr-1" />
-                  Verify Payment
-                </Button>
-              )
-            )}
-
-            {/* Approve / Reject for manual_review */}
-            {isManualReview && !isPendingUpiVerification && (<>
-              <Button size="sm" className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
-                onClick={() => openConfirmPaymentModal(order.id)} disabled={isApproving || isRejectingPayment}>
-                {isApproving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
-                Approve Paid
-              </Button>
-              <Button size="sm" variant="outline" className="w-full text-xs h-8 text-red-600 border-red-300 hover:bg-red-50"
-                onClick={() => handleRejectPayment(order.id)} disabled={isApproving || isRejectingPayment}>
-                {isRejectingPayment ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <XCircle className="w-3 h-3 mr-1" />}
-                Reject
-              </Button>
-            </>)}
-
             {/* Advance status */}
             {nextStatus && !isPendingUpiVerification && !isManualReview && (
               <Button size="sm" className="w-full text-xs h-8 bg-orange-500 hover:bg-orange-600 text-white"
@@ -916,32 +704,6 @@ export default function Dashboard() {
               </Button>
             )}
 
-            {/* Upload screenshot — standalone orders only */}
-            {!inSession && isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && !ocrData && (
-              <Button size="sm" variant="outline"
-                className="w-full text-xs h-8 text-blue-700 border-blue-300 hover:bg-blue-50"
-                disabled={isUploadingProof}
-                onClick={() => {
-                  uploadOrderIdRef.current = order.id;
-                  fileInputRef.current?.click();
-                }}>
-                {isUploadingProof ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Upload className="w-3 h-3 mr-1" />}
-                Upload Screenshot
-              </Button>
-            )}
-
-            {/* Mark as Paid — standalone orders only */}
-            {!inSession && isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && (
-              <Button
-                size="sm"
-                className="w-full text-xs h-8 bg-green-600 hover:bg-green-700 text-white"
-                onClick={() => handleMarkPaid(order.id)}
-                disabled={isPaying}
-              >
-                {isPaying ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
-                Mark as Paid
-              </Button>
-            )}
 
           </div>
         </div>
@@ -964,8 +726,6 @@ export default function Dashboard() {
 
   return (
     <AppShell>
-      {/* Hidden file input for screenshot upload */}
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={onFileSelected} />
 
       <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {/* Header */}
@@ -1517,174 +1277,6 @@ export default function Dashboard() {
         );
       })()}
 
-      {/* ── Payment Proof Modal (screenshot viewer + manual verification) ── */}
-      {(() => {
-        const listOrder = confirmPaymentOrderId !== null
-          ? orders.find((o) => o.id === confirmPaymentOrderId) ?? null
-          : null;
-        const modalOrder = modalFullOrder ?? listOrder;
-        const hasScreenshot = !!(modalFullOrder?.paymentScreenshotUrl ?? listOrder?.hasScreenshot);
-        const screenshotSrc = modalFullOrder?.paymentScreenshotUrl?.startsWith("data:")
-          ? modalFullOrder.paymentScreenshotUrl
-          : `data:image/jpeg;base64,${modalFullOrder?.paymentScreenshotUrl}`;
-
-        return (
-          <Dialog
-            open={confirmPaymentOrderId !== null}
-            onOpenChange={(open) => { if (!open) setConfirmPaymentOrderId(null); }}
-          >
-            <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  {hasScreenshot
-                    ? <><Eye className="w-5 h-5 text-blue-600" /> Payment Proof</>
-                    : <><UserCheck className="w-5 h-5 text-blue-600" /> Verify Payment</>}
-                </DialogTitle>
-              </DialogHeader>
-
-              <div className="space-y-4 py-2">
-
-                {/* Order summary */}
-                {modalOrder && (
-                  <div className="rounded-lg border bg-muted/40 px-3 py-2.5 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Order</span>
-                      <span className="font-bold">#{modalOrder.id}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Customer</span>
-                      <span className="font-medium">{modalOrder.customerName}</span>
-                    </div>
-                    {modalOrder.tableNumber && (
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Table</span>
-                        <span className="font-medium">{modalOrder.tableNumber}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between border-t pt-1 mt-1">
-                      <span className="text-muted-foreground font-semibold">Amount</span>
-                      <span className="font-bold text-foreground">₹{modalOrder.total}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Screenshot preview */}
-                {hasScreenshot && (
-                  <div className="rounded-lg border overflow-hidden">
-                    <div className="flex items-center justify-between px-3 py-2 bg-muted border-b">
-                      <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                        Payment Screenshot
-                        {modalOrderLoading && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
-                      </p>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          size="sm" variant="ghost"
-                          className="h-6 px-2 text-xs gap-1"
-                          onClick={() => setImageZoomed((z) => !z)}
-                        >
-                          {imageZoomed
-                            ? <><ZoomOut className="w-3 h-3" /> Zoom Out</>
-                            : <><ZoomIn className="w-3 h-3" /> Zoom In</>}
-                        </Button>
-                        <Button
-                          size="sm" variant="ghost"
-                          className="h-6 px-2 text-xs gap-1"
-                          onClick={() => {
-                            const win = window.open("", "_blank");
-                            if (win) {
-                              win.document.write(
-                                `<!DOCTYPE html><html><body style="margin:0;background:#000;display:flex;justify-content:center"><img src="${screenshotSrc}" style="max-width:100%;height:auto"></body></html>`,
-                              );
-                            }
-                          }}
-                        >
-                          <ExternalLink className="w-3 h-3" /> Full Screen
-                        </Button>
-                      </div>
-                    </div>
-                    <div className={imageZoomed ? "overflow-auto cursor-zoom-out" : "overflow-hidden cursor-zoom-in"}>
-                      <img
-                        src={screenshotSrc}
-                        alt="Payment screenshot"
-                        className="w-full object-contain transition-transform duration-200"
-                        style={imageZoomed
-                          ? { maxHeight: "none", transform: "scale(2)", transformOrigin: "top center", marginBottom: "100%" }
-                          : { maxHeight: "288px" }}
-                        onClick={() => setImageZoomed((z) => !z)}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {!hasScreenshot && (
-                  <p className="text-sm text-muted-foreground">
-                    Customer will show their payment confirmation at the counter. Enter the UTR / reference number if visible, then confirm.
-                  </p>
-                )}
-
-                {/* UTR + Notes */}
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm-utr" className="text-xs font-semibold">
-                    UTR / Reference Number <span className="text-muted-foreground font-normal">(optional)</span>
-                  </Label>
-                  <Input
-                    id="confirm-utr"
-                    placeholder="e.g. 428912345678"
-                    value={confirmUtr}
-                    onChange={(e) => setConfirmUtr(e.target.value)}
-                    className="text-sm h-9"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirm-notes" className="text-xs font-semibold">
-                    Notes <span className="text-muted-foreground font-normal">(optional)</span>
-                  </Label>
-                  <Input
-                    id="confirm-notes"
-                    placeholder="e.g. Verified via PhonePe"
-                    value={confirmNotes}
-                    onChange={(e) => setConfirmNotes(e.target.value)}
-                    className="text-sm h-9"
-                  />
-                </div>
-              </div>
-
-              <DialogFooter className="flex-col sm:flex-row gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-red-600 border-red-300 hover:bg-red-50 sm:mr-auto"
-                  onClick={() => void handleRejectFromModal()}
-                  disabled={isConfirmingPayment || isRejectingFromModal}
-                >
-                  {isRejectingFromModal
-                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Rejecting...</>
-                    : <><XCircle className="w-3 h-3 mr-1" /> Reject</>}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setConfirmPaymentOrderId(null)}
-                  disabled={isConfirmingPayment || isRejectingFromModal}
-                >
-                  Close
-                </Button>
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={() => void handleConfirmStaffPayment()}
-                  disabled={isConfirmingPayment || isRejectingFromModal}
-                >
-                  {isConfirmingPayment
-                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Confirming...</>
-                    : <><CheckCircle2 className="w-3 h-3 mr-1" /> Confirm Payment</>}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        );
-      })()}
 
       {/* ── Incomplete Orders Modal ────────────────────────────────────────── */}
       {/* Shown when Generate Bill is clicked before all session orders are completed */}

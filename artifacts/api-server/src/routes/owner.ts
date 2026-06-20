@@ -1718,45 +1718,64 @@ const sendSessionBill: RequestHandler = async (req, res) => {
   }
   message += `\nPlease send a screenshot of your payment confirmation to this number. Thank you! 🙏`;
 
-  // Try WhatsApp bridge first, fall back to deeplink
-  let sentViaBridge = false;
-  let whatsappUrl: string | null = null;
+  // ── Require WhatsApp bridge to be connected ──────────────────────────────────
+  // Sending a session bill requires the bridge so the customer's reply
+  // (payment screenshot) can be received and matched to this bill.
+  // If the bridge is disconnected, we block the action and keep bill.status
+  // as 'generated' so staff can retry once WhatsApp is reconnected.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const bridgeSecret = process.env.BRIDGE_API_SECRET ?? "";
+  if (bridgeSecret) headers["x-bridge-secret"] = bridgeSecret;
 
+  const bridgeUrl = process.env.BRIDGE_URL ?? "http://localhost:3001";
+
+  let bridgeConnected = false;
   try {
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const bridgeSecret = process.env.BRIDGE_API_SECRET ?? "";
-    if (bridgeSecret) headers["x-bridge-secret"] = bridgeSecret;
-
-    const bridgeUrl = process.env.BRIDGE_URL ?? "http://localhost:3001";
-
     const statusRes = await fetch(`${bridgeUrl}/api/whatsapp/status/${user.restaurantId}`, {
       method: "GET",
       headers,
       signal: AbortSignal.timeout(3000),
     });
     const statusData = (await statusRes.json()) as { status?: string };
-
-    if (statusData.status === "connected") {
-      const sendRes = await fetch(`${bridgeUrl}/api/send-message`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ restaurantId: user.restaurantId, phone: customerPhone, message }),
-        signal: AbortSignal.timeout(10000),
-      });
-      const sendData = (await sendRes.json()) as { success?: boolean };
-      sentViaBridge = sendData.success === true;
-    }
+    bridgeConnected = statusData.status === "connected";
   } catch (err) {
-    logger.warn({ error: (err as Error).message }, "[sendSessionBill] bridge exception — using deeplink fallback");
+    logger.warn({ error: (err as Error).message }, "[sendSessionBill] bridge status check failed");
+  }
+
+  if (!bridgeConnected) {
+    logger.warn({ sessionId, billId: bill.id }, "[sendSessionBill] blocked — WhatsApp bridge not connected");
+    res.status(503).json({
+      error: "WhatsApp is not connected. Please connect WhatsApp from the Profile page before sending the bill.",
+      code: "BRIDGE_DISCONNECTED",
+    });
+    return;
+  }
+
+  // ── Send via bridge ────────────────────────────────────────────────────────
+  let sentViaBridge = false;
+  try {
+    const sendRes = await fetch(`${bridgeUrl}/api/send-message`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ restaurantId: user.restaurantId, phone: customerPhone, message }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const sendData = (await sendRes.json()) as { success?: boolean };
+    sentViaBridge = sendData.success === true;
+  } catch (err) {
+    logger.error({ error: (err as Error).message }, "[sendSessionBill] bridge send failed");
   }
 
   if (!sentViaBridge) {
-    const encodedMessage = encodeURIComponent(message);
-    const phone = customerPhone.replace(/\D/g, "");
-    whatsappUrl = `https://wa.me/${phone}?text=${encodedMessage}`;
+    logger.warn({ sessionId, billId: bill.id, customerPhone }, "[sendSessionBill] bridge send returned failure");
+    res.status(502).json({
+      error: "WhatsApp message could not be delivered. Please try again.",
+      code: "BRIDGE_SEND_FAILED",
+    });
+    return;
   }
 
-  // Store customer_phone and mark bill as sent
+  // ── Mark bill as sent ─────────────────────────────────────────────────────
   const now = new Date();
   await db
     .update(sessionBills)
@@ -1774,9 +1793,8 @@ const sendSessionBill: RequestHandler = async (req, res) => {
       billId: bill.id,
       billNumber: bill.billNumber,
       customerPhone,
-      sentViaBridge,
     },
-    "[sendSessionBill] bill sent"
+    "[sendSessionBill] bill sent via bridge"
   );
 
   res.json({
@@ -1784,9 +1802,9 @@ const sendSessionBill: RequestHandler = async (req, res) => {
     billNumber: bill.billNumber,
     customerPhone,
     customerName,
-    deliveryMethod: sentViaBridge ? "bridge" : "deeplink",
-    sent: sentViaBridge,
-    whatsappUrl: sentViaBridge ? null : whatsappUrl,
+    deliveryMethod: "bridge",
+    sent: true,
+    whatsappUrl: null,
     message,
   });
 };
@@ -1898,7 +1916,7 @@ const approveSessionBill: RequestHandler = async (req, res) => {
     if (tableIds.length > 0) {
       await tx
         .update(restaurantTables)
-        .set({ isOccupied: false, updatedAt: now })
+        .set({ isOccupied: false })
         .where(inArray(restaurantTables.id, tableIds));
     }
   });
@@ -2032,7 +2050,7 @@ const markSessionBillPaid: RequestHandler = async (req, res) => {
     if (tableIds.length > 0) {
       await tx
         .update(restaurantTables)
-        .set({ isOccupied: false, updatedAt: now })
+        .set({ isOccupied: false })
         .where(inArray(restaurantTables.id, tableIds));
     }
   });
@@ -2760,10 +2778,7 @@ router.get("/owner/orders/:orderId/bill", requireOwner, getBill);
 router.get("/bills/:token/image", serveBillImageRaw); // raw PNG (og:image src)
 router.get("/bills/:token", serveBillPage);           // OG HTML page
 router.get("/b/:shortId", serveBillShort);            // short URL in WhatsApp messages
-router.post("/owner/orders/:orderId/verify-payment", requireOwner, verifyOrderPayment);
-router.patch("/owner/orders/:orderId/approve-payment", requireOwner, approvePayment);
-router.patch("/owner/orders/:orderId/reject-payment", requireOwner, rejectPayment);
-router.post("/owner/orders/:orderId/confirm-staff-payment", requireOwner, confirmStaffPayment);
+// Standalone-order payment routes removed — only session-based billing is supported.
 
 router.get("/owner/stats", requireOwner, getStats);
 router.get("/owner/sessions", requireOwner, listSessions);
