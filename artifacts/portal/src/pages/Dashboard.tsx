@@ -1372,6 +1372,29 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {/* Phone mismatch warning */}
+                {activeBill?.phoneMismatch && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-xs space-y-2">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-800">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>⚠ Phone Number Mismatch</span>
+                    </div>
+                    <div className="space-y-1 text-amber-700">
+                      <div className="flex justify-between">
+                        <span className="text-amber-600">Order Phone</span>
+                        <span className="font-semibold font-mono">{activeBill.customerPhone ?? "—"}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-amber-600">Screenshot Sender</span>
+                        <span className="font-semibold font-mono">{activeBill.senderPhone ?? "—"}</span>
+                      </div>
+                    </div>
+                    <p className="text-amber-700 leading-snug">
+                      Please ask the customer to resend the payment proof from the phone number used to place the order.
+                    </p>
+                  </div>
+                )}
+
                 {/* Screenshot */}
                 {sessionScreenshotSrc ? (
                   <div className="rounded-lg border overflow-hidden">
@@ -1435,16 +1458,18 @@ export default function Dashboard() {
                 >
                   Close
                 </Button>
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={() => activeSession && void handleApproveSessionBill(activeSession.id)}
-                  disabled={approvingBillSessionId !== null || rejectingBillSessionId !== null}
-                >
-                  {approvingBillSessionId === viewingScreenshotSessionId
-                    ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Approving...</>
-                    : <><CheckCircle2 className="w-3 h-3 mr-1" /> Approve Payment</>}
-                </Button>
+                {!activeBill?.phoneMismatch && (
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => activeSession && void handleApproveSessionBill(activeSession.id)}
+                    disabled={approvingBillSessionId !== null || rejectingBillSessionId !== null}
+                  >
+                    {approvingBillSessionId === viewingScreenshotSessionId
+                      ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Approving...</>
+                      : <><CheckCircle2 className="w-3 h-3 mr-1" /> Approve Payment</>}
+                  </Button>
+                )}
               </DialogFooter>
             </DialogContent>
           </Dialog>

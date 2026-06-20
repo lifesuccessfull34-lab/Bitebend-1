@@ -266,12 +266,14 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     .limit(1);
 
   if (sessionBill) {
-    // Attach screenshot to the session bill
+    // Attach screenshot to the session bill (phones matched — normal flow)
     await db
       .update(sessionBills)
       .set({
         screenshotUrl: screenshotDataUrl,
         screenshotReceivedAt: now,
+        senderPhone: normalizedPhone,
+        phoneMismatch: false,
         status: "awaiting_verification",
         updatedAt: now,
       })
@@ -312,6 +314,106 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
 
     res.json({ ok: true, matched: "session_bill", sessionBillId: sessionBill.id });
     return;
+  }
+
+  // ── Priority 1.5: Phone mismatch — screenshot from wrong phone ────────────
+  // A screenshot arrived from a phone that does NOT match any 'sent' bill.
+  // If exactly one 'sent' bill exists for this restaurant in the last 30 min,
+  // we can safely attach the screenshot with phone_mismatch=true, send an
+  // auto-reply to the sender, and let staff handle it via the warning UI.
+  // If zero or multiple bills are pending we cannot assign the screenshot.
+  {
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const sentBills = await db
+      .select()
+      .from(sessionBills)
+      .where(
+        and(
+          eq(sessionBills.restaurantId, restaurantId),
+          eq(sessionBills.status, "sent"),
+          gte(sessionBills.sentAt, thirtyMinutesAgo),
+        )
+      )
+      .orderBy(desc(sessionBills.createdAt))
+      .limit(2);
+
+    if (sentBills.length === 1) {
+      const mismatchBill = sentBills[0]!;
+
+      await db
+        .update(sessionBills)
+        .set({
+          screenshotUrl: screenshotDataUrl,
+          screenshotReceivedAt: now,
+          senderPhone: normalizedPhone,
+          phoneMismatch: true,
+          status: "awaiting_verification",
+          updatedAt: now,
+        })
+        .where(eq(sessionBills.id, mismatchBill.id));
+
+      await db
+        .update(tableSessions)
+        .set({ status: "awaiting_verification", updatedAt: now })
+        .where(eq(tableSessions.id, mismatchBill.sessionId));
+
+      // Auto-reply to the sender's phone
+      const replyMessage =
+        "The phone number used to send this payment proof does not match the phone number used to place the order.\n\nPlease resend the payment proof from the original ordering phone number.";
+      try {
+        await fetch(`${BRIDGE_URL}/api/send-message`, {
+          method: "POST",
+          headers: bridgeHeaders(),
+          body: JSON.stringify({ restaurantId, phone: normalizedPhone, message: replyMessage }),
+          signal: AbortSignal.timeout(8000),
+        });
+        logger.info(
+          { restaurantId, senderPhone: normalizedPhone },
+          "[whatsapp:payment-screenshot:mismatch] auto-reply sent to sender"
+        );
+      } catch (replyErr) {
+        logger.warn(
+          { error: (replyErr as Error).message },
+          "[whatsapp:payment-screenshot:mismatch] auto-reply failed — continuing"
+        );
+      }
+
+      logger.warn(
+        {
+          event: "session_screenshot_phone_mismatch",
+          sessionBillId: mismatchBill.id,
+          sessionId: mismatchBill.sessionId,
+          restaurantId,
+          expectedPhone: mismatchBill.customerPhone,
+          senderPhone: normalizedPhone,
+        },
+        "[whatsapp:payment-screenshot] phone mismatch — screenshot stored, approval blocked"
+      );
+
+      // Fetch session for SSE payload
+      const [mismatchSession] = await db
+        .select()
+        .from(tableSessions)
+        .where(eq(tableSessions.id, mismatchBill.sessionId))
+        .limit(1);
+
+      emitSessionScreenshotEvent(restaurantId, {
+        sessionId: mismatchBill.sessionId,
+        billId: mismatchBill.id,
+        tableNumber: mismatchSession?.tableNumber ?? "?",
+        billNumber: mismatchBill.billNumber,
+        total: mismatchBill.total,
+        customerPhone: mismatchBill.customerPhone ?? normalizedPhone,
+      });
+
+      res.json({ ok: true, matched: "session_bill_mismatch", sessionBillId: mismatchBill.id });
+      return;
+    }
+
+    logger.info(
+      { restaurantId, senderPhone: normalizedPhone, pendingBillCount: sentBills.length },
+      "[whatsapp:payment-screenshot:mismatch] cannot assign — skipping to order fallback"
+    );
   }
 
   // ── Priority 2: Fallback — latest unpaid order for this phone ─────────────

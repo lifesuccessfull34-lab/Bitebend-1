@@ -1463,6 +1463,8 @@ const listSessions: RequestHandler = async (req, res) => {
           sentAt: bill.sentAt?.toISOString() ?? null,
           hasScreenshot: !!bill.screenshotUrl,
           screenshotReceivedAt: bill.screenshotReceivedAt?.toISOString() ?? null,
+          senderPhone: bill.senderPhone ?? null,
+          phoneMismatch: bill.phoneMismatch,
           verifiedAt: bill.verifiedAt?.toISOString() ?? null,
           verifiedBy: bill.verifiedBy ?? null,
           createdAt: bill.createdAt.toISOString(),
@@ -1842,6 +1844,16 @@ const approveSessionBill: RequestHandler = async (req, res) => {
 
   if (bill.status !== "awaiting_verification") {
     res.status(400).json({ error: `Bill must be in 'awaiting_verification' status to approve (current: ${bill.status})` });
+    return;
+  }
+
+  if (bill.phoneMismatch) {
+    res.status(409).json({
+      error: "Phone number mismatch — the payment screenshot was sent from a different phone than the one used to place the order. Ask the customer to resend from the original phone.",
+      phoneMismatch: true,
+      expectedPhone: bill.customerPhone,
+      senderPhone: bill.senderPhone,
+    });
     return;
   }
 

@@ -140,6 +140,8 @@ export interface SessionBill {
   sentAt: string | null;
   hasScreenshot: boolean;
   screenshotReceivedAt: string | null;
+  senderPhone: string | null;
+  phoneMismatch: boolean;
   verifiedAt: string | null;
   verifiedBy: number | null;
   resentAt: string | null;

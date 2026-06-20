@@ -355,6 +355,10 @@ export const sessionBills = pgTable(
     resentAt: timestamp("resent_at"),
     /** How many times the bill was resent (0 = never resent, first send is not counted) */
     resentCount: integer("resent_count").notNull().default(0),
+    /** WhatsApp sender phone — stored at screenshot receipt; may differ from customer_phone */
+    senderPhone: text("sender_phone"),
+    /** True when the screenshot was sent from a different phone than customer_phone */
+    phoneMismatch: boolean("phone_mismatch").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
