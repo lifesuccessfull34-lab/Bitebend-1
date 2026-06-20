@@ -475,7 +475,7 @@ const updateOrder: RequestHandler = async (req, res) => {
   // Strict transition validation when advancing order status
   if (status && status !== "cancelled") {
     const [existing] = await db
-      .select({ status: orders.status, paymentStatus: orders.paymentStatus })
+      .select({ status: orders.status, paymentStatus: orders.paymentStatus, sessionId: orders.sessionId })
       .from(orders)
       .where(and(eq(orders.id, orderId), eq(orders.restaurantId, user.restaurantId!)))
       .limit(1);
@@ -496,7 +496,10 @@ const updateOrder: RequestHandler = async (req, res) => {
       res.status(400).json({ error: `Invalid transition: expected ${expectedNext} but got ${status}` });
       return;
     }
-    if (status === "completed" && existing.paymentStatus !== "paid") {
+    // Payment guard only applies to standalone orders (no sessionId).
+    // Session orders are completed first, then payment happens at the session
+    // level via Generate Bill → Approve Payment / Mark Paid.
+    if (status === "completed" && existing.sessionId === null && existing.paymentStatus !== "paid") {
       res.status(400).json({ error: "Please complete payment before closing the order" });
       return;
     }
