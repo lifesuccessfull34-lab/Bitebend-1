@@ -1859,6 +1859,19 @@ const approveSessionBill: RequestHandler = async (req, res) => {
 
   const now = new Date();
 
+  const sessionOrders = await db
+    .select({ id: orders.id, tableId: orders.tableId })
+    .from(orders)
+    .where(eq(orders.sessionId, sessionId));
+
+  const tableIds = [
+    ...new Set(
+      sessionOrders
+        .map((o) => o.tableId)
+        .filter((id): id is number => id !== null),
+    ),
+  ];
+
   await db.transaction(async (tx) => {
     // Mark bill as paid
     await tx
@@ -1877,11 +1890,19 @@ const approveSessionBill: RequestHandler = async (req, res) => {
       .update(orders)
       .set({ paymentStatus: "paid", verifiedBy: user.id, verifiedAt: now, updatedAt: now })
       .where(eq(orders.sessionId, sessionId));
+
+    // Release all tables used by this session
+    if (tableIds.length > 0) {
+      await tx
+        .update(restaurantTables)
+        .set({ isOccupied: false, updatedAt: now })
+        .where(inArray(restaurantTables.id, tableIds));
+    }
   });
 
   logger.info(
-    { sessionId, billId: bill.id, billNumber: bill.billNumber, verifiedBy: user.id },
-    "[approveSessionBill] payment approved — session closed"
+    { sessionId, billId: bill.id, billNumber: bill.billNumber, verifiedBy: user.id, tableIds },
+    "[approveSessionBill] payment approved — session closed, tables released",
   );
 
   res.json({ ok: true, sessionId, billId: bill.id });
