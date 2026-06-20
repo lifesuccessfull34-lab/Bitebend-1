@@ -210,10 +210,11 @@ export default function Dashboard() {
   // Session bill generation
   const [generatingBillId, setGeneratingBillId] = useState<number | null>(null);
 
-  // Session bill: send / approve / reject
+  // Session bill: send / approve / reject / mark-paid
   const [sendingBillSessionId, setSendingBillSessionId] = useState<number | null>(null);
   const [approvingBillSessionId, setApprovingBillSessionId] = useState<number | null>(null);
   const [rejectingBillSessionId, setRejectingBillSessionId] = useState<number | null>(null);
+  const [markingPaidSessionId, setMarkingPaidSessionId] = useState<number | null>(null);
 
   // Session bill screenshot viewer
   const [sessionScreenshots, setSessionScreenshots] = useState<Map<number, string>>(new Map());
@@ -339,6 +340,20 @@ export default function Dashboard() {
       toast.error(err instanceof Error ? err.message : "Failed to reject payment");
     } finally {
       setRejectingBillSessionId(null);
+    }
+  }, [fetchData]);
+
+  const handleMarkSessionPaid = useCallback(async (sessionId: number) => {
+    setMarkingPaidSessionId(sessionId);
+    try {
+      await apiFetch(`/owner/sessions/${sessionId}/bill/mark-paid`, { method: "PATCH" });
+      toast.success("Payment recorded — session closed ✓");
+      await fetchData();
+      setActiveTab("history");
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to mark payment");
+    } finally {
+      setMarkingPaidSessionId(null);
     }
   }, [fetchData]);
 
@@ -1212,6 +1227,26 @@ export default function Dashboard() {
                               ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
                               : <ShieldCheck className="w-3 h-3 mr-1.5" />}
                             Verify Payment
+                          </Button>
+                        )}
+
+                        {/* Mark Paid — cash / manual payment confirmation */}
+                        {session.bill && (
+                          session.bill.status === "generated" ||
+                          session.bill.status === "sent" ||
+                          session.bill.status === "awaiting_verification"
+                        ) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs whitespace-nowrap text-green-700 border-green-300 hover:bg-green-50"
+                            onClick={() => void handleMarkSessionPaid(session.id)}
+                            disabled={markingPaidSessionId === session.id}
+                          >
+                            {markingPaidSessionId === session.id
+                              ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                              : <CheckCircle2 className="w-3 h-3 mr-1.5" />}
+                            Mark Paid
                           </Button>
                         )}
                       </div>

@@ -1516,6 +1516,12 @@ const generateBill: RequestHandler = async (req, res) => {
     return;
   }
 
+  const incompleteOrders = payableOrders.filter((o) => o.status !== "completed");
+  if (incompleteOrders.length > 0) {
+    res.status(409).json({ error: "All orders must be marked Completed before generating a bill." });
+    return;
+  }
+
   const subtotal = payableOrders.reduce((sum, o) => sum + o.subtotal, 0);
   const tax = payableOrders.reduce((sum, o) => sum + o.tax, 0);
   const total = payableOrders.reduce((sum, o) => sum + o.total, 0);
@@ -1918,6 +1924,86 @@ const rejectSessionBill: RequestHandler = async (req, res) => {
   logger.info(
     { sessionId, billId: bill.id, billNumber: bill.billNumber, rejectedBy: user.id },
     "[rejectSessionBill] payment rejected — bill rolled back to sent, awaiting new screenshot"
+  );
+
+  res.json({ ok: true, sessionId, billId: bill.id });
+};
+
+// ─── Sessions: staff manually marks bill paid (cash / no screenshot) ──────────
+
+const markSessionBillPaid: RequestHandler = async (req, res) => {
+  const user = req.user!;
+  if (!user.restaurantId) { res.status(403).json({ error: "Forbidden" }); return; }
+
+  const sessionId = parseInt(String(req.params.sessionId));
+  if (isNaN(sessionId)) { res.status(400).json({ error: "Invalid session ID" }); return; }
+
+  const [session] = await db
+    .select()
+    .from(tableSessions)
+    .where(and(eq(tableSessions.id, sessionId), eq(tableSessions.restaurantId, user.restaurantId)));
+
+  if (!session) { res.status(404).json({ error: "Session not found" }); return; }
+
+  const [bill] = await db
+    .select()
+    .from(sessionBills)
+    .where(and(eq(sessionBills.sessionId, sessionId), ne(sessionBills.status, "cancelled" as const)))
+    .orderBy(desc(sessionBills.createdAt))
+    .limit(1);
+
+  if (!bill) { res.status(404).json({ error: "No bill found for this session" }); return; }
+
+  const ALLOWED_STATUSES = ["generated", "sent", "awaiting_verification"];
+  if (!ALLOWED_STATUSES.includes(bill.status)) {
+    res.status(400).json({
+      error: `Bill cannot be manually marked paid from status: ${bill.status}`,
+    });
+    return;
+  }
+
+  const now = new Date();
+
+  const sessionOrders = await db
+    .select({ id: orders.id, tableId: orders.tableId })
+    .from(orders)
+    .where(eq(orders.sessionId, sessionId));
+
+  const tableIds = [
+    ...new Set(
+      sessionOrders
+        .map((o) => o.tableId)
+        .filter((id): id is number => id !== null),
+    ),
+  ];
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(sessionBills)
+      .set({ status: "paid", verifiedAt: now, verifiedBy: user.id, updatedAt: now })
+      .where(eq(sessionBills.id, bill.id));
+
+    await tx
+      .update(tableSessions)
+      .set({ status: "closed", updatedAt: now })
+      .where(eq(tableSessions.id, sessionId));
+
+    await tx
+      .update(orders)
+      .set({ paymentStatus: "paid", verifiedBy: user.id, verifiedAt: now, updatedAt: now })
+      .where(eq(orders.sessionId, sessionId));
+
+    if (tableIds.length > 0) {
+      await tx
+        .update(restaurantTables)
+        .set({ isOccupied: false, updatedAt: now })
+        .where(inArray(restaurantTables.id, tableIds));
+    }
+  });
+
+  logger.info(
+    { sessionId, billId: bill.id, billNumber: bill.billNumber, markedBy: user.id, tableIds },
+    "[markSessionBillPaid] bill manually marked paid — session closed, tables released",
   );
 
   res.json({ ok: true, sessionId, billId: bill.id });
@@ -2651,6 +2737,7 @@ router.post("/owner/sessions/:sessionId/bill/send", requireOwner, sendSessionBil
 router.get("/owner/sessions/:sessionId/bill/screenshot", requireOwner, getSessionBillScreenshot);
 router.patch("/owner/sessions/:sessionId/bill/approve", requireOwner, approveSessionBill);
 router.patch("/owner/sessions/:sessionId/bill/reject", requireOwner, rejectSessionBill);
+router.patch("/owner/sessions/:sessionId/bill/mark-paid", requireOwner, markSessionBillPaid);
 router.get("/owner/customers/analytics", requireOwner, getCustomerAnalytics);
 
 router.get("/owner/history", requireOwner, getHistory);
