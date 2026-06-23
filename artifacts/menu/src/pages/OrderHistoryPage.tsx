@@ -22,12 +22,25 @@ interface OrderItem {
   isVeg: boolean;
 }
 
+interface SessionBill {
+  id: number;
+  billNumber: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  status: string;
+  generatedAt: string;
+  sentAt: string | null;
+  allItems: Array<{ name: string; quantity: number; unitPrice: number; isVeg: boolean }>;
+}
+
 interface CustomerOrder {
   id: number;
   restaurantId: number;
   restaurantName: string;
   customerName: string;
   tableNumber: string | null;
+  sessionId: number | null;
   status: string;
   paymentStatus: string;
   paymentVerificationStatus: string | null;
@@ -44,6 +57,7 @@ interface CustomerOrder {
   restaurantExtractedUpiId: string | null;
   restaurantExtractedMerchantName: string | null;
   restaurantSeatingLabel: string | null;
+  sessionBill: SessionBill | null;
 }
 
 interface ProofResult {
@@ -132,11 +146,15 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
   }, [previewUrl]);
 
   // ── Payment recovery conditions ───────────────────────────────────────────
-  const canViewPaymentQr = order.paymentMethod === "upi" && order.paymentStatus !== "paid";
+  // "View Bill" is available whenever the restaurant has generated a session bill.
+  const canViewBill = !!order.sessionBill;
+  // Legacy path: show payment QR for UPI orders without a session bill (old orders).
+  const canViewPaymentQr = !order.sessionBill && order.paymentMethod === "upi" && order.paymentStatus !== "paid";
   const canUploadScreenshot =
     order.paymentMethod === "upi" &&
     (order.paymentStatus === "awaiting_verification" || order.paymentStatus === "unpaid") &&
-    order.paymentVerificationStatus !== "approved";
+    order.paymentVerificationStatus !== "approved" &&
+    order.sessionBill?.status !== "paid";
 
   const isUploading = uploadStage !== "idle";
 
@@ -211,12 +229,24 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
     seatingLabel: order.restaurantSeatingLabel,
   };
 
-  const orderItems: PlacedOrderItem[] = order.items.map((i) => ({
-    name: i.name,
-    quantity: i.quantity,
-    unitPrice: i.unitPrice,
-    isVeg: i.isVeg,
-  }));
+  // When a session bill exists use its full item list + aggregated total;
+  // otherwise fall back to this order's own items (legacy / no-bill path).
+  const billItems: PlacedOrderItem[] = order.sessionBill
+    ? order.sessionBill.allItems.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        isVeg: i.isVeg,
+      }))
+    : order.items.map((i) => ({
+        name: i.name,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        isVeg: i.isVeg,
+      }));
+
+  const billTotal = order.sessionBill ? order.sessionBill.total : order.total;
+  const billReadOnly = order.sessionBill?.status === "paid";
 
   const inferredOrderType: OrderType = order.tableNumber ? "dine_in" : "take_away";
 
@@ -226,18 +256,20 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
       <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 100 }}>
         <PaymentBillView
           orderId={order.id}
-          orderTotal={order.total}
+          orderTotal={billTotal}
           restaurant={restaurantForBill}
           orderType={inferredOrderType}
           manualTableNumber={order.tableNumber ?? ""}
           customerName={order.customerName}
-          orderItems={orderItems}
+          orderItems={billItems}
           uploadStage={uploadStage}
           proofResult={proofResult}
           onUploadProof={handleUploadProof}
           onPrevious={() => { setShowBill(false); onRefresh(); }}
           onNext={() => { setShowBill(false); onRefresh(); }}
           onCashPayment={() => { setShowBill(false); onRefresh(); }}
+          billNumber={order.sessionBill?.billNumber}
+          readOnly={billReadOnly}
         />
       </div>
     );
@@ -382,10 +414,30 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
           )}
 
           {/* ── Payment recovery actions ────────────────────────── */}
-          {(canViewPaymentQr || canUploadScreenshot) && (
+          {(canViewBill || canViewPaymentQr || canUploadScreenshot) && (
             <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
 
-              {/* View Payment QR — re-opens PaymentBillView for this order */}
+              {/* View Bill — opens PaymentBillView with the full session bill */}
+              {canViewBill && (
+                <button
+                  type="button"
+                  onClick={() => { setProofResult(null); setShowBill(true); }}
+                  style={{
+                    width: "100%", height: "40px",
+                    borderRadius: "10px",
+                    border: `1.5px solid ${C.orange}`,
+                    backgroundColor: C.orange, color: "#fff",
+                    fontWeight: 600, fontSize: "13px",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  <QrCode style={{ width: "15px", height: "15px" }} />
+                  View Bill
+                </button>
+              )}
+
+              {/* View Payment QR — legacy path for orders without a session bill */}
               {canViewPaymentQr && (
                 <button
                   type="button"

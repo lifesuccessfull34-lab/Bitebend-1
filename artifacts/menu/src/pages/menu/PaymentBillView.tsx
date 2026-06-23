@@ -34,6 +34,8 @@ interface Props {
   onPrevious: () => void;
   onNext: () => void;
   onCashPayment: () => void;
+  billNumber?: string;
+  readOnly?: boolean;
 }
 
 const C = {
@@ -65,6 +67,8 @@ export function PaymentBillView({
   onPrevious,
   onNext,
   onCashPayment,
+  billNumber,
+  readOnly = false,
 }: Props) {
   const isTakeAway = orderType === "take_away";
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,8 +155,12 @@ export function PaymentBillView({
             <ArrowLeft style={{ width: "18px", height: "18px", color: C.muted }} />
           </button>
           <div style={{ flex: 1 }}>
-            <h1 style={{ fontWeight: 700, fontSize: "17px", color: C.ink, lineHeight: 1 }}>Payment Bill</h1>
-            <p style={{ fontSize: "11px", color: C.muted, marginTop: "2px" }}>{restaurant.name}</p>
+            <h1 style={{ fontWeight: 700, fontSize: "17px", color: C.ink, lineHeight: 1 }}>
+              {billNumber ? "Bill" : "Payment Bill"}
+            </h1>
+            <p style={{ fontSize: "11px", color: C.muted, marginTop: "2px" }}>
+              {billNumber ? `${billNumber} · ${restaurant.name}` : restaurant.name}
+            </p>
           </div>
           <div style={{
             display: "flex", alignItems: "center", gap: "5px",
@@ -302,7 +310,7 @@ export function PaymentBillView({
         </div>
 
         {/* ── Screenshot upload ─────────────────────────────────── */}
-        {!proofResult && (
+        {!readOnly && !proofResult && (
           <div style={{ backgroundColor: C.card, borderRadius: "16px", border: `1px solid ${C.border}`, padding: "16px" }}>
             <p style={{ fontWeight: 700, fontSize: "13px", color: C.ink, marginBottom: "3px" }}>
               Upload Payment Screenshot

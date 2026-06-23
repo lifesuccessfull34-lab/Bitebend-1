@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { restaurants, menuCategories, menuItems, restaurantTables, orders, orderItems, notifications, tableSessions, sessionBills } from "@workspace/db";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, ne } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import type { RequestHandler } from "express";
 import Razorpay from "razorpay";
@@ -161,6 +161,7 @@ const getCustomerOrders: RequestHandler = async (req, res) => {
       restaurantName: restaurants.name,
       customerName: orders.customerName,
       tableNumber: orders.tableNumber,
+      sessionId: orders.sessionId,
       status: orders.status,
       paymentStatus: orders.paymentStatus,
       paymentVerificationStatus: orders.paymentVerificationStatus,
@@ -202,7 +203,96 @@ const getCustomerOrders: RequestHandler = async (req, res) => {
     itemsByOrder.set(item.orderId, arr);
   }
 
-  res.json(rows.map((r) => ({ ...r, items: itemsByOrder.get(r.id) ?? [] })));
+  // ── Session bill enrichment ──────────────────────────────────────────────────
+  // For each order that belongs to a session, fetch the session bill and all
+  // sibling order items so the customer can see the complete bill in the menu app.
+  type SessionBillPayload = {
+    id: number;
+    billNumber: string;
+    subtotal: number;
+    tax: number;
+    total: number;
+    status: string;
+    generatedAt: string;
+    sentAt: string | null;
+    allItems: Array<{ name: string; quantity: number; unitPrice: number; isVeg: boolean }>;
+  };
+
+  const sessionBillMap = new Map<number, SessionBillPayload>();
+
+  const sessionIds = [...new Set(
+    rows.map((r) => r.sessionId).filter((id): id is number => id !== null),
+  )];
+
+  if (sessionIds.length > 0) {
+    const bills = await db
+      .select()
+      .from(sessionBills)
+      .where(and(
+        inArray(sessionBills.sessionId, sessionIds),
+        ne(sessionBills.status, "cancelled" as const),
+      ));
+
+    if (bills.length > 0) {
+      const billedSessionIds = bills.map((b) => b.sessionId);
+
+      // Fetch all orders in the billed sessions (not just the customer's own orders)
+      const siblingOrders = await db
+        .select({ id: orders.id, sessionId: orders.sessionId })
+        .from(orders)
+        .where(inArray(orders.sessionId, billedSessionIds));
+
+      const siblingOrderIds = siblingOrders.map((o) => o.id);
+
+      const siblingItems = siblingOrderIds.length > 0
+        ? await db
+            .select()
+            .from(orderItems)
+            .where(inArray(orderItems.orderId, siblingOrderIds))
+        : [];
+
+      // Build a session → items map
+      const siblingOrderSessionMap = new Map<number, number>();
+      for (const o of siblingOrders) {
+        if (o.sessionId !== null) siblingOrderSessionMap.set(o.id, o.sessionId);
+      }
+
+      const itemsBySession = new Map<number, typeof siblingItems>();
+      for (const item of siblingItems) {
+        const sid = siblingOrderSessionMap.get(item.orderId);
+        if (sid === undefined) continue;
+        const arr = itemsBySession.get(sid) ?? [];
+        arr.push(item);
+        itemsBySession.set(sid, arr);
+      }
+
+      for (const bill of bills) {
+        const sessionItemRows = itemsBySession.get(bill.sessionId) ?? [];
+        sessionBillMap.set(bill.sessionId, {
+          id: bill.id,
+          billNumber: bill.billNumber,
+          subtotal: bill.subtotal,
+          tax: bill.tax,
+          total: bill.total,
+          status: bill.status,
+          generatedAt: bill.createdAt.toISOString(),
+          sentAt: bill.sentAt ? bill.sentAt.toISOString() : null,
+          allItems: sessionItemRows.map((i) => ({
+            name: i.name,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            isVeg: i.isVeg ?? true,
+          })),
+        });
+      }
+    }
+  }
+
+  res.json(rows.map((r) => ({
+    ...r,
+    items: itemsByOrder.get(r.id) ?? [],
+    sessionBill: r.sessionId !== null ? (sessionBillMap.get(r.sessionId) ?? null) : null,
+  })));
 };
 
 // POST /menu/:restaurantId/orders — customer places order (accepts numeric ID or slug)
