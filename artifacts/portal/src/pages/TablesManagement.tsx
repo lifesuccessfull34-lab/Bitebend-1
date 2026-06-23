@@ -49,19 +49,19 @@ async function buildQRLabelPNG(opts: {
   const MAX_TXT = W - H_PAD * 2;
 
   // ── Layout ────────────────────────────────────────────────────────────────
-  // 0 → 3.5 cm : orange header band
-  //   1.5 cm   : centre of restaurant name
-  //   2.65 cm  : centre of subtitle
-  // 3.5 → 9.5 cm : QR card (5.0 QR + 0.35 padding each side)
-  //   3.5 + 0.4 gap = 3.9 cm : card top
-  //   3.9 + 5.7 = 9.6 cm : card bottom
-  // 9.6 + 0.5 = 10.1 cm : centre of "bitebend" brand line
-  // 10.1 + 0.85 = 10.95 cm : centre of "Area:" row
-  // 10.95 + 0.65 = 11.6 cm : divider
-  // 11.6 + 0.65 = 12.25 cm : centre of "Table No:" row
+  // 0     → 3.5  cm : orange header band
+  //   1.45 cm : centre restaurant name
+  //   2.65 cm : centre subtitle
+  // 3.5   → 3.95 cm : gap before card
+  // 3.95  → 9.65 cm : QR card (5.0 QR + 0.35 pad top + 0.35 pad bottom)
+  //   bottom border at 9.65 cm — "bitebend" straddles this line
+  // 9.65  → 10.5  cm : gap
+  // 10.5  cm : centre "Area:"
+  // 11.2  cm : divider
+  // 11.9  cm : centre "Table No:"
 
   const HEADER_H   = cm(3.5);
-  const NAME_Y     = cm(1.5);
+  const NAME_Y     = cm(1.45);
   const SUBTITLE_Y = cm(2.65);
 
   const QR_SIZE  = cm(5.0);
@@ -69,14 +69,19 @@ async function buildQRLabelPNG(opts: {
   const CARD_W   = QR_SIZE + CARD_PAD * 2;
   const CARD_H   = QR_SIZE + CARD_PAD * 2;
   const CARD_X   = Math.round((W - CARD_W) / 2);
-  const CARD_Y   = HEADER_H + cm(0.4);
+  const CARD_Y   = HEADER_H + cm(0.45);
   const QR_LEFT  = CARD_X + CARD_PAD;
   const QR_TOP   = CARD_Y + CARD_PAD;
 
-  const BRAND_Y  = CARD_Y + CARD_H + cm(0.6);
-  const AREA_Y   = BRAND_Y + cm(0.9);
-  const DIV_Y    = AREA_Y  + cm(0.65);
-  const TABLE_Y  = DIV_Y   + cm(0.65);
+  // "bitebend" straddles the bottom border of the card
+  const CARD_BOTTOM = CARD_Y + CARD_H;
+
+  const AREA_Y   = CARD_BOTTOM + cm(0.85);
+  const DIV_Y    = AREA_Y  + cm(0.70);
+  const TABLE_Y  = DIV_Y   + cm(0.70);
+
+  // Border weight: 4.5 pt → pixels at 300 DPI
+  const BORDER_PX = pt(4.5);
 
   // ── 1. Generate QR ────────────────────────────────────────────────────────
   const qrCanvas = document.createElement("canvas");
@@ -101,95 +106,105 @@ async function buildQRLabelPNG(opts: {
   ctx.fillStyle = "#ea580c";
   ctx.fillRect(0, 0, W, HEADER_H);
 
-  // Restaurant name — bold white uppercase
+  // Restaurant name — Engravers MT / Georgia fallback, bold white uppercase, 20 pt
   ctx.fillStyle    = "#ffffff";
-  ctx.font         = `900 ${pt(30)}px system-ui,-apple-system,sans-serif`;
+  ctx.font         = `700 ${pt(20)}px 'Engravers MT','Palatino Linotype',Georgia,serif`;
   ctx.textAlign    = "center";
   ctx.textBaseline = "middle";
+  ctx.letterSpacing = `${pt(1)}px`;
   ctx.fillText(restaurantName.toUpperCase(), W / 2, NAME_Y, MAX_TXT);
+  ctx.letterSpacing = "0px";
 
-  // Subtitle — white, regular weight
+  // Subtitle — Times New Roman bold white, 18 pt
   ctx.fillStyle = "#ffffff";
-  ctx.font      = `400 ${pt(20)}px system-ui,-apple-system,sans-serif`;
+  ctx.font      = `700 ${pt(18)}px 'Times New Roman',serif`;
   ctx.fillText("Scan to View Menu & Order", W / 2, SUBTITLE_Y, MAX_TXT);
 
-  // ── QR card — navy border ─────────────────────────────────────────────────
+  // ── QR card — navy rounded border, fill white ─────────────────────────────
   const cardR = cm(0.35);
-  ctx.fillStyle   = "#ffffff";
-  ctx.strokeStyle = "#162b6e";
-  ctx.lineWidth   = cm(0.075);
-  ctx.beginPath();
-  ctx.moveTo(CARD_X + cardR, CARD_Y);
-  ctx.lineTo(CARD_X + CARD_W - cardR, CARD_Y);
-  ctx.arcTo(CARD_X + CARD_W, CARD_Y,         CARD_X + CARD_W, CARD_Y + cardR,         cardR);
-  ctx.lineTo(CARD_X + CARD_W, CARD_Y + CARD_H - cardR);
-  ctx.arcTo(CARD_X + CARD_W, CARD_Y + CARD_H, CARD_X + CARD_W - cardR, CARD_Y + CARD_H, cardR);
-  ctx.lineTo(CARD_X + cardR, CARD_Y + CARD_H);
-  ctx.arcTo(CARD_X,           CARD_Y + CARD_H, CARD_X, CARD_Y + CARD_H - cardR,          cardR);
-  ctx.lineTo(CARD_X, CARD_Y + cardR);
-  ctx.arcTo(CARD_X,           CARD_Y,          CARD_X + cardR, CARD_Y,                    cardR);
-  ctx.closePath();
+  function drawCardPath() {
+    ctx.beginPath();
+    ctx.moveTo(CARD_X + cardR, CARD_Y);
+    ctx.lineTo(CARD_X + CARD_W - cardR, CARD_Y);
+    ctx.arcTo(CARD_X + CARD_W, CARD_Y,         CARD_X + CARD_W, CARD_Y + cardR,         cardR);
+    ctx.lineTo(CARD_X + CARD_W, CARD_Y + CARD_H - cardR);
+    ctx.arcTo(CARD_X + CARD_W, CARD_Y + CARD_H, CARD_X + CARD_W - cardR, CARD_Y + CARD_H, cardR);
+    ctx.lineTo(CARD_X + cardR, CARD_Y + CARD_H);
+    ctx.arcTo(CARD_X,           CARD_Y + CARD_H, CARD_X, CARD_Y + CARD_H - cardR,          cardR);
+    ctx.lineTo(CARD_X, CARD_Y + cardR);
+    ctx.arcTo(CARD_X,           CARD_Y,           CARD_X + cardR, CARD_Y,                   cardR);
+    ctx.closePath();
+  }
+
+  // Fill white background first
+  ctx.fillStyle = "#ffffff";
+  drawCardPath();
   ctx.fill();
+
+  // Stroke full border
+  ctx.strokeStyle = "#162b6e";
+  ctx.lineWidth   = BORDER_PX;
+  drawCardPath();
   ctx.stroke();
 
+  // Draw QR code
   ctx.drawImage(qrCanvas, QR_LEFT, QR_TOP, QR_SIZE, QR_SIZE);
 
-  // ── "bitebend" brand — orange italic, flanked by lines ────────────────────
-  const brandFont = `italic 400 ${pt(24)}px Georgia,serif`;
-  ctx.font = brandFont;
-  const brandW = ctx.measureText("bitebend").width;
-  const lineGap = cm(0.22);
-  const lineY   = BRAND_Y + cm(0.05);
+  // ── "bitebend" in bottom border gap ──────────────────────────────────────
+  // Measure brand text width to size the gap correctly
+  const brandFont18 = `italic 400 ${pt(18)}px 'Gabriola','Segoe Script',Georgia,serif`;
+  ctx.font = brandFont18;
+  const brandMeasure = ctx.measureText("bitebend");
+  const brandTextW   = brandMeasure.width;
+  const gapPad       = cm(0.28);
+  const gapW         = brandTextW + gapPad * 2;
+  const gapX         = W / 2 - gapW / 2;
+  const gapY         = CARD_BOTTOM - BORDER_PX - 1;
+  const gapHt        = BORDER_PX * 2 + 2;
 
-  ctx.strokeStyle = "#ea580c";
-  ctx.lineWidth   = cm(0.025);
-  ctx.beginPath();
-  ctx.moveTo(H_PAD, lineY);
-  ctx.lineTo(W / 2 - brandW / 2 - lineGap, lineY);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(W / 2 + brandW / 2 + lineGap, lineY);
-  ctx.lineTo(W - H_PAD, lineY);
-  ctx.stroke();
+  // Erase border segment at bottom center with white fill
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(gapX, gapY, gapW, gapHt);
 
+  // Draw brand text centred in the gap, straddling the border line
   ctx.fillStyle    = "#ea580c";
   ctx.textAlign    = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("bitebend", W / 2, BRAND_Y);
+  ctx.fillText("bitebend", W / 2, CARD_BOTTOM);
 
   // ── "Area:" label + underline ─────────────────────────────────────────────
   ctx.fillStyle    = "#162b6e";
-  ctx.font         = `700 ${pt(22)}px system-ui,-apple-system,sans-serif`;
+  ctx.font         = `700 ${pt(16)}px 'Times New Roman',serif`;
   ctx.textAlign    = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("Area:", H_PAD, AREA_Y);
   const areaLabelW = ctx.measureText("Area:").width;
   ctx.strokeStyle = "#162b6e";
-  ctx.lineWidth   = cm(0.03);
+  ctx.lineWidth   = pt(1.2);
   ctx.beginPath();
-  ctx.moveTo(H_PAD + areaLabelW + cm(0.25), AREA_Y + cm(0.18));
+  ctx.moveTo(H_PAD + areaLabelW + cm(0.22), AREA_Y + cm(0.18));
   ctx.lineTo(W - H_PAD, AREA_Y + cm(0.18));
   ctx.stroke();
 
   // ── Horizontal divider ────────────────────────────────────────────────────
   ctx.strokeStyle = "#d1d5db";
-  ctx.lineWidth   = cm(0.02);
+  ctx.lineWidth   = pt(1);
   ctx.beginPath();
   ctx.moveTo(H_PAD, DIV_Y);
   ctx.lineTo(W - H_PAD, DIV_Y);
   ctx.stroke();
 
-  // ── "Table No:" label + underline ────────────────────────────────────────
+  // ── "Table No:" label + underline ─────────────────────────────────────────
   ctx.fillStyle    = "#162b6e";
-  ctx.font         = `700 ${pt(22)}px system-ui,-apple-system,sans-serif`;
+  ctx.font         = `700 ${pt(16)}px 'Times New Roman',serif`;
   ctx.textAlign    = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("Table No:", H_PAD, TABLE_Y);
   const tableNoLabelW = ctx.measureText("Table No:").width;
   ctx.strokeStyle = "#162b6e";
-  ctx.lineWidth   = cm(0.03);
+  ctx.lineWidth   = pt(1.2);
   ctx.beginPath();
-  ctx.moveTo(H_PAD + tableNoLabelW + cm(0.25), TABLE_Y + cm(0.18));
+  ctx.moveTo(H_PAD + tableNoLabelW + cm(0.22), TABLE_Y + cm(0.18));
   ctx.lineTo(W - H_PAD, TABLE_Y + cm(0.18));
   ctx.stroke();
 
