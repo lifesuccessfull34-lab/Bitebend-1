@@ -33,6 +33,8 @@ import {
   UtensilsCrossed,
   Receipt,
   Camera,
+  Eye,
+  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -192,6 +194,9 @@ export default function Dashboard() {
 
   // Incomplete-orders guard modal — shown when Generate Bill is clicked before all orders are completed
   const [incompleteOrdersModal, setIncompleteOrdersModal] = useState<{ sessionId: number; orders: Order[] } | null>(null);
+
+  // View Bill modal — shows itemized bill for a session
+  const [viewingBillSessionId, setViewingBillSessionId] = useState<number | null>(null);
 
 
   const handleSessionScreenshotReceived = useCallback((sessionId: number) => {
@@ -1001,7 +1006,20 @@ export default function Dashboard() {
                           </Button>
                         )}
 
-                        {/* Send Bill — bill is generated or re-send after rejection */}
+                        {/* View Bill — always shown once a bill exists */}
+                        {session.bill && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 text-xs whitespace-nowrap"
+                            onClick={() => setViewingBillSessionId(session.id)}
+                          >
+                            <Eye className="w-3 h-3 mr-1.5" />
+                            View Bill
+                          </Button>
+                        )}
+
+                        {/* Send Bill — bill is generated; Resend after already sent */}
                         {session.bill && (session.bill.status === "generated" || session.bill.status === "sent") && (
                           <Button
                             size="sm"
@@ -1269,6 +1287,154 @@ export default function Dashboard() {
                     {approvingBillSessionId === viewingScreenshotSessionId
                       ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Approving...</>
                       : <><CheckCircle2 className="w-3 h-3 mr-1" /> Approve Payment</>}
+                  </Button>
+                )}
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
+
+
+      {/* ── View Bill Modal ────────────────────────────────────────────────── */}
+      {(() => {
+        const billSession = viewingBillSessionId !== null
+          ? sessions.find((s) => s.id === viewingBillSessionId) ?? null
+          : null;
+        const bill = billSession?.bill ?? null;
+
+        const allItems = (billSession?.orders ?? []).flatMap((o) =>
+          (o.items ?? []).map((item) => ({ ...item, orderId: o.id }))
+        );
+
+        const statusLabel: Record<string, { label: string; color: string }> = {
+          generated:            { label: "Bill Ready",            color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+          sent:                 { label: "Bill Sent",             color: "bg-sky-100 text-sky-700 border-sky-200" },
+          awaiting_verification:{ label: "Awaiting Verification", color: "bg-violet-100 text-violet-700 border-violet-200" },
+          paid:                 { label: "Paid",                  color: "bg-green-100 text-green-700 border-green-200" },
+          cancelled:            { label: "Cancelled",             color: "bg-red-100 text-red-700 border-red-200" },
+        };
+        const statusInfo = bill ? (statusLabel[bill.status] ?? statusLabel.generated) : null;
+
+        return (
+          <Dialog open={!!billSession} onOpenChange={(open) => { if (!open) setViewingBillSessionId(null); }}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  {bill ? `Bill ${bill.billNumber}` : "Bill"}
+                </DialogTitle>
+              </DialogHeader>
+
+              {billSession && bill && (
+                <div className="space-y-4 py-1">
+
+                  {/* Session + status row */}
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-muted-foreground">
+                      {billSession.sessionType === "takeaway" ? (
+                        <span className="flex items-center gap-1.5">
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          Takeaway
+                          {billSession.customerPhone && (
+                            <span className="font-mono text-xs">· +{billSession.customerPhone}</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1.5">
+                          <UtensilsCrossed className="w-3.5 h-3.5" />
+                          {(() => {
+                            const { prefix, label } = deriveSessionTableLabel(billSession);
+                            return `${prefix} ${label}`;
+                          })()}
+                        </span>
+                      )}
+                    </div>
+                    {statusInfo && (
+                      <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", statusInfo.color)}>
+                        {statusInfo.label}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Timestamps */}
+                  <div className="text-xs text-muted-foreground space-y-0.5">
+                    <div>Generated: {new Date(bill.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</div>
+                    {bill.sentAt && (
+                      <div>Sent: {new Date(bill.sentAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</div>
+                    )}
+                  </div>
+
+                  {/* Itemized list */}
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    <div className="bg-muted/40 px-3 py-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Item</span>
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Amount</span>
+                    </div>
+                    <div className="divide-y divide-border">
+                      {allItems.length === 0 ? (
+                        <div className="px-3 py-3 text-xs text-muted-foreground text-center">No items found</div>
+                      ) : (
+                        allItems.map((item, i) => (
+                          <div key={i} className="px-3 py-2 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className={cn(
+                                "w-2.5 h-2.5 rounded-sm border shrink-0",
+                                item.isVeg ? "border-green-600 bg-green-50" : "border-red-600 bg-red-50"
+                              )} />
+                              <span className="text-sm truncate">{item.name}</span>
+                              {item.quantity > 1 && (
+                                <span className="text-xs text-muted-foreground shrink-0">× {item.quantity}</span>
+                              )}
+                            </div>
+                            <span className="text-sm font-medium shrink-0">
+                              ₹{(Number(item.unitPrice) * item.quantity).toFixed(2)}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Subtotals */}
+                    <div className="border-t border-border bg-muted/20 divide-y divide-border/60">
+                      <div className="px-3 py-1.5 flex justify-between text-xs text-muted-foreground">
+                        <span>Subtotal</span>
+                        <span>₹{Number(bill.subtotal).toFixed(2)}</span>
+                      </div>
+                      {Number(bill.tax) > 0 && (
+                        <div className="px-3 py-1.5 flex justify-between text-xs text-muted-foreground">
+                          <span>Tax</span>
+                          <span>₹{Number(bill.tax).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="px-3 py-2 flex justify-between font-semibold text-sm">
+                        <span>Total</span>
+                        <span>₹{Number(bill.total).toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button size="sm" variant="outline" onClick={() => setViewingBillSessionId(null)}>
+                  Close
+                </Button>
+                {bill && (bill.status === "generated" || bill.status === "sent") && (
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => {
+                      setViewingBillSessionId(null);
+                      void handleSendSessionBill(billSession!.id);
+                    }}
+                    disabled={sendingBillSessionId === billSession?.id}
+                  >
+                    {sendingBillSessionId === billSession?.id
+                      ? <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                      : <Send className="w-3 h-3 mr-1.5" />}
+                    {bill.status === "sent" ? "Resend Bill" : "Send Bill"}
                   </Button>
                 )}
               </DialogFooter>
