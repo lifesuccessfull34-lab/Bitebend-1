@@ -13,8 +13,6 @@ import {
 import { cn } from "@/lib/utils";
 import { QRCodeCanvas } from "qrcode.react";
 import QRCodeLib from "qrcode";
-import bitebendLogoUrl from "@/assets/bitebend-logo-qr.png";
-
 // Injected at build time (see vite.config.ts define).
 // __SITE_URL__: canonical production domain (e.g. https://bitebend.in) — takes priority.
 // __REPLIT_DOMAINS__: .replit.app hostname — fallback when SITE_URL not set.
@@ -37,27 +35,6 @@ function cm(v: number) { return Math.round(v * 300 / 2.54); }
 /** Convert points → pixels at 300 DPI */
 function pt(v: number) { return Math.round(v * 300 / 72); }
 
-/** Load an image element from a URL (resolves when fully decoded). */
-function loadImg(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload  = () => resolve(img);
-    img.onerror = reject;
-    img.crossOrigin = "anonymous";
-    img.src = src;
-  });
-}
-
-/** Fetch a URL and return it as a base64 data-URI (for print popup embedding). */
-async function toDataUri(url: string): Promise<string> {
-  const blob = await fetch(url).then((r) => r.blob());
-  return new Promise<string>((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.readAsDataURL(blob);
-  });
-}
-
 async function buildQRLabelPNG(opts: {
   url: string;
   restaurantName: string;
@@ -68,34 +45,49 @@ async function buildQRLabelPNG(opts: {
   const W = cm(8.5);   // 1004 px
   const H = cm(14);    // 1654 px
 
-  // ── Layout anchor points (Y-centre of each text / top of QR) ─────────────
-  // Vertical allocation (cm): 0.8 pad + 1.4 name + 0.5 gap + 1.2 subtitle
-  //   + 0.5 gap + 5.0 QR + 0.6 gap + 1.4 table + 0.5 gap + 1.0 brand + 0.8 pad = 14 cm
-  const NAME_Y     = cm(0.8 + 0.7);             // centre of name block    = 1.5 cm
-  const SUBTITLE_Y = cm(0.8 + 1.4 + 0.5 + 0.6); // centre of subtitle block = 3.3 cm
-  const QR_TOP     = cm(0.8 + 1.4 + 0.5 + 1.2 + 0.5); // QR top edge = 4.4 cm
-  const QR_SIZE    = cm(5.0);                   // 591 px square
-  const QR_LEFT    = Math.round((W - QR_SIZE) / 2);
-  const TABLE_Y    = cm(4.4 + 5.0 + 0.6 + 0.7); // centre of table block = 10.7 cm
-  const BRAND_Y    = cm(4.4 + 5.0 + 0.6 + 1.4 + 0.5 + 0.5); // centre of brand = 12.4 cm
-
-  const H_PAD  = cm(0.6);
+  const H_PAD   = cm(0.65);
   const MAX_TXT = W - H_PAD * 2;
 
-  // ── 1. Generate QR at full print resolution ───────────────────────────────
-  //    margin 4 = ISO quiet zone; level H = 30 % data recovery (logo safe).
+  // ── Layout ────────────────────────────────────────────────────────────────
+  // 0 → 3.5 cm : orange header band
+  //   1.5 cm   : centre of restaurant name
+  //   2.65 cm  : centre of subtitle
+  // 3.5 → 9.5 cm : QR card (5.0 QR + 0.35 padding each side)
+  //   3.5 + 0.4 gap = 3.9 cm : card top
+  //   3.9 + 5.7 = 9.6 cm : card bottom
+  // 9.6 + 0.5 = 10.1 cm : centre of "bitebend" brand line
+  // 10.1 + 0.85 = 10.95 cm : centre of "Area:" row
+  // 10.95 + 0.65 = 11.6 cm : divider
+  // 11.6 + 0.65 = 12.25 cm : centre of "Table No:" row
+
+  const HEADER_H   = cm(3.5);
+  const NAME_Y     = cm(1.5);
+  const SUBTITLE_Y = cm(2.65);
+
+  const QR_SIZE  = cm(5.0);
+  const CARD_PAD = cm(0.35);
+  const CARD_W   = QR_SIZE + CARD_PAD * 2;
+  const CARD_H   = QR_SIZE + CARD_PAD * 2;
+  const CARD_X   = Math.round((W - CARD_W) / 2);
+  const CARD_Y   = HEADER_H + cm(0.4);
+  const QR_LEFT  = CARD_X + CARD_PAD;
+  const QR_TOP   = CARD_Y + CARD_PAD;
+
+  const BRAND_Y  = CARD_Y + CARD_H + cm(0.6);
+  const AREA_Y   = BRAND_Y + cm(0.9);
+  const DIV_Y    = AREA_Y  + cm(0.65);
+  const TABLE_Y  = DIV_Y   + cm(0.65);
+
+  // ── 1. Generate QR ────────────────────────────────────────────────────────
   const qrCanvas = document.createElement("canvas");
   await QRCodeLib.toCanvas(qrCanvas, url, {
     width: QR_SIZE,
-    margin: 4,
+    margin: 3,
     color: { dark: "#1a1a1a", light: "#ffffff" },
     errorCorrectionLevel: "H",
   });
 
-  // ── 2. Load Bitebend logo ─────────────────────────────────────────────────
-  const logoImg = await loadImg(bitebendLogoUrl).catch(() => null);
-
-  // ── 3. Compose label canvas ───────────────────────────────────────────────
+  // ── 2. Compose ────────────────────────────────────────────────────────────
   const canvas = document.createElement("canvas");
   canvas.width  = W;
   canvas.height = H;
@@ -105,107 +97,101 @@ async function buildQRLabelPNG(opts: {
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, W, H);
 
-  // Thin border
-  ctx.strokeStyle = "#d1d5db";
-  ctx.lineWidth   = 3;
-  ctx.strokeRect(2, 2, W - 4, H - 4);
+  // ── Orange header band ────────────────────────────────────────────────────
+  ctx.fillStyle = "#ea580c";
+  ctx.fillRect(0, 0, W, HEADER_H);
 
-  // ── Restaurant name — 28 pt bold ──────────────────────────────────────────
-  ctx.fillStyle    = "#111827";
-  ctx.font         = `700 ${pt(28)}px system-ui,-apple-system,sans-serif`;
+  // Restaurant name — bold white uppercase
+  ctx.fillStyle    = "#ffffff";
+  ctx.font         = `900 ${pt(30)}px system-ui,-apple-system,sans-serif`;
   ctx.textAlign    = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(restaurantName, W / 2, NAME_Y, MAX_TXT);
+  ctx.fillText(restaurantName.toUpperCase(), W / 2, NAME_Y, MAX_TXT);
 
-  // ── Subtitle — 24 pt ──────────────────────────────────────────────────────
-  ctx.fillStyle = "#6b7280";
-  ctx.font      = `400 ${pt(24)}px system-ui,-apple-system,sans-serif`;
+  // Subtitle — white, regular weight
+  ctx.fillStyle = "#ffffff";
+  ctx.font      = `400 ${pt(20)}px system-ui,-apple-system,sans-serif`;
   ctx.fillText("Scan to View Menu & Order", W / 2, SUBTITLE_Y, MAX_TXT);
 
-  // ── QR code ───────────────────────────────────────────────────────────────
-  // Subtle card shadow / border around QR
-  const cardPad = cm(0.18);
-  const cardX   = QR_LEFT - cardPad;
-  const cardY   = QR_TOP  - cardPad;
-  const cardW   = QR_SIZE + cardPad * 2;
-  const cardH   = QR_SIZE + cardPad * 2;
-  const cardR   = cm(0.18);
+  // ── QR card — navy border ─────────────────────────────────────────────────
+  const cardR = cm(0.35);
   ctx.fillStyle   = "#ffffff";
-  ctx.strokeStyle = "#e5e7eb";
-  ctx.lineWidth   = 2;
+  ctx.strokeStyle = "#162b6e";
+  ctx.lineWidth   = cm(0.075);
   ctx.beginPath();
-  ctx.moveTo(cardX + cardR, cardY);
-  ctx.lineTo(cardX + cardW - cardR, cardY);
-  ctx.arcTo(cardX + cardW, cardY,      cardX + cardW, cardY + cardR,      cardR);
-  ctx.lineTo(cardX + cardW, cardY + cardH - cardR);
-  ctx.arcTo(cardX + cardW, cardY + cardH, cardX + cardW - cardR, cardY + cardH, cardR);
-  ctx.lineTo(cardX + cardR, cardY + cardH);
-  ctx.arcTo(cardX,          cardY + cardH, cardX, cardY + cardH - cardR,  cardR);
-  ctx.lineTo(cardX, cardY + cardR);
-  ctx.arcTo(cardX,          cardY,         cardX + cardR, cardY,          cardR);
+  ctx.moveTo(CARD_X + cardR, CARD_Y);
+  ctx.lineTo(CARD_X + CARD_W - cardR, CARD_Y);
+  ctx.arcTo(CARD_X + CARD_W, CARD_Y,         CARD_X + CARD_W, CARD_Y + cardR,         cardR);
+  ctx.lineTo(CARD_X + CARD_W, CARD_Y + CARD_H - cardR);
+  ctx.arcTo(CARD_X + CARD_W, CARD_Y + CARD_H, CARD_X + CARD_W - cardR, CARD_Y + CARD_H, cardR);
+  ctx.lineTo(CARD_X + cardR, CARD_Y + CARD_H);
+  ctx.arcTo(CARD_X,           CARD_Y + CARD_H, CARD_X, CARD_Y + CARD_H - cardR,          cardR);
+  ctx.lineTo(CARD_X, CARD_Y + cardR);
+  ctx.arcTo(CARD_X,           CARD_Y,          CARD_X + cardR, CARD_Y,                    cardR);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
   ctx.drawImage(qrCanvas, QR_LEFT, QR_TOP, QR_SIZE, QR_SIZE);
 
-  // ── Bitebend logo centred on QR ───────────────────────────────────────────
-  if (logoImg) {
-    const LOGO_SIZE = cm(1.1);   // 1.1 cm — safe ≈ 22 % of QR width (well under H-level 30 %)
-    const logoX = QR_LEFT  + Math.round((QR_SIZE - LOGO_SIZE) / 2);
-    const logoY = QR_TOP   + Math.round((QR_SIZE - LOGO_SIZE) / 2);
-    // White backing square so logo sits cleanly on QR pattern
-    const backing = LOGO_SIZE + cm(0.12);
-    const backX   = QR_LEFT + Math.round((QR_SIZE - backing) / 2);
-    const backY   = QR_TOP  + Math.round((QR_SIZE - backing) / 2);
-    const backR   = cm(0.1);
-    ctx.fillStyle = "#ffffff";
-    ctx.beginPath();
-    ctx.moveTo(backX + backR, backY);
-    ctx.lineTo(backX + backing - backR, backY);
-    ctx.arcTo(backX + backing, backY,     backX + backing, backY + backR,     backR);
-    ctx.lineTo(backX + backing, backY + backing - backR);
-    ctx.arcTo(backX + backing, backY + backing, backX + backing - backR, backY + backing, backR);
-    ctx.lineTo(backX + backR, backY + backing);
-    ctx.arcTo(backX,           backY + backing, backX, backY + backing - backR, backR);
-    ctx.lineTo(backX, backY + backR);
-    ctx.arcTo(backX,           backY,   backX + backR, backY,   backR);
-    ctx.closePath();
-    ctx.fill();
-    ctx.drawImage(logoImg, logoX, logoY, LOGO_SIZE, LOGO_SIZE);
-  }
+  // ── "bitebend" brand — orange italic, flanked by lines ────────────────────
+  const brandFont = `italic 400 ${pt(24)}px Georgia,serif`;
+  ctx.font = brandFont;
+  const brandW = ctx.measureText("bitebend").width;
+  const lineGap = cm(0.22);
+  const lineY   = BRAND_Y + cm(0.05);
 
-  // ── Divider above table number ────────────────────────────────────────────
-  const divY = QR_TOP + QR_SIZE + cm(0.25);
-  ctx.strokeStyle = "#e5e7eb";
-  ctx.lineWidth   = 2;
+  ctx.strokeStyle = "#ea580c";
+  ctx.lineWidth   = cm(0.025);
   ctx.beginPath();
-  ctx.moveTo(H_PAD, divY);
-  ctx.lineTo(W - H_PAD, divY);
+  ctx.moveTo(H_PAD, lineY);
+  ctx.lineTo(W / 2 - brandW / 2 - lineGap, lineY);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(W / 2 + brandW / 2 + lineGap, lineY);
+  ctx.lineTo(W - H_PAD, lineY);
   ctx.stroke();
 
-  // ── Table No — 26 pt bold ─────────────────────────────────────────────────
-  ctx.fillStyle    = "#111827";
-  ctx.font         = `700 ${pt(26)}px system-ui,-apple-system,sans-serif`;
-  ctx.textAlign    = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("Table No: ______", W / 2, TABLE_Y, MAX_TXT);
-
-  // ── Divider above brand footer ────────────────────────────────────────────
-  const divY2 = BRAND_Y - cm(0.6);
-  ctx.strokeStyle = "#e5e7eb";
-  ctx.lineWidth   = 2;
-  ctx.beginPath();
-  ctx.moveTo(H_PAD, divY2);
-  ctx.lineTo(W - H_PAD, divY2);
-  ctx.stroke();
-
-  // ── "Bitebend" footer — 22 pt, orange ────────────────────────────────────
   ctx.fillStyle    = "#ea580c";
-  ctx.font         = `700 ${pt(22)}px system-ui,-apple-system,sans-serif`;
   ctx.textAlign    = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText("Bitebend", W / 2, BRAND_Y);
+  ctx.fillText("bitebend", W / 2, BRAND_Y);
+
+  // ── "Area:" label + underline ─────────────────────────────────────────────
+  ctx.fillStyle    = "#162b6e";
+  ctx.font         = `700 ${pt(22)}px system-ui,-apple-system,sans-serif`;
+  ctx.textAlign    = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("Area:", H_PAD, AREA_Y);
+  const areaLabelW = ctx.measureText("Area:").width;
+  ctx.strokeStyle = "#162b6e";
+  ctx.lineWidth   = cm(0.03);
+  ctx.beginPath();
+  ctx.moveTo(H_PAD + areaLabelW + cm(0.25), AREA_Y + cm(0.18));
+  ctx.lineTo(W - H_PAD, AREA_Y + cm(0.18));
+  ctx.stroke();
+
+  // ── Horizontal divider ────────────────────────────────────────────────────
+  ctx.strokeStyle = "#d1d5db";
+  ctx.lineWidth   = cm(0.02);
+  ctx.beginPath();
+  ctx.moveTo(H_PAD, DIV_Y);
+  ctx.lineTo(W - H_PAD, DIV_Y);
+  ctx.stroke();
+
+  // ── "Table No:" label + underline ────────────────────────────────────────
+  ctx.fillStyle    = "#162b6e";
+  ctx.font         = `700 ${pt(22)}px system-ui,-apple-system,sans-serif`;
+  ctx.textAlign    = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("Table No:", H_PAD, TABLE_Y);
+  const tableNoLabelW = ctx.measureText("Table No:").width;
+  ctx.strokeStyle = "#162b6e";
+  ctx.lineWidth   = cm(0.03);
+  ctx.beginPath();
+  ctx.moveTo(H_PAD + tableNoLabelW + cm(0.25), TABLE_Y + cm(0.18));
+  ctx.lineTo(W - H_PAD, TABLE_Y + cm(0.18));
+  ctx.stroke();
 
   return canvas.toDataURL("image/png");
 }
@@ -214,11 +200,12 @@ async function buildQRLabelPNG(opts: {
    Print / PDF path — opens a new browser window with
    @page { size: 8.5cm 14cm; margin: 0 }
    Portrait layout (top → bottom):
-     1. Restaurant name — 28 pt bold, centred
-     2. Subtitle — 24 pt, centred
-     3. QR code — 5 cm × 5 cm, centred, Bitebend logo overlaid in centre
-     4. "Table No: ______" — 26 pt bold, centred
-     5. "Bitebend" footer — 22 pt, orange, centred
+     1. Orange header band — restaurant name bold white uppercase + subtitle
+     2. QR code in navy-bordered rounded card (no logo overlay)
+     3. "bitebend" italic orange script flanked by horizontal lines
+     4. "Area: ___" fill-in field (navy bold)
+     5. Horizontal divider
+     6. "Table No: ___" fill-in field (navy bold)
    Physical dimensions are exact regardless of screen DPI or browser zoom.
    "Save as PDF" from the print dialog produces a pixel-accurate PDF.
 ───────────────────────────────────────────────────────────────────────────── */
@@ -228,20 +215,13 @@ async function printQRLabel(opts: {
 }): Promise<boolean> {
   const { url, restaurantName } = opts;
 
-  // Generate QR as a data-URI (600 px → rendered at 5 cm = ~118 DPI crisp print)
+  // Generate QR as a data-URI (600 px → rendered at 5 cm ≈ 118 DPI crisp print)
   const qrDataUrl = await QRCodeLib.toDataURL(url, {
     width: 600,
-    margin: 4,
+    margin: 3,
     color: { dark: "#1a1a1a", light: "#ffffff" },
     errorCorrectionLevel: "H",
   });
-
-  // Load logo as data-URI so it embeds cleanly in the popup (no origin restrictions)
-  const logoDataUrl = await toDataUri(bitebendLogoUrl).catch(() => "");
-
-  const logoHtml = logoDataUrl
-    ? `<img class="qr-logo" src="${logoDataUrl}" alt="" />`
-    : "";
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -263,133 +243,177 @@ async function printQRLabel(opts: {
     print-color-adjust: exact;
   }
 
-  /* ── Portrait label — column flex ──────────────────────────── */
+  /* ── Portrait label ──────────────────────────────────────────── */
   .label {
     display: flex;
     flex-direction: column;
     align-items: center;
     width: 8.5cm;
     height: 14cm;
-    padding: 0.8cm 0.6cm;
     font-family: system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
-    border: 0.8px solid #d1d5db;
   }
 
-  /* ── Restaurant name — 28 pt bold ──────────────────────────── */
+  /* ── Orange header band ──────────────────────────────────────── */
+  .header {
+    width: 100%;
+    height: 3.5cm;
+    background: #ea580c;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 0.65cm;
+    flex-shrink: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   .rest-name {
-    font-size: 28pt;
-    font-weight: 700;
-    color: #111827;
+    font-size: 30pt;
+    font-weight: 900;
+    color: #ffffff;
     text-align: center;
-    line-height: 1.15;
+    line-height: 1.1;
     width: 100%;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    flex-shrink: 0;
-    margin-bottom: 0.15cm;
+    text-transform: uppercase;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
-
-  /* ── Subtitle — 24 pt ──────────────────────────────────────── */
   .subtitle {
-    font-size: 24pt;
+    font-size: 18pt;
     font-weight: 400;
-    color: #6b7280;
+    color: #ffffff;
     text-align: center;
-    line-height: 1.2;
-    width: 100%;
-    flex-shrink: 0;
+    margin-top: 0.15cm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  /* ── Spacer fills remaining vertical space evenly ─────────── */
-  .spacer { flex: 1; }
-
-  /* ── QR section ────────────────────────────────────────────── */
-  .qr-section {
-    flex-shrink: 0;
+  /* ── Body ────────────────────────────────────────────────────── */
+  .body {
+    flex: 1;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    padding: 0.4cm 0.65cm 0.5cm;
+    width: 100%;
   }
+
+  /* ── QR card — navy border ───────────────────────────────────── */
   .qr-container {
-    position: relative;
     display: inline-block;
-    border: 1.5px solid #e5e7eb;
-    border-radius: 0.18cm;
-    padding: 0.18cm;
+    border: 2.5px solid #162b6e;
+    border-radius: 0.35cm;
+    padding: 0.35cm;
     background: #fff;
     line-height: 0;
+    flex-shrink: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
-  .qr-container img.qr-img {
+  .qr-img {
     display: block;
     width: 5cm;
     height: 5cm;
     image-rendering: crisp-edges;
     image-rendering: pixelated;
   }
-  .qr-logo {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 1.1cm;
-    height: 1.1cm;
-    object-fit: contain;
-    background: #fff;
-    padding: 0.06cm;
-    border-radius: 0.1cm;
+
+  /* ── "bitebend" brand line ──────────────────────────────────── */
+  .brand-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.22cm;
+    margin-top: 0.5cm;
+    flex-shrink: 0;
+  }
+  .brand-line {
+    flex: 1;
+    height: 1px;
+    background: #ea580c;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .brand-text {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 22pt;
+    font-style: italic;
+    font-weight: 400;
+    color: #ea580c;
+    white-space: nowrap;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  /* ── Dividers ───────────────────────────────────────────────── */
+  /* ── Spacer ──────────────────────────────────────────────────── */
+  .spacer { flex: 1; }
+
+  /* ── Area / Table No fields ──────────────────────────────────── */
+  .field-row {
+    width: 100%;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.25cm;
+    flex-shrink: 0;
+    padding: 0.1cm 0;
+  }
+  .field-label {
+    font-size: 20pt;
+    font-weight: 700;
+    color: #162b6e;
+    white-space: nowrap;
+    line-height: 1;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .field-line {
+    flex: 1;
+    border-bottom: 1.5px solid #162b6e;
+    height: 1.4em;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ── Divider ─────────────────────────────────────────────────── */
   .divider {
     width: 100%;
     height: 1px;
-    background: #e5e7eb;
+    background: #d1d5db;
     flex-shrink: 0;
-  }
-
-  /* ── Table number — 26 pt bold ─────────────────────────────── */
-  .table-label {
-    font-size: 26pt;
-    font-weight: 700;
-    color: #111827;
-    text-align: center;
-    line-height: 1;
-    white-space: nowrap;
-    flex-shrink: 0;
-    padding: 0.35cm 0;
-  }
-
-  /* ── Brand footer — 22 pt orange ───────────────────────────── */
-  .brand-footer {
-    font-size: 22pt;
-    font-weight: 700;
-    color: #ea580c;
-    text-align: center;
-    letter-spacing: -0.01em;
-    flex-shrink: 0;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    margin: 0.3cm 0;
   }
 </style>
 </head>
 <body>
 <div class="label">
-  <div class="rest-name">${restaurantName}</div>
-  <div class="subtitle">Scan to View Menu &amp; Order</div>
-  <div class="spacer"></div>
-  <div class="qr-section">
+  <div class="header">
+    <div class="rest-name">${restaurantName}</div>
+    <div class="subtitle">Scan to View Menu &amp; Order</div>
+  </div>
+  <div class="body">
     <div class="qr-container">
       <img class="qr-img" src="${qrDataUrl}" alt="QR Code" />
-      ${logoHtml}
+    </div>
+    <div class="brand-row">
+      <div class="brand-line"></div>
+      <div class="brand-text">bitebend</div>
+      <div class="brand-line"></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="field-row">
+      <div class="field-label">Area:</div>
+      <div class="field-line"></div>
+    </div>
+    <div class="divider"></div>
+    <div class="field-row">
+      <div class="field-label">Table No:</div>
+      <div class="field-line"></div>
     </div>
   </div>
-  <div class="spacer"></div>
-  <div class="divider"></div>
-  <div class="table-label">Table No: ______</div>
-  <div class="divider"></div>
-  <div class="spacer"></div>
-  <div class="brand-footer">Bitebend</div>
 </div>
 </body>
 </html>`;
