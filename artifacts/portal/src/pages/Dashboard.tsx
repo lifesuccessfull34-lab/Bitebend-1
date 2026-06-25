@@ -420,7 +420,7 @@ export default function Dashboard() {
   };
 
 
-  // Orders belonging to any displayed session — excluded from the standalone orders list
+  // Orders belonging to any displayed session — shown in the Sessions section, not below
   const activeSessionOrderIds = new Set(
     sessions
       .filter((s) => s.status === "active" || s.status === "awaiting_payment" || s.status === "awaiting_verification")
@@ -501,14 +501,9 @@ export default function Dashboard() {
     };
   };
 
-  // ─── Order card renderer (shared between sessions view and standalone orders) ──
-  //
-  // inSession=true  → order belongs to a table session; payment actions live at the
-  //                   session level, so we suppress Upload Screenshot / Send Payment
-  //                   Bill / Mark as Paid from the individual order card.
-  // inSession=false → standalone order; full set of payment actions shown here.
+  // ─── Order card renderer (shared between sessions view and orders list) ──
 
-  const renderOrderCard = (order: Order, i: number, inSession = false) => {
+  const renderOrderCard = (order: Order, i: number) => {
     const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.ordered;
     const nextStatus = getNextStatus(order.status);
     const isUpdating = updatingId === order.id;
@@ -1078,7 +1073,7 @@ export default function Dashboard() {
                           <div className="py-6 text-center text-xs text-muted-foreground">No orders in this session</div>
                         ) : (
                           <div className="divide-y divide-border">
-                            {session.orders.map((order, i) => renderOrderCard(order as Order, i, true))}
+                            {session.orders.map((order, i) => renderOrderCard(order as Order, i))}
                           </div>
                         )}
                       </div>
@@ -1090,16 +1085,11 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* ── Standalone Orders (not part of any table session) ─────────── */}
+        {/* ── Orders ─────────────────────────────────────────────────────── */}
         <div className="bg-card rounded-xl border border-border">
           <div className="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
             <div className="shrink-0">
-              <h2 className="text-base font-semibold">
-                {displaySessions.length > 0 ? "Standalone Orders" : "Orders"}
-              </h2>
-              {displaySessions.length > 0 && (
-                <p className="text-xs text-muted-foreground mt-0.5">Direct orders not linked to a table session</p>
-              )}
+              <h2 className="text-base font-semibold">Orders</h2>
             </div>
             <div className="flex gap-1 flex-wrap">
               {["active", "completed", "cancelled", "all"].map((f) => (

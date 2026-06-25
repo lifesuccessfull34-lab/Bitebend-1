@@ -496,8 +496,8 @@ const updateOrder: RequestHandler = async (req, res) => {
       res.status(400).json({ error: `Invalid transition: expected ${expectedNext} but got ${status}` });
       return;
     }
-    // Payment guard only applies to standalone orders (no sessionId).
-    // Session orders are completed first, then payment happens at the session
+    // Payment guard: only enforce for orders without a sessionId (legacy data).
+    // All current orders are session-based; payment is handled at the session
     // level via Generate Bill → Approve Payment / Mark Paid.
     if (status === "completed" && existing.sessionId === null && existing.paymentStatus !== "paid") {
       res.status(400).json({ error: "Please complete payment before closing the order" });
@@ -2778,7 +2778,7 @@ router.get("/owner/orders/:orderId/bill", requireOwner, getBill);
 router.get("/bills/:token/image", serveBillImageRaw); // raw PNG (og:image src)
 router.get("/bills/:token", serveBillPage);           // OG HTML page
 router.get("/b/:shortId", serveBillShort);            // short URL in WhatsApp messages
-// Standalone-order payment routes removed — only session-based billing is supported.
+// Only session-based billing is supported.
 
 router.get("/owner/stats", requireOwner, getStats);
 router.get("/owner/sessions", requireOwner, listSessions);

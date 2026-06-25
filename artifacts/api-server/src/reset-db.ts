@@ -28,8 +28,8 @@ async function resetDb(): Promise<void> {
   //   table_sessions → restaurants
   //   orders         → table_sessions (session_id, nullable)
   //   order_items    → orders
-  //   bill_links     → (standalone)
-  //   image_blobs    → (standalone)
+  //   bill_links     → image_blobs
+  //   image_blobs    → (no FK deps)
   await db.execute(sql`
     TRUNCATE
       bill_links,

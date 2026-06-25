@@ -404,10 +404,11 @@ const placeOrder: RequestHandler = async (req, res) => {
   // ── Session ownership guards + find-or-create ─────────────────────────────
   //
   // RULE 4 — Bill lock (dine-in + takeaway):
-  //   If this phone already has a session bill in status 'sent' or
+  //   If this phone already has a session bill in status 'generated', 'sent', or
   //   'awaiting_verification' in this restaurant, block any new order.
-  //   This guarantees one phone = one unpaid bill at a time, which keeps
-  //   WhatsApp screenshot matching unambiguous.
+  //   Ordering is locked the moment the restaurant generates the bill — not when
+  //   it is sent. This guarantees one phone = one unpaid bill at a time, which
+  //   keeps WhatsApp screenshot matching unambiguous.
   //
   // RULE 1 — Phone-first session reuse (dine-in):
   //   If the phone already owns an ACTIVE dine-in session in this restaurant,
@@ -428,6 +429,9 @@ const placeOrder: RequestHandler = async (req, res) => {
   //   is fully preserved. Only the session layer changes.
 
   // ── RULE 4: Bill lock ─────────────────────────────────────────────────────
+  // Block as soon as the restaurant generates the bill (status = 'generated').
+  // Do NOT wait for the bill to be sent — ordering is locked from the moment
+  // Generate Bill succeeds, regardless of delivery status.
   const [existingUnpaidBill] = await db
     .select({ id: sessionBills.id, status: sessionBills.status, billNumber: sessionBills.billNumber })
     .from(sessionBills)
@@ -435,7 +439,7 @@ const placeOrder: RequestHandler = async (req, res) => {
       and(
         eq(sessionBills.restaurantId, restaurantId),
         eq(sessionBills.customerPhone, normalizedPhone),
-        sql`${sessionBills.status} IN ('sent', 'awaiting_verification')`,
+        sql`${sessionBills.status} IN ('generated', 'sent', 'awaiting_verification')`,
       ),
     )
     .limit(1);
@@ -450,11 +454,11 @@ const placeOrder: RequestHandler = async (req, res) => {
         billStatus: existingUnpaidBill.status,
         rule: "RULE_4_BILL_LOCK",
       },
-      "[Session] Blocking new order — unpaid bill exists for this phone",
+      "[Session] Blocking new order — bill already generated for this phone",
     );
     res.status(402).json({
-      error: "Please complete payment of your previous bill before starting a new session.",
-      code: "UNPAID_BILL_EXISTS",
+      error: "Bill has already been generated for this table/session. Please request the restaurant to start a new session.",
+      code: "BILL_ALREADY_GENERATED",
     });
     return;
   }

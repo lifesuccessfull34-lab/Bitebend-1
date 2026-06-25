@@ -419,7 +419,7 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   // ── No matching sent bill — screenshot is unmatched, log and discard ─────────
   // A screenshot arrived but there is no session bill in 'sent' status that can
   // receive it (zero or multiple pending bills, and no phone match).
-  // We do NOT attach it to any order.  Standalone-order payment flow is removed.
+  // We do NOT attach it to any order.
   logger.warn(
     {
       event: "screenshot_unmatched",
