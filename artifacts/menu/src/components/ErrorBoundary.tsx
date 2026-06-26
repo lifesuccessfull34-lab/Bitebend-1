@@ -85,21 +85,38 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.error.message}
             </pre>
           )}
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              background: "#f97316",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              padding: "10px 24px",
-              fontSize: "14px",
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Reload Page
-          </button>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", justifyContent: "center" }}>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                background: "#f97316",
+                color: "#fff",
+                border: "none",
+                borderRadius: "8px",
+                padding: "10px 24px",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Reload Application
+            </button>
+            <button
+              onClick={() => window.history.back()}
+              style={{
+                background: "transparent",
+                color: "#f97316",
+                border: "2px solid #f97316",
+                borderRadius: "8px",
+                padding: "10px 24px",
+                fontSize: "14px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Go Back
+            </button>
+          </div>
         </div>
       );
     }
