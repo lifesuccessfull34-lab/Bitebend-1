@@ -70,15 +70,6 @@ function getNextStatus(status: string): string | null {
   return null;
 }
 
-const TRACKER_STEPS = ["ordered", "preparing", "ready", "completed"] as const;
-const TRACKER_LABELS: Record<string, string> = {
-  ordered: "Ordered", preparing: "Preparing", ready: "Ready", completed: "Completed",
-};
-
-function normaliseStep(status: string): string {
-  return LEGACY_ENTRY.has(status) ? "ordered" : status;
-}
-
 const ACTIVE_STATUSES = [
   "ordered", "pending_payment", "awaiting_confirmation", "pending", "confirmed", "preparing", "ready",
 ];
@@ -100,49 +91,6 @@ interface OcrData {
   error?: string;
 }
 
-
-// ─── Status tracker ────────────────────────────────────────────────────────────
-
-function StatusTracker({ status }: { status: string }) {
-  const current = normaliseStep(status);
-  const currentIdx = TRACKER_STEPS.indexOf(current as typeof TRACKER_STEPS[number]);
-  if (status === "cancelled") return null;
-
-  return (
-    <div className="flex items-center gap-0 mt-3">
-      {TRACKER_STEPS.map((step, idx) => {
-        const done   = idx < currentIdx;
-        const active = idx === currentIdx;
-        const isLast = idx === TRACKER_STEPS.length - 1;
-        return (
-          <div key={step} className="flex items-center flex-1 last:flex-none">
-            <div className="flex flex-col items-center">
-              <div className={cn(
-                "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all",
-                done   && "bg-orange-500 border-orange-500 text-white",
-                active && "bg-white border-orange-500 text-orange-600 ring-2 ring-orange-200",
-                !done && !active && "bg-muted border-muted-foreground/20 text-muted-foreground/50",
-              )}>
-                {done ? <CheckCircle2 className="w-3.5 h-3.5" /> : idx + 1}
-              </div>
-              <span className={cn(
-                "text-[10px] mt-0.5 font-medium whitespace-nowrap",
-                active && "text-orange-600",
-                done   && "text-orange-500",
-                !done && !active && "text-muted-foreground/50",
-              )}>
-                {TRACKER_LABELS[step]}
-              </span>
-            </div>
-            {!isLast && (
-              <div className={cn("h-0.5 flex-1 mx-1 mb-3", done || active ? "bg-orange-300" : "bg-muted")} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // ─── Main dashboard ────────────────────────────────────────────────────────────
 
@@ -507,8 +455,6 @@ export default function Dashboard() {
     const cfg        = STATUS_CONFIG[order.status] ?? STATUS_CONFIG.ordered;
     const nextStatus = getNextStatus(order.status);
     const isUpdating = updatingId === order.id;
-    const isActive   = ACTIVE_STATUSES.includes(order.status);
-    const isUnpaid   = order.paymentStatus !== "paid";
     const isManualReview = order.paymentStatus === "manual_review";
     const isAwaitingVerification = order.paymentStatus === "awaiting_verification";
     const orderError = orderErrors[order.id];
@@ -542,8 +488,6 @@ export default function Dashboard() {
               {order.tableNumber && (
                 <span className="text-xs bg-muted px-2 py-0.5 rounded-full font-medium">Table {order.tableNumber}</span>
               )}
-              <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium", cfg.color)}>{cfg.label}</span>
-
               {order.paymentStatus === "paid" && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 border border-green-200 font-medium flex items-center gap-1">
                   {(isAiVerified || isApproved) && <BadgeCheck className="w-3 h-3" />}
@@ -563,9 +507,6 @@ export default function Dashboard() {
                   Review Required
                 </span>
               )}
-              {order.paymentStatus === "unpaid" && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-300 font-semibold">UNPAID</span>
-              )}
               {isRejectedPayment && (
                 <span className="text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 font-medium">Rejected</span>
               )}
@@ -582,16 +523,6 @@ export default function Dashboard() {
 
             <p className="text-sm font-medium">{order.customerName}</p>
             <p className="text-xs text-muted-foreground">{order.customerPhone}</p>
-
-            <StatusTracker status={order.status} />
-
-            {/* Unpaid warning */}
-            {isActive && isUnpaid && !isManualReview && !isPendingUpiVerification && !isAwaitingVerification && (
-              <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                Payment pending — send payment bill to collect
-              </div>
-            )}
 
             {/* Error */}
             {orderError && (
@@ -832,16 +763,6 @@ export default function Dashboard() {
             <div className="divide-y divide-border">
               {displaySessions.map((session) => {
                 const isExpanded = expandedSessions.has(session.id);
-                const hasUnpaidOrders = session.orders.some(
-                  (o) => ACTIVE_STATUSES.includes(o.status) && o.paymentStatus !== "paid",
-                );
-                const activeOrderCount = session.orders.filter((o) => ACTIVE_STATUSES.includes(o.status)).length;
-                // Orders that must be completed before Generate Bill can proceed
-                const incompleteForBilling = session.orders.filter(
-                  (o) => o.status !== "cancelled" && o.status !== "payment_failed" && o.status !== "completed",
-                );
-                const showBillBlockedBadge =
-                  session.status === "active" && !session.bill && incompleteForBilling.length > 0;
 
                 return (
                   <div key={session.id}>
@@ -881,55 +802,9 @@ export default function Dashboard() {
                             {session.sessionType === "takeaway" && session.customerPhone && (
                               <span className="text-xs text-muted-foreground font-mono">+{session.customerPhone}</span>
                             )}
-                            {session.status === "active" && (
-                              <span className="text-xs bg-green-100 text-green-700 border border-green-200 px-2 py-0.5 rounded-full font-medium">
-                                Active
-                              </span>
-                            )}
-                            {session.status === "awaiting_payment" && (
-                              <span className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
-                                Awaiting Payment
-                              </span>
-                            )}
-                            {session.status === "awaiting_verification" && (
-                              <span className="text-xs bg-violet-100 text-violet-700 border border-violet-200 px-2 py-0.5 rounded-full font-medium flex items-center gap-1">
-                                <Camera className="w-3 h-3" />
-                                Screenshot Received
-                              </span>
-                            )}
-                            {hasUnpaidOrders && session.status === "active" && (
-                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
-                                Unpaid
-                              </span>
-                            )}
-                            {activeOrderCount > 0 && (
-                              <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 px-2 py-0.5 rounded-full font-medium">
-                                {activeOrderCount} in-progress
-                              </span>
-                            )}
                             {newOrderSessionIds.has(session.id) && (
                               <span className="text-xs bg-red-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
                                 NEW
-                              </span>
-                            )}
-                            {showBillBlockedBadge && (
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                className="text-xs bg-amber-100 text-amber-700 border border-amber-300 px-2 py-0.5 rounded-full font-medium flex items-center gap-1 hover:bg-amber-200 transition-colors cursor-pointer"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setIncompleteOrdersModal({ sessionId: session.id, orders: incompleteForBilling });
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.stopPropagation();
-                                    setIncompleteOrdersModal({ sessionId: session.id, orders: incompleteForBilling });
-                                  }
-                                }}
-                              >
-                                <AlertTriangle className="w-3 h-3 shrink-0" />
-                                {incompleteForBilling.length} order{incompleteForBilling.length !== 1 ? "s" : ""} to complete
                               </span>
                             )}
                             {session.bill && session.bill.status === "generated" && (

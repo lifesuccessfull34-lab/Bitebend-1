@@ -1013,7 +1013,99 @@ const verifyRazorpayPayment: RequestHandler = async (req, res) => {
   res.json({ success: true });
 };
 
+/**
+ * GET /api/menu/:restaurantId/session-status
+ *
+ * Read-only mirror of the RULE_4 (bill lock) and RULE_3 (table occupation)
+ * checks used by placeOrder. Lets the menu app detect a locked state before
+ * the customer fills out the checkout form.
+ *
+ * Query params (both optional — at least one must be provided):
+ *   phone       — raw phone string; normalized server-side (RULE_4 check)
+ *   tableNumber — table label e.g. "T5" (RULE_3 check)
+ *
+ * No auth required. Read-only. No DB writes.
+ */
+const getSessionStatus: RequestHandler = async (req, res) => {
+  const restaurant = await resolveRestaurantByParam(
+    req,
+    String(req.params["restaurantId"] ?? ""),
+  );
+  if (!restaurant) {
+    res.status(404).json({ error: "Restaurant not found" });
+    return;
+  }
+  const restaurantId = restaurant.id;
+
+  const rawPhone = String(req.query["phone"] ?? "").trim();
+  const rawTableNumber = String(req.query["tableNumber"] ?? "").trim();
+
+  // ── RULE 4 (read-only): Bill lock — phone has an unpaid bill ──────────────
+  if (rawPhone) {
+    const normalizedPhone = normalizePhone(rawPhone);
+    if (normalizedPhone) {
+      const [bill] = await db
+        .select({
+          id: sessionBills.id,
+          status: sessionBills.status,
+          billNumber: sessionBills.billNumber,
+          total: sessionBills.total,
+        })
+        .from(sessionBills)
+        .where(
+          and(
+            eq(sessionBills.restaurantId, restaurantId),
+            eq(sessionBills.customerPhone, normalizedPhone),
+            sql`${sessionBills.status} IN ('generated', 'sent', 'awaiting_verification')`,
+          ),
+        )
+        .limit(1);
+
+      if (bill) {
+        res.json({
+          locked: true,
+          lockType: "bill_locked",
+          billStatus: bill.status,
+          billTotal: bill.total,
+          billNumber: bill.billNumber,
+          tableOwnedByThisPhone: true,
+        });
+        return;
+      }
+    }
+  }
+
+  // ── RULE 3 (read-only): Table occupation — active session, different phone ─
+  if (rawTableNumber) {
+    const normalizedPhone = rawPhone ? normalizePhone(rawPhone) : null;
+    const [tableSession] = await db
+      .select({ id: tableSessions.id, customerPhone: tableSessions.customerPhone })
+      .from(tableSessions)
+      .where(
+        and(
+          eq(tableSessions.restaurantId, restaurantId),
+          eq(tableSessions.tableNumber, rawTableNumber),
+          eq(tableSessions.sessionType, "dine_in"),
+          eq(tableSessions.status, "active"),
+        ),
+      )
+      .limit(1);
+
+    if (
+      tableSession &&
+      tableSession.customerPhone !== null &&
+      tableSession.customerPhone !== normalizedPhone
+    ) {
+      res.json({ locked: true, lockType: "table_occupied" });
+      return;
+    }
+  }
+
+  res.json({ locked: false });
+};
+
 router.get("/menu/:restaurantId", getPublicMenu);
+router.get("/menu/:restaurantId/session-status", getSessionStatus);
 router.get("/menu/:restaurantId/payment-qr", getPaymentQr);
 router.post("/menu/:restaurantId/razorpay-order", createRazorpayOrder);
 router.get("/menu/customer/orders", getCustomerOrders);

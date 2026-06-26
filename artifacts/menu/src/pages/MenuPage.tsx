@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { normalizeRestaurantParam } from "@workspace/url-utils";
 import { lsGet, lsSet } from "./menu/utils";
@@ -12,6 +12,7 @@ import type {
   ViewState,
   RazorpayCheckoutState,
   PlacedOrderItem,
+  SessionLockState,
 } from "./menu/types";
 import { LoadingView } from "./menu/LoadingView";
 import { ErrorView } from "./menu/ErrorView";
@@ -22,6 +23,7 @@ import { CartView } from "./menu/CartView";
 import { MenuView } from "./menu/MenuView";
 import { PaymentBillView } from "./menu/PaymentBillView";
 import type { UploadStage } from "./menu/PaymentBillView";
+import { LockedSessionView } from "./menu/LockedSessionView";
 // Legacy Razorpay — only imported when VITE_ENABLE_CUSTOMER_RAZORPAY=true
 import { RazorpayCheckout } from "./menu/RazorpayCheckout";
 import type { RazorpayResponse } from "./menu/RazorpayCheckout";
@@ -91,6 +93,46 @@ export default function MenuPage() {
   const [razorpayCheckout, setRazorpayCheckout] = useState<(RazorpayCheckoutState & { customerName: string; customerPhone: string }) | null>(null);
   const [, setLocation] = useLocation();
 
+  // ── Session lock state ───────────────────────────────────────────────────
+  const [sessionLock, setSessionLock] = useState<SessionLockState | null>(null);
+  const loadLockCheckedRef = useRef(false);
+
+  const checkSessionStatus = useCallback(
+    async (phone: string, tableNum: string | null): Promise<SessionLockState | null> => {
+      if (!rawParam || (!phone && !tableNum)) return null;
+      try {
+        const qs: string[] = [];
+        if (phone) qs.push(`phone=${encodeURIComponent(phone)}`);
+        if (tableNum) qs.push(`tableNumber=${encodeURIComponent(tableNum)}`);
+        const r = await fetch(
+          `${BASE}/api/menu/${encodeURIComponent(rawParam)}/session-status?${qs.join("&")}`,
+        );
+        if (!r.ok) return null;
+        const data = await r.json() as {
+          locked: boolean;
+          lockType?: string;
+          billStatus?: string | null;
+          billTotal?: number | null;
+          billNumber?: string | null;
+          tableOwnedByThisPhone?: boolean;
+        };
+        if (data.locked && data.lockType) {
+          return {
+            lockType: data.lockType as SessionLockState["lockType"],
+            billStatus: data.billStatus ?? null,
+            billTotal: data.billTotal ?? null,
+            billNumber: data.billNumber ?? null,
+            tableOwnedByThisPhone: data.tableOwnedByThisPhone ?? false,
+          };
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    [rawParam],
+  );
+
   useEffect(() => {
     if (!rawParam) {
       setError("Invalid restaurant");
@@ -130,6 +172,38 @@ export default function MenuPage() {
       if (view === "landing") setView("menu");
     }
   }, [restaurant, orderType, view]);
+
+  // Load-time session lock check — fires once when restaurant + tables are ready
+  useEffect(() => {
+    if (!restaurant || loadLockCheckedRef.current) return;
+    loadLockCheckedRef.current = true;
+    const phone = lsGet("ts_phone").trim();
+    const tableEntry = params.tableId
+      ? tables.find((t) => t.id === parseInt(params.tableId!, 10))
+      : null;
+    const tableNum = tableEntry?.tableNumber ?? null;
+    if (!phone && !tableNum) return;
+    void checkSessionStatus(phone, tableNum).then((lock) => {
+      if (lock) setSessionLock(lock);
+    });
+  }, [restaurant, tables, params.tableId, checkSessionStatus]);
+
+  // 60-second poll while browsing the menu — detects bill generation in real-time
+  useEffect(() => {
+    if (view !== "menu" || sessionLock !== null || !restaurant) return;
+    const phone = customerPhone.trim();
+    const tableEntry = params.tableId
+      ? tables.find((t) => t.id === parseInt(params.tableId!, 10))
+      : null;
+    const tableNum = tableEntry?.tableNumber ?? (manualTableNumber.trim() || null);
+    if (!phone && !tableNum) return;
+    const id = setInterval(() => {
+      void checkSessionStatus(phone, tableNum).then((lock) => {
+        if (lock) setSessionLock(lock);
+      });
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [view, sessionLock, restaurant, customerPhone, tables, params.tableId, manualTableNumber, checkSessionStatus]);
 
   const addToCart = useCallback((item: MenuItemData) => {
     setCart((prev) => {
@@ -363,6 +437,25 @@ export default function MenuPage() {
 
   if (error || !restaurant) return <ErrorView error={error} />;
 
+  // ── Session lock guard (intercepts landing / menu / cart only) ──────────
+  if (sessionLock && (view === "landing" || view === "menu" || view === "cart")) {
+    return (
+      <LockedSessionView
+        lockType={sessionLock.lockType}
+        billStatus={sessionLock.billStatus}
+        billTotal={sessionLock.billTotal}
+        billNumber={sessionLock.billNumber}
+        tableOwnedByThisPhone={sessionLock.tableOwnedByThisPhone}
+        onBack={() => setSessionLock(null)}
+        onViewMyOrders={() =>
+          setLocation(
+            `/my-orders?rid=${rawParam}${params.tableId ? `&tid=${params.tableId}` : ""}`,
+          )
+        }
+      />
+    );
+  }
+
   if (view === "landing") {
     return (
       <LandingView
@@ -558,7 +651,18 @@ export default function MenuPage() {
       }}
       onSearch={setSearchQuery}
       onChangeMode={() => setView("landing")}
-      onOpenCart={() => setView("cart")}
+      onOpenCart={async () => {
+        const phone = customerPhone.trim();
+        const tableEntry = params.tableId
+          ? tables.find((t) => t.id === parseInt(params.tableId!, 10))
+          : null;
+        const tableNum = tableEntry?.tableNumber ?? (manualTableNumber.trim() || null);
+        if (phone || tableNum) {
+          const lock = await checkSessionStatus(phone, tableNum);
+          if (lock) { setSessionLock(lock); return; }
+        }
+        setView("cart");
+      }}
     />
   );
 }

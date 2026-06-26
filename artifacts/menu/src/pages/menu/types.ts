@@ -76,3 +76,11 @@ export interface PlacedOrderItem {
   unitPrice: number;
   isVeg: boolean;
 }
+
+export interface SessionLockState {
+  lockType: "bill_locked" | "table_occupied";
+  billStatus?: string | null;
+  billTotal?: number | null;
+  billNumber?: string | null;
+  tableOwnedByThisPhone?: boolean;
+}
