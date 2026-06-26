@@ -164,7 +164,7 @@ export default function RegisterPage() {
       await new Promise<void>((resolve, reject) => {
         const rzp = new window.Razorpay({
           key: orderRes.keyId,
-          amount: orderRes.amount,
+          amount: Math.round(orderRes.amount * 100), // Razorpay requires paise; orderRes.amount is in rupees
           currency: "INR",
           name: "Bitebend",
           description: `${orderRes.planName} Plan`,
@@ -242,9 +242,9 @@ export default function RegisterPage() {
     }
   };
 
-  const upiAmount = selectedPlan ? (selectedPlan.price / 100).toLocaleString("en-IN") : "";
+  const upiAmount = selectedPlan ? Number(selectedPlan.price).toLocaleString("en-IN") : "";
   const upiDeepLink = selectedPlan
-    ? `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(ACCOUNT_NAME)}&am=${selectedPlan.price / 100}&cu=INR&tn=${encodeURIComponent(`Bitebend ${selectedPlan.name} Plan`)}`
+    ? `upi://pay?pa=${UPI_ID}&pn=${encodeURIComponent(ACCOUNT_NAME)}&am=${selectedPlan.price}&cu=INR&tn=${encodeURIComponent(`Bitebend ${selectedPlan.name} Plan`)}`
     : "#";
 
   const steps = [
@@ -526,7 +526,7 @@ export default function RegisterPage() {
                               {selected && <Check className="w-4 h-4 text-orange-500" />}
                             </div>
                             <p className="text-2xl font-bold mb-0.5">
-                              ₹{(plan.price / 100).toLocaleString("en-IN")}
+                              ₹{Number(plan.price).toLocaleString("en-IN")}
                             </p>
                             <p className="text-xs text-slate-500 flex items-center gap-1 mb-1">
                               <Users className="w-3 h-3" />
@@ -564,7 +564,7 @@ export default function RegisterPage() {
                             <Loader2 className="w-4 h-4 animate-spin text-orange-500" />
                           ) : (
                             <span className="text-xs font-bold text-orange-600 group-hover:underline">
-                              ₹{(selectedPlan.price / 100).toLocaleString("en-IN")} →
+                              ₹{Number(selectedPlan.price).toLocaleString("en-IN")} →
                             </span>
                           )}
                         </button>
@@ -582,7 +582,7 @@ export default function RegisterPage() {
                             <p className="text-xs text-slate-400">GPay, PhonePe, NEFT</p>
                           </div>
                           <span className="text-xs font-bold text-green-600 group-hover:underline">
-                            ₹{(selectedPlan.price / 100).toLocaleString("en-IN")} →
+                            ₹{Number(selectedPlan.price).toLocaleString("en-IN")} →
                           </span>
                         </button>
                       </div>
@@ -631,7 +631,7 @@ export default function RegisterPage() {
                     <h2 className="text-2xl font-bold mb-1">Pay via UPI / Bank Transfer</h2>
                     <p className="text-slate-500 text-sm">
                       Transfer <span className="font-bold text-slate-800">
-                        ₹{(selectedPlan.price / 100).toLocaleString("en-IN")}
+                        ₹{Number(selectedPlan.price).toLocaleString("en-IN")}
                       </span> to complete your <span className="font-semibold">{selectedPlan.name}</span> plan subscription.
                     </p>
                   </div>
@@ -775,7 +775,7 @@ export default function RegisterPage() {
                     <span className="text-slate-500">Plan</span>
                     <span className={cn("font-semibold", selectedPlan ? "text-orange-600" : "text-slate-400")}>
                       {selectedPlan
-                        ? `${selectedPlan.name} — ₹${(selectedPlan.price / 100).toLocaleString("en-IN")}`
+                        ? `${selectedPlan.name} — ₹${Number(selectedPlan.price).toLocaleString("en-IN")}`
                         : "No plan — subscribe later"}
                     </span>
                   </div>

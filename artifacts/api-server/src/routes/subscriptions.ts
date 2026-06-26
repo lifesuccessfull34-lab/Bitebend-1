@@ -114,7 +114,7 @@ const createPlanOrder: RequestHandler = async (req, res) => {
 
     const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
     const order = await razorpay.orders.create({
-      amount: plan.price,
+      amount: Math.round(plan.price * 100), // Razorpay requires paise; plan.price is stored in rupees
       currency: "INR",
       receipt: `sub_${user.restaurantId}_${planId}_${Date.now()}`,
     });

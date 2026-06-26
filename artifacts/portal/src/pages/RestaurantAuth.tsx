@@ -425,7 +425,7 @@ function LeftPanel() {
   }, []);
 
   const cheapest = plans.find((p) => p.customerLimit !== 999999);
-  const planPrice = cheapest ? `From ₹${(cheapest.price / 100).toLocaleString("en-IN")}` : "Flexible pricing";
+  const planPrice = cheapest ? `From ₹${Number(cheapest.price).toLocaleString("en-IN")}` : "Flexible pricing";
   const planDesc = cheapest
     ? `${planPrice} for ${cheapest.customerLimit.toLocaleString()} customers`
     : "Usage-based plans starting at ₹199";

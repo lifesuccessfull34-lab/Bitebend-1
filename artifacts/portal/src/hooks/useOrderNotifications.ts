@@ -73,7 +73,7 @@ export function useOrderNotifications({ enabled, onNewOrder, onSessionScreenshot
 
         const table = order.tableNumber ? `Table ${order.tableNumber}` : "Take-away";
         const name = order.customerName ? ` · ${order.customerName}` : "";
-        const amount = `₹${(order.total / 100).toLocaleString("en-IN")}`;
+        const amount = `₹${Number(order.total).toLocaleString("en-IN")}`;
 
         toast({
           title: "New Order!",

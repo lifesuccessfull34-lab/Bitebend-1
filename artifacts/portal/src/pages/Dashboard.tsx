@@ -1051,7 +1051,7 @@ export default function Dashboard() {
                     )}
                     <div className="flex justify-between border-t pt-1 mt-1">
                       <span className="text-muted-foreground font-semibold">Total</span>
-                      <span className="font-bold text-foreground">₹{(activeBill.total / 100).toFixed(2)}</span>
+                      <span className="font-bold text-foreground">₹{Number(activeBill.total).toFixed(2)}</span>
                     </div>
                   </div>
                 )}

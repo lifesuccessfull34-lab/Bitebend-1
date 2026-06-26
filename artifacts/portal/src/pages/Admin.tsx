@@ -539,7 +539,7 @@ export default function Admin() {
     const unlimited = plan.customerLimit >= 999999;
     setPlanForm({
       name: plan.name,
-      price: String(plan.price / 100),
+      price: String(plan.price),
       customerLimit: unlimited ? "" : String(plan.customerLimit),
       isUnlimited: unlimited,
       description: plan.description ?? "",
@@ -553,7 +553,7 @@ export default function Admin() {
     setPlanSaving(true);
     const body = {
       name: planForm.name,
-      price: Math.round(parseFloat(planForm.price) * 100),
+      price: parseFloat(planForm.price),
       customerLimit: planForm.isUnlimited ? 999999 : parseInt(planForm.customerLimit),
       description: planForm.description || null,
       displayOrder: parseInt(planForm.displayOrder) || 0,
@@ -755,7 +755,7 @@ export default function Admin() {
       "City": c.city ?? "",
       "State": c.state ?? "",
       "Total Orders": c.totalOrders,
-      "Total Spent (₹)": (c.totalSpent / 100).toFixed(2),
+      "Total Spent (₹)": Number(c.totalSpent).toFixed(2),
       "Last Order Date": new Date(c.lastOrderAt).toLocaleDateString("en-IN", {
         day: "numeric", month: "short", year: "numeric",
       }),
@@ -873,7 +873,7 @@ export default function Admin() {
       "Customers Used": r.customersUsed,
       "Customer Limit": r.customerLimit >= 999999 ? "Unlimited" : r.customerLimit,
       "Total Orders": r.totalOrders,
-      "Total Revenue (₹)": (r.totalRevenue / 100).toFixed(2),
+      "Total Revenue (₹)": Number(r.totalRevenue).toFixed(2),
       "Status": r.subscriptionStatus,
       "Joined": new Date(r.createdAt).toLocaleDateString("en-IN", {
         day: "numeric", month: "short", year: "numeric",
@@ -990,9 +990,9 @@ export default function Admin() {
               <StatCard label="Quota Exhausted" value={stats?.exhaustedRestaurants ?? 0} icon={TrendingDown} color="bg-amber-100 text-amber-600"
                 accent={exhaustedRests > 0 ? "border-amber-200" : undefined} />
               <StatCard label="Total Orders" value={stats?.totalOrders ?? 0} icon={ShoppingBag} color="bg-indigo-100 text-indigo-600" />
-              <StatCard label="Order Revenue" value={`₹${((stats?.totalRevenue ?? 0) / 100).toLocaleString("en-IN")}`} icon={IndianRupee} color="bg-emerald-100 text-emerald-600" sub="From all orders" />
+              <StatCard label="Order Revenue" value={`₹${(stats?.totalRevenue ?? 0).toLocaleString("en-IN")}`} icon={IndianRupee} color="bg-emerald-100 text-emerald-600" sub="From all orders" />
               <StatCard label="Total Customers" value={stats?.totalCustomers ?? 0} icon={Users} color="bg-purple-100 text-purple-600" />
-              <StatCard label="Subscription Revenue" value={`₹${((stats?.subscriptionRevenue ?? 0) / 100).toLocaleString("en-IN")}`} icon={CreditCard} color="bg-indigo-100 text-indigo-600" sub="Total collected" />
+              <StatCard label="Subscription Revenue" value={`₹${(stats?.subscriptionRevenue ?? 0).toLocaleString("en-IN")}`} icon={CreditCard} color="bg-indigo-100 text-indigo-600" sub="Total collected" />
             </div>
 
             {/* Pending payments alert */}
@@ -1009,7 +1009,7 @@ export default function Admin() {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium text-sm">{(txn as any).restaurantName ?? `Restaurant #${txn.restaurantId}`}</p>
-                        <p className="text-xs text-slate-500">{txn.planName} · ₹{(txn.amount / 100).toLocaleString("en-IN")} · UPI</p>
+                        <p className="text-xs text-slate-500">{txn.planName} · ₹{Number(txn.amount).toLocaleString("en-IN")} · UPI</p>
                         {txn.razorpayPaymentId && (
                           <p className="text-xs font-mono mt-1 text-slate-700 bg-slate-100 rounded px-2 py-0.5 inline-block">
                             {txn.razorpayPaymentId.startsWith("UTR:") ? txn.razorpayPaymentId : `UTR: ${txn.razorpayPaymentId}`}
@@ -1486,7 +1486,7 @@ export default function Admin() {
                           {plan.isActive ? "Active" : "Inactive"}
                         </span>
                       </div>
-                      <p className="text-3xl font-bold text-indigo-600 mb-1">₹{(plan.price / 100).toLocaleString("en-IN")}</p>
+                      <p className="text-3xl font-bold text-indigo-600 mb-1">₹{Number(plan.price).toLocaleString("en-IN")}</p>
                       <p className="text-sm text-slate-500 flex items-center gap-1 mb-1">
                         <Users className="w-3.5 h-3.5" />
                         {plan.customerLimit >= 999999 ? "Unlimited" : plan.customerLimit.toLocaleString()} customers
@@ -1692,12 +1692,12 @@ export default function Admin() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
                 <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-1">Total Collected</p>
-                <p className="text-2xl font-bold text-emerald-700">₹{((paymentSettings?.collectedAmount ?? 0) / 100).toLocaleString("en-IN")}</p>
+                <p className="text-2xl font-bold text-emerald-700">₹{(paymentSettings?.collectedAmount ?? 0).toLocaleString("en-IN")}</p>
                 <p className="text-xs text-emerald-500 mt-0.5">Confirmed subscription revenue</p>
               </div>
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                 <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">Pending Payments</p>
-                <p className="text-2xl font-bold text-amber-700">₹{((paymentSettings?.pendingAmount ?? 0) / 100).toLocaleString("en-IN")}</p>
+                <p className="text-2xl font-bold text-amber-700">₹{(paymentSettings?.pendingAmount ?? 0).toLocaleString("en-IN")}</p>
                 <p className="text-xs text-amber-500 mt-0.5">{paymentSettings?.pendingCount ?? 0} transaction{(paymentSettings?.pendingCount ?? 0) !== 1 ? "s" : ""} awaiting confirmation</p>
               </div>
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
@@ -1821,7 +1821,7 @@ export default function Admin() {
                             <td className="px-4 py-3 text-slate-500 text-xs">{txn.restaurantState ?? <span className="text-slate-300">—</span>}</td>
                             <td className="px-4 py-3 text-slate-500 text-xs">{txn.restaurantDistrict ?? <span className="text-slate-300">—</span>}</td>
                             <td className="px-4 py-3 text-slate-500">{txn.planName}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-slate-800">₹{(txn.amount / 100).toLocaleString("en-IN")}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-800">₹{Number(txn.amount).toLocaleString("en-IN")}</td>
                             <td className="px-4 py-3">
                               {txn.paymentMethod === "razorpay" ? (
                                 <span className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">

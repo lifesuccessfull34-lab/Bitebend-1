@@ -281,7 +281,7 @@ const createRegistrationOrder: RequestHandler = async (req, res) => {
   const Razorpay = (await import("razorpay")).default;
   const razorpay = new Razorpay({ key_id: keyId, key_secret: keySecret });
   const order = await razorpay.orders.create({
-    amount: plan.price,
+    amount: Math.round(plan.price * 100), // Razorpay requires paise; plan.price is stored in rupees
     currency: "INR",
     receipt: `reg_plan_${planId}_${Date.now()}`,
   });

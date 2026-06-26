@@ -45,7 +45,7 @@ const listRestaurants: RequestHandler = async (_req, res) => {
     .select({
       restaurantId: orders.restaurantId,
       count: sql<number>`count(*)::int`,
-      revenue: sql<number>`coalesce(sum(total), 0)::int`,
+      revenue: sql<number>`coalesce(sum(total), 0)::float8`,
     })
     .from(orders)
     .groupBy(orders.restaurantId);
@@ -373,9 +373,9 @@ const getAdminStats: RequestHandler = async (_req, res) => {
   const [activeRest] = await db.select({ count: sql<number>`count(*)::int` }).from(restaurants).where(eq(restaurants.isActive, true));
   const [suspendedRest] = await db.select({ count: sql<number>`count(*)::int` }).from(restaurants).where(eq(restaurants.subscriptionStatus, "suspended"));
   const [exhaustedRest] = await db.select({ count: sql<number>`count(*)::int` }).from(restaurants).where(eq(restaurants.subscriptionStatus, "exhausted"));
-  const [orderStats] = await db.select({ count: sql<number>`count(*)::int`, revenue: sql<number>`coalesce(sum(total), 0)::int` }).from(orders);
+  const [orderStats] = await db.select({ count: sql<number>`count(*)::int`, revenue: sql<number>`coalesce(sum(total), 0)::float8` }).from(orders);
   const [customerStats] = await db.select({ count: sql<number>`count(distinct customer_phone)::int` }).from(orders);
-  const [subRev] = await db.select({ total: sql<number>`coalesce(sum(amount), 0)::int` }).from(subscriptionTransactions).where(eq(subscriptionTransactions.status, "paid"));
+  const [subRev] = await db.select({ total: sql<number>`coalesce(sum(amount), 0)::float8` }).from(subscriptionTransactions).where(eq(subscriptionTransactions.status, "paid"));
 
   res.json({
     totalRestaurants: totalRest?.count ?? 0,
@@ -450,7 +450,7 @@ const listCustomers: RequestHandler = async (req, res) => {
       customerPhone: orders.customerPhone,
       customerName: orders.customerName,
       orderCount: sql<number>`count(*)::int`,
-      spent: sql<number>`coalesce(sum(${orders.total}), 0)::int`,
+      spent: sql<number>`coalesce(sum(${orders.total}), 0)::float8`,
       lastOrderAt: sql<string>`max(${orders.createdAt})::text`,
       restaurantName: restaurants.name,
       state: restaurants.state,
@@ -555,11 +555,11 @@ const getPaymentSettings: RequestHandler = async (_req, res) => {
   const razorpayConfigured = !!(keyId && keySecret);
 
   const [pendingRow] = await db
-    .select({ count: sql<number>`count(*)::int`, total: sql<number>`coalesce(sum(amount),0)::int` })
+    .select({ count: sql<number>`count(*)::int`, total: sql<number>`coalesce(sum(amount),0)::float8` })
     .from(subscriptionTransactions)
     .where(eq(subscriptionTransactions.status, "pending"));
   const [paidRow] = await db
-    .select({ total: sql<number>`coalesce(sum(amount),0)::int` })
+    .select({ total: sql<number>`coalesce(sum(amount),0)::float8` })
     .from(subscriptionTransactions)
     .where(eq(subscriptionTransactions.status, "paid"));
 

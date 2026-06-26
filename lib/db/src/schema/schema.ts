@@ -1,6 +1,7 @@
 import {
   boolean,
   check,
+  doublePrecision,
   index,
   integer,
   pgTable,
@@ -14,7 +15,7 @@ import { sql } from "drizzle-orm";
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  price: integer("price").notNull().default(0),
+  price: doublePrecision("price").notNull().default(0),
   customerLimit: integer("customer_limit").notNull().default(0),
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
@@ -74,7 +75,7 @@ export const restaurants = pgTable("restaurants", {
   approvalStatus: text("approval_status", { enum: ["pending", "approved", "rejected"] }).notNull().default("approved"),
   approvalNote: text("approval_note"),
   subscriptionPlan: text("subscription_plan", { enum: ["free", "basic", "premium"] }).notNull().default("free"),
-  subscriptionFee: integer("subscription_fee").notNull().default(0),
+  subscriptionFee: doublePrecision("subscription_fee").notNull().default(0),
   subscriptionExpiresAt: timestamp("subscription_expires_at"),
   planId: integer("plan_id").references(() => subscriptionPlans.id),
   customersUsed: integer("customers_used").notNull().default(0),
@@ -93,7 +94,7 @@ export const subscriptionTransactions = pgTable("subscription_transactions", {
   id: serial("id").primaryKey(),
   restaurantId: integer("restaurant_id").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
   planId: integer("plan_id").notNull().references(() => subscriptionPlans.id),
-  amount: integer("amount").notNull(),
+  amount: doublePrecision("amount").notNull(),
   paymentMethod: text("payment_method").notNull().default("razorpay"),
   razorpayOrderId: text("razorpay_order_id"),
   razorpayPaymentId: text("razorpay_payment_id"),
@@ -132,7 +133,7 @@ export const menuItems = pgTable("menu_items", {
     .references(() => menuCategories.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
-  price: integer("price").notNull(),
+  price: doublePrecision("price").notNull(),
   imageUrl: text("image_url"),
   isAvailable: boolean("is_available").notNull().default(true),
   isVeg: boolean("is_veg").notNull().default(true),
@@ -228,9 +229,9 @@ export const orders = pgTable(
   })
     .notNull()
     .default("ordered"),
-  subtotal: integer("subtotal").notNull(),
-  tax: integer("tax").notNull().default(0),
-  total: integer("total").notNull(),
+  subtotal: doublePrecision("subtotal").notNull(),
+  tax: doublePrecision("tax").notNull().default(0),
+  total: doublePrecision("total").notNull(),
   paymentStatus: text("payment_status", { enum: ["unpaid", "paid", "manual_review", "awaiting_verification"] })
     .notNull()
     .default("unpaid"),
@@ -271,7 +272,7 @@ export const orderItems = pgTable("order_items", {
     .references(() => menuItems.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   quantity: integer("quantity").notNull(),
-  unitPrice: integer("unit_price").notNull(),
+  unitPrice: doublePrecision("unit_price").notNull(),
   isVeg: boolean("is_veg").notNull().default(true),
   notes: text("notes"),
 });
@@ -331,9 +332,9 @@ export const sessionBills = pgTable(
       .notNull()
       .references(() => restaurants.id, { onDelete: "cascade" }),
     billNumber: text("bill_number").notNull().unique(),
-    subtotal: integer("subtotal").notNull(),
-    tax: integer("tax").notNull().default(0),
-    total: integer("total").notNull(),
+    subtotal: doublePrecision("subtotal").notNull(),
+    tax: doublePrecision("tax").notNull().default(0),
+    total: doublePrecision("total").notNull(),
     status: text("status", {
       enum: ["generated", "sent", "awaiting_verification", "paid", "cancelled"],
     })

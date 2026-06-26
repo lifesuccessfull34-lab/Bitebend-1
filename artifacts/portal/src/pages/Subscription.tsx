@@ -142,7 +142,7 @@ export default function Subscription() {
       await new Promise<void>((resolve, reject) => {
         const rzp = new window.Razorpay({
           key: orderRes.keyId,
-          amount: orderRes.amount,
+          amount: Math.round(orderRes.amount * 100), // Razorpay requires paise; orderRes.amount is in rupees
           currency: "INR",
           name: "Bitebend",
           description: `${orderRes.planName} Plan — Recharge`,
@@ -375,7 +375,7 @@ export default function Subscription() {
                     </div>
                     {isCurrent && <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">Current</span>}
                   </div>
-                  <p className="text-3xl font-bold mb-1">₹{(plan.price / 100).toLocaleString("en-IN")}</p>
+                  <p className="text-3xl font-bold mb-1">₹{Number(plan.price).toLocaleString("en-IN")}</p>
                   <p className="text-sm text-muted-foreground flex items-center gap-1 mb-1">
                     <Users className="w-3.5 h-3.5" />
                     {plan.customerLimit >= 999999 ? "Unlimited" : plan.customerLimit.toLocaleString()} customers
@@ -430,7 +430,7 @@ export default function Subscription() {
                       )}
                     </div>
                     <div className="text-right">
-                      <p className="font-bold text-sm">₹{(txn.amount / 100).toLocaleString("en-IN")}</p>
+                      <p className="font-bold text-sm">₹{Number(txn.amount).toLocaleString("en-IN")}</p>
                       <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", txn.status === "paid" ? "bg-green-100 text-green-700" : txn.status === "pending" ? "bg-yellow-100 text-yellow-700" : "bg-red-100 text-red-600")}>
                         {txn.status}
                       </span>
@@ -489,7 +489,7 @@ export default function Subscription() {
               <div>
                 <h2 className="font-bold text-base">Choose Payment Method</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {methodPickerPlan.name} Plan — ₹{(methodPickerPlan.price / 100).toLocaleString("en-IN")}
+                  {methodPickerPlan.name} Plan — ₹{Number(methodPickerPlan.price).toLocaleString("en-IN")}
                 </p>
               </div>
               <button
@@ -609,7 +609,7 @@ export default function Subscription() {
                     <div className="text-right">
                       <p className="text-xs text-muted-foreground">Amount to pay</p>
                       <p className="text-2xl font-bold text-orange-600">
-                        ₹{(upiModal.amount / 100).toLocaleString("en-IN")}
+                        ₹{Number(upiModal.amount).toLocaleString("en-IN")}
                       </p>
                     </div>
                   </div>
@@ -635,7 +635,7 @@ export default function Subscription() {
                     </div>
                     <p className="text-xs text-muted-foreground mt-1.5 pl-7">
                       Open any UPI app (PhonePe, GPay, Paytm, BHIM) and send exactly{" "}
-                      <span className="font-semibold text-foreground">₹{(upiModal.amount / 100).toLocaleString("en-IN")}</span>
+                      <span className="font-semibold text-foreground">₹{Number(upiModal.amount).toLocaleString("en-IN")}</span>
                     </p>
                   </div>
 
