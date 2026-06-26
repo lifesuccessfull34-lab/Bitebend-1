@@ -144,7 +144,7 @@ export function LockedSessionView({
             >
               <span style={{ fontSize: "13px", color: C.textLight, fontWeight: 500 }}>Bill Amount</span>
               <span style={{ fontSize: "22px", fontWeight: 800, color: C.orange }}>
-                ₹{billTotal}
+                ₹{(billTotal / 100).toFixed(2)}
               </span>
             </div>
           )}
