@@ -1,8 +1,25 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "rxw1yXIfWyai42OVTydN0"
 uri = "file://artifacts/portal/public/restaurant-hero.png"
 type = "image"
 title = "phone scanning qr code restaurant menu"
+
+[[outputs]]
+id = "mncm8LtEMCczm8S5sHq6C"
+uri = "file://screenshots/v1-locked-session-view.png"
+type = "image"
+title = "Verification 1 — LockedSessionView on load"
+
+[[outputs]]
+id = "OfdA249W9IkYN4awVKUVf"
+uri = "file://screenshots/v2-before-bill.png"
+type = "image"
+title = "Verification 2 — Before: customer browsing menu normally"
+
+[[outputs]]
+id = "5UAIixXdclX9kXdSBVadQ"
+uri = "file://screenshots/v2-after-poll.png"
+type = "image"
+title = "Verification 2 — After: LockedSessionView auto-appeared via 60s poll"

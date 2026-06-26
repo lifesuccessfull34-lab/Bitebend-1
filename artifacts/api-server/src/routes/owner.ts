@@ -1547,6 +1547,7 @@ const generateBill: RequestHandler = async (req, res) => {
         tax,
         total,
         status: "generated",
+        customerPhone: session.customerPhone ?? null,
       })
       .returning();
 
