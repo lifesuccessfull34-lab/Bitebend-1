@@ -59,8 +59,8 @@ function fmtDateTime(iso: string) {
   return `${fmtDate(iso)} ${fmtTime(iso)}`;
 }
 
-function rupees(paise: number) {
-  return `₹${(paise / 100).toFixed(2)}`;
+function rupees(amount: number) {
+  return `₹${Number(amount).toFixed(2)}`;
 }
 
 const BILL_STATUS_CONFIG: Record<

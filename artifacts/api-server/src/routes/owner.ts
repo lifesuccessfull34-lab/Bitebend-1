@@ -1695,13 +1695,13 @@ const sendSessionBill: RequestHandler = async (req, res) => {
       .from(orderItems)
       .where(eq(orderItems.orderId, order.id));
     for (const item of lineItems) {
-      itemLines += `  • ${item.quantity}× ${item.name} — ₹${((item.unitPrice * item.quantity) / 100).toFixed(2)}\n`;
+      itemLines += `  • ${item.quantity}× ${item.name} — ₹${(item.unitPrice * item.quantity).toFixed(2)}\n`;
     }
   }
 
-  const totalStr = (bill.total / 100).toFixed(2);
-  const subtotalStr = (bill.subtotal / 100).toFixed(2);
-  const taxStr = (bill.tax / 100).toFixed(2);
+  const totalStr = Number(bill.total).toFixed(2);
+  const subtotalStr = Number(bill.subtotal).toFixed(2);
+  const taxStr = Number(bill.tax).toFixed(2);
 
   let message = `🧾 *Bill — ${restaurantName}*\n`;
   message += `${tablePrefix}: *${tableLabel}*\n`;
@@ -2690,14 +2690,14 @@ const resendHistoryBill: RequestHandler = async (req, res) => {
   for (const order of sessionOrders) {
     const lineItems = itemsByOrder.get(order.id) ?? [];
     for (const item of lineItems) {
-      itemLines += `  • ${item.quantity}× ${item.name} — ₹${((item.unitPrice * item.quantity) / 100).toFixed(2)}\n`;
+      itemLines += `  • ${item.quantity}× ${item.name} — ₹${(item.unitPrice * item.quantity).toFixed(2)}\n`;
     }
   }
 
   const upiId = restaurant.upiId ?? null;
-  const totalStr = (bill.total / 100).toFixed(2);
-  const subtotalStr = (bill.subtotal / 100).toFixed(2);
-  const taxStr = (bill.tax / 100).toFixed(2);
+  const totalStr = Number(bill.total).toFixed(2);
+  const subtotalStr = Number(bill.subtotal).toFixed(2);
+  const taxStr = Number(bill.tax).toFixed(2);
 
   const resendTableLabel = deriveTableLabel(sessionOrders, session.tableNumber);
   const resendTablePrefix = (() => {
