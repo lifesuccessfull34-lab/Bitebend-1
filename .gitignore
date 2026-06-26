@@ -55,3 +55,10 @@ services/whatsapp-bridge/sessions/
 # Replit workspace artifacts (not part of the project)
 zipFile.zip
 attached_assets/
+
+# WhatsApp runtime uploads
+services/whatsapp-bridge/uploads/*
+!services/whatsapp-bridge/uploads/.gitkeep
+
+# WhatsApp Web cache
+services/whatsapp-bridge/.wwebjs_cache/
