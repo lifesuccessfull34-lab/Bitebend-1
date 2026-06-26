@@ -84,6 +84,10 @@
   --app-font-mono: Menlo, monospace;
   --radius: .75rem;
 
+  /* Static fallback for browsers without CSS relative color syntax
+   * (Samsung Internet < 23, Firefox < 128, Chrome < 119).
+   * Computed equivalent of hsl(24deg 95% 45%) — primary hue at -8% lightness. */
+  --primary-border: hsl(24deg 95% 45%);
   --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --secondary-border: hsl(var(--secondary));
   --muted-border: hsl(var(--muted));
@@ -222,6 +226,11 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 button, a, [role="button"] { touch-action: manipulation; }
+/* Button border/background reset — Tailwind preflight is inside @layer and is silently
+ * dropped by Samsung Internet ≤18. Without this, those browsers render native button
+ * borders and padding around every <button> that doesn't set border: none inline.
+ * Inline styles always win over these rules, so no existing styled button is affected. */
+button { border-width: 0; border-style: solid; background-color: transparent; padding: 0; }
 
 /* ── Display ─────────────────────────────────────────────────────────────── */
 .flex           { display: flex; }

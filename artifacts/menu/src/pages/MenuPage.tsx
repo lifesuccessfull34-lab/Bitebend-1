@@ -97,15 +97,36 @@ export default function MenuPage() {
   const [sessionLock, setSessionLock] = useState<SessionLockState | null>(null);
   const loadLockCheckedRef = useRef(false);
 
+  // ── Back-forward cache (bfcache) — Safari iOS / Chrome ──────────────────
+  // When the user navigates away and returns via the browser back button,
+  // Safari/Chrome may restore the page from bfcache without re-running
+  // useEffect hooks. This counter increments on each bfcache restore, which
+  // forces the polling and load-time check effects to re-run.
+  const [pageShowCount, setPageShowCount] = useState(0);
+  useEffect(() => {
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        // Restored from bfcache — reset load-time check gate and trigger effects
+        loadLockCheckedRef.current = false;
+        setPageShowCount((c) => c + 1);
+      }
+    };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, []);
+
   const checkSessionStatus = useCallback(
     async (phone: string, tableNum: string | null): Promise<SessionLockState | null> => {
       if (!rawParam || (!phone && !tableNum)) return null;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
       try {
         const qs: string[] = [];
         if (phone) qs.push(`phone=${encodeURIComponent(phone)}`);
         if (tableNum) qs.push(`tableNumber=${encodeURIComponent(tableNum)}`);
         const r = await fetch(
           `${BASE}/api/menu/${encodeURIComponent(rawParam)}/session-status?${qs.join("&")}`,
+          { signal: controller.signal },
         );
         if (!r.ok) return null;
         const data = await r.json() as {
@@ -128,6 +149,8 @@ export default function MenuPage() {
         return null;
       } catch {
         return null;
+      } finally {
+        clearTimeout(timer);
       }
     },
     [rawParam],
@@ -173,7 +196,8 @@ export default function MenuPage() {
     }
   }, [restaurant, orderType, view]);
 
-  // Load-time session lock check — fires once when restaurant + tables are ready
+  // Load-time session lock check — fires once when restaurant + tables are ready.
+  // Also re-fires after bfcache restore (pageShowCount bump resets loadLockCheckedRef).
   useEffect(() => {
     if (!restaurant || loadLockCheckedRef.current) return;
     loadLockCheckedRef.current = true;
@@ -186,9 +210,10 @@ export default function MenuPage() {
     void checkSessionStatus(phone, tableNum).then((lock) => {
       if (lock) setSessionLock(lock);
     });
-  }, [restaurant, tables, params.tableId, checkSessionStatus]);
+  }, [restaurant, tables, params.tableId, checkSessionStatus, pageShowCount]);
 
-  // 60-second poll while browsing the menu — detects bill generation in real-time
+  // 60-second poll while browsing the menu — detects bill generation in real-time.
+  // pageShowCount restarts the interval after bfcache restoration.
   useEffect(() => {
     if (view !== "menu" || sessionLock !== null || !restaurant) return;
     const phone = customerPhone.trim();
@@ -203,7 +228,7 @@ export default function MenuPage() {
       });
     }, 60_000);
     return () => clearInterval(id);
-  }, [view, sessionLock, restaurant, customerPhone, tables, params.tableId, manualTableNumber, checkSessionStatus]);
+  }, [view, sessionLock, restaurant, customerPhone, tables, params.tableId, manualTableNumber, checkSessionStatus, pageShowCount]);
 
   const addToCart = useCallback((item: MenuItemData) => {
     setCart((prev) => {
@@ -314,28 +339,45 @@ export default function MenuPage() {
           ? `${selectedArea} · ${manualTableNumber.trim()}`
           : manualTableNumber.trim()
         : null;
-    const res = await fetch(`${BASE}/api/menu/${restaurant!.id}/orders`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tableId: selectedTableId,
-        tableNumber: tableNum,
-        customerName: customerName.trim(),
-        customerPhone: customerPhone.trim(),
-        notes:
-          [
-            orderType === "take_away" ? "Take Away" : null,
-            extraNotes ?? null,
-            notes.trim() || null,
-          ]
-            .filter(Boolean)
-            .join(" · ") || undefined,
-        items: cart.map((c) => ({ menuItemId: c.item.id, quantity: c.quantity })),
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error ?? "Failed to place order");
-    return data;
+    // 15-second timeout — prevents placing=true getting permanently stuck if server hangs
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const res = await fetch(`${BASE}/api/menu/${restaurant!.id}/orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tableId: selectedTableId,
+          tableNumber: tableNum,
+          customerName: customerName.trim(),
+          customerPhone: customerPhone.trim(),
+          notes:
+            [
+              orderType === "take_away" ? "Take Away" : null,
+              extraNotes ?? null,
+              notes.trim() || null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined,
+          items: cart.map((c) => ({ menuItemId: c.item.id, quantity: c.quantity })),
+        }),
+        signal: controller.signal,
+      });
+      // Read json-safely: non-JSON error pages (502 etc.) should not crash here
+      if (!res.ok) {
+        let msg = "Failed to place order";
+        try { const d = await res.json(); msg = (d as { error?: string }).error ?? msg; } catch { /* non-JSON body */ }
+        throw new Error(msg);
+      }
+      return await res.json();
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error("Request timed out. Please check with restaurant staff if your order was received.");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   const handlePlaceOrder = async (e: React.FormEvent) => {
@@ -400,6 +442,9 @@ export default function MenuPage() {
   const handleUploadProof = async (file: File, forceReplace = false) => {
     if (!orderId || !restaurant) return;
     setUploadStage("uploading");
+    // 60-second timeout — covers large screenshots on slow mobile connections
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -414,6 +459,7 @@ export default function MenuPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type, forceReplace }),
+          signal: controller.signal,
         },
       );
       if (res.status === 409) {
@@ -422,9 +468,14 @@ export default function MenuPage() {
       }
       const data = await res.json();
       setProofResult(data as ProofResult);
-    } catch {
-      setProofResult({ ocrConfigured: false, error: "Upload failed. Please try again." });
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.name === "AbortError"
+          ? "Upload timed out. Please check your connection and try again."
+          : "Upload failed. Please try again.";
+      setProofResult({ ocrConfigured: false, error: msg });
     } finally {
+      clearTimeout(timer);
       setUploadStage("idle");
     }
   };

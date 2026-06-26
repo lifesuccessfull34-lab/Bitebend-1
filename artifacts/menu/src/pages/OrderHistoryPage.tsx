@@ -161,6 +161,9 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
   // ── Upload handler (mirrors MenuPage.handleUploadProof exactly) ───────────
   const handleUploadProof = useCallback(async (file: File, forceReplace = false) => {
     setUploadStage("uploading");
+    // 60-second timeout — covers large screenshots on slow mobile connections
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -175,6 +178,7 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type, forceReplace }),
+          signal: controller.signal,
         },
       );
       if (res.status === 409) {
@@ -184,9 +188,14 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
       const data = await res.json() as ProofResult;
       setProofResult(data);
       onRefresh();
-    } catch {
-      setProofResult({ ocrConfigured: false, error: "Upload failed. Please try again." });
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.name === "AbortError"
+          ? "Upload timed out. Please check your connection and try again."
+          : "Upload failed. Please try again.";
+      setProofResult({ ocrConfigured: false, error: msg });
     } finally {
+      clearTimeout(timer);
       setUploadStage("idle");
     }
   }, [order.restaurantId, order.id, onRefresh]);
@@ -602,15 +611,26 @@ export default function OrderHistoryPage() {
     if (!phone.trim()) return;
     setLoading(true);
     setError("");
+    // 10-second timeout — prevents loading=true getting permanently stuck if server hangs
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const res = await fetch(`${BASE}/api/menu/customer/orders?phone=${encodeURIComponent(phone.trim())}`);
+      const res = await fetch(
+        `${BASE}/api/menu/customer/orders?phone=${encodeURIComponent(phone.trim())}`,
+        { signal: controller.signal },
+      );
       const data = await res.json() as CustomerOrder[] | { error: string };
       if (!res.ok) throw new Error((data as { error: string }).error ?? "Failed to fetch orders");
       setOrders(data as CustomerOrder[]);
       setSearched(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch orders");
+      const msg =
+        err instanceof Error && err.name === "AbortError"
+          ? "Request timed out. Please check your connection and try again."
+          : err instanceof Error ? err.message : "Failed to fetch orders";
+      setError(msg);
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }, []);
