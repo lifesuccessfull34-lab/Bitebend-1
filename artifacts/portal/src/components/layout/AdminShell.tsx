@@ -29,7 +29,8 @@ export type AdminSection =
   | "notifications"
   | "legal"
   | "bills"
-  | "resources";
+  | "resources"
+  | "security";
 
 interface NavItem {
   key: AdminSection;
@@ -172,4 +173,5 @@ export const ADMIN_NAV_ITEMS = (
   { key: "legal", label: "Legal Pages", icon: FileText },
   { key: "bills", label: "Bill Metrics", icon: Receipt },
   { key: "resources", label: "Tutorials", icon: BookOpen },
+  { key: "security", label: "Security", icon: Shield },
 ];

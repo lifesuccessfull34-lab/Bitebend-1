@@ -5,9 +5,9 @@
  * Bitebend QR Restaurant Marketplace API
  * OpenAPI spec version: 1.0.0
  */
-import type { Order } from './order';
-import type { OrderItem } from './orderItem';
 
-export type OrderWithItems = Order & {
-  items: OrderItem[];
-};
+export interface SensitiveAuthVerifyResponse {
+  ok: boolean;
+  /** Unix timestamp (ms) when the session unlock expires */
+  expiresAt: number;
+}

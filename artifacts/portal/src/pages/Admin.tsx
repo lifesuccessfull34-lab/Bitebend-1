@@ -3,6 +3,9 @@ import { useLocation } from "wouter";
 import { AdminShell, ADMIN_NAV_ITEMS } from "@/components/layout/AdminShell";
 import type { AdminSection } from "@/components/layout/AdminShell";
 import { apiFetch, ApiError } from "@/lib/api";
+import { useSensitiveAuth } from "@/hooks/useSensitiveAuth";
+import type { SensitiveAuthStatus } from "@/hooks/useSensitiveAuth";
+import { SensitiveAuthDialog } from "@/components/SensitiveAuthDialog";
 import type {
   RestaurantWithOwner, AdminStats, AdminCustomer,
   SubscriptionPlan, SubscriptionTransaction, Notification, Order,
@@ -18,7 +21,7 @@ import {
   LayoutDashboard, TrendingDown, KeyRound, Copy, Eye, EyeOff,
   Filter, ChevronDown, Smartphone, ShieldCheck, Pencil, Clock,
   FileText, ScrollText, ExternalLink, Download, FileSpreadsheet,
-  Receipt, BookOpen, Database,
+  Receipt, BookOpen, Database, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATE_NAMES, getDistricts } from "@/data/india-states-districts";
@@ -353,6 +356,21 @@ export default function Admin() {
   const [rzpSaving, setRzpSaving] = useState(false);
   const [rzpShowSecret, setRzpShowSecret] = useState(false);
 
+  // ── Sensitive Action Auth ──
+  const {
+    isUnlocked: sensitiveUnlocked,
+    expiresAt: sensitiveExpiresAt,
+    checking: sensitiveChecking,
+    triggerSensitiveAction,
+    openChangeDialog: openSensitiveChangeDialog,
+    lock: lockSensitiveSession,
+    dialogState: sensitiveDialogState,
+  } = useSensitiveAuth();
+
+  const [sensitiveStatus, setSensitiveStatus] = useState<SensitiveAuthStatus | null>(null);
+  const [sensitiveStatusLoading, setSensitiveStatusLoading] = useState(false);
+  const [sensitiveCountdown, setSensitiveCountdown] = useState(0);
+
   const fetchData = useCallback(async () => {
     try {
       const [rests, s, custs, plns, txns, ps, bs, rs, dbh] = await Promise.all([
@@ -384,6 +402,34 @@ export default function Admin() {
   }, [handleAuthError]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Fetch sensitive auth status when Security tab is open
+  useEffect(() => {
+    if (tab !== "security") return;
+    setSensitiveStatusLoading(true);
+    apiFetch<SensitiveAuthStatus>("/admin/sensitive-auth/status")
+      .then(setSensitiveStatus)
+      .catch(() => {})
+      .finally(() => setSensitiveStatusLoading(false));
+  }, [tab]);
+
+  // Refresh security-tab status whenever the dialog closes (covers setup, change, cancel)
+  useEffect(() => {
+    if (sensitiveDialogState !== null || tab !== "security") return;
+    apiFetch<SensitiveAuthStatus>("/admin/sensitive-auth/status")
+      .then(setSensitiveStatus)
+      .catch(() => {});
+  }, [sensitiveDialogState, tab]);
+
+  // Real-time countdown for the unlock window
+  useEffect(() => {
+    const target = sensitiveExpiresAt ?? sensitiveStatus?.expiresAt ?? null;
+    if (!target) { setSensitiveCountdown(0); return; }
+    const tick = () => setSensitiveCountdown(Math.max(0, Math.ceil((target - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [sensitiveExpiresAt, sensitiveStatus?.expiresAt]);
 
   const handleToggle = async (id: number) => {
     setActionId(id); setActionError(null);
@@ -762,47 +808,64 @@ export default function Admin() {
       "Restaurants": c.restaurants.join("; "),
     }));
 
-  const handleExportCSV = () => {
-    setExportingCSV(true);
-    try {
-      const rows = buildExportRows();
-      if (rows.length === 0) return;
-      const headers = Object.keys(rows[0]);
-      const csv = [
-        headers.join(","),
-        ...rows.map((r) =>
-          Object.values(r)
-            .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-            .join(",")
-        ),
-      ].join("\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = buildExportFilename("csv");
-      a.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setExportingCSV(false);
+  const downloadBackendExport = async (
+    endpoint: string,
+    params: Record<string, string>,
+    fallbackFilename: string,
+  ): Promise<void> => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => Boolean(v) && v !== "all")
+    ).toString();
+    const url = `/api${endpoint}${qs ? `?${qs}` : ""}`;
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(body.error ?? `Export failed (${res.status})`);
     }
+    const disp = res.headers.get("Content-Disposition") ?? "";
+    const match = disp.match(/filename="([^"]+)"/);
+    const filename = match?.[1] ?? fallbackFilename;
+    const blob = await res.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objUrl;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(objUrl);
+  };
+
+  const handleExportCSV = () => {
+    triggerSensitiveAction(async () => {
+      setExportingCSV(true);
+      try {
+        await downloadBackendExport(
+          "/admin/export/customers.csv",
+          { state: custFilterState, district: custFilterDistrict, city: custFilterCity, search: custSearch },
+          buildExportFilename("csv"),
+        );
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setExportingCSV(false);
+      }
+    });
   };
 
   const handleExportXLSX = () => {
-    setExportingXLSX(true);
-    try {
-      const rows = buildExportRows();
-      const ws = XLSX.utils.json_to_sheet(rows);
-      ws["!cols"] = [
-        { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 18 },
-        { wch: 13 }, { wch: 16 }, { wch: 18 }, { wch: 36 },
-      ];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Customers");
-      XLSX.writeFile(wb, buildExportFilename("xlsx"));
-    } finally {
-      setExportingXLSX(false);
-    }
+    triggerSensitiveAction(async () => {
+      setExportingXLSX(true);
+      try {
+        await downloadBackendExport(
+          "/admin/export/customers.xlsx",
+          { state: custFilterState, district: custFilterDistrict, city: custFilterCity, search: custSearch },
+          buildExportFilename("xlsx"),
+        );
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setExportingXLSX(false);
+      }
+    });
   };
 
   const txnDistricts = useMemo(() =>
@@ -881,48 +944,37 @@ export default function Admin() {
     }));
 
   const handleExportRestCSV = () => {
-    setExportingRestCSV(true);
-    try {
-      const rows = buildRestExportRows();
-      if (rows.length === 0) return;
-      const headers = Object.keys(rows[0]);
-      const csv = [
-        headers.join(","),
-        ...rows.map((r) =>
-          Object.values(r)
-            .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-            .join(",")
-        ),
-      ].join("\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = buildRestExportFilename("csv");
-      a.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setExportingRestCSV(false);
-    }
+    triggerSensitiveAction(async () => {
+      setExportingRestCSV(true);
+      try {
+        await downloadBackendExport(
+          "/admin/export/restaurants.csv",
+          { state: filterState, district: filterDistrict },
+          buildRestExportFilename("csv"),
+        );
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setExportingRestCSV(false);
+      }
+    });
   };
 
   const handleExportRestXLSX = () => {
-    setExportingRestXLSX(true);
-    try {
-      const rows = buildRestExportRows();
-      const ws = XLSX.utils.json_to_sheet(rows);
-      ws["!cols"] = [
-        { wch: 24 }, { wch: 26 }, { wch: 16 }, { wch: 16 },
-        { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 14 },
-        { wch: 14 }, { wch: 14 }, { wch: 13 }, { wch: 16 },
-        { wch: 12 }, { wch: 16 },
-      ];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Restaurants");
-      XLSX.writeFile(wb, buildRestExportFilename("xlsx"));
-    } finally {
-      setExportingRestXLSX(false);
-    }
+    triggerSensitiveAction(async () => {
+      setExportingRestXLSX(true);
+      try {
+        await downloadBackendExport(
+          "/admin/export/restaurants.xlsx",
+          { state: filterState, district: filterDistrict },
+          buildRestExportFilename("xlsx"),
+        );
+      } catch (e) {
+        setActionError((e as Error).message);
+      } finally {
+        setExportingRestXLSX(false);
+      }
+    });
   };
 
   // ── Page header ──
@@ -936,6 +988,7 @@ export default function Admin() {
     legal: { title: "Legal Pages", desc: "Terms & Conditions · Privacy Policy", icon: FileText },
     bills: { title: "Bill Metrics", desc: "Payment bill delivery analytics", icon: Receipt },
     resources: { title: "Tutorials", desc: `${adminResources.length} tutorials · ${adminResources.filter((r) => r.approvalStatus === "pending").length} pending`, icon: BookOpen },
+    security: { title: "Security", desc: "Sensitive action password & access controls", icon: ShieldCheck },
   };
   const current = PAGE_TITLES[tab];
 
@@ -1269,22 +1322,22 @@ export default function Admin() {
               {/* Export buttons */}
               <button
                 onClick={handleExportRestCSV}
-                disabled={exportingRestCSV || filteredRestaurants.length === 0}
+                disabled={exportingRestCSV || sensitiveChecking || filteredRestaurants.length === 0}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Export as CSV"
+                title="Export as CSV (requires Sensitive Action Password)"
               >
-                {exportingRestCSV
+                {exportingRestCSV || sensitiveChecking
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : <Download className="w-3.5 h-3.5" />}
                 CSV
               </button>
               <button
                 onClick={handleExportRestXLSX}
-                disabled={exportingRestXLSX || filteredRestaurants.length === 0}
+                disabled={exportingRestXLSX || sensitiveChecking || filteredRestaurants.length === 0}
                 className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Export as Excel"
+                title="Export as Excel (requires Sensitive Action Password)"
               >
-                {exportingRestXLSX
+                {exportingRestXLSX || sensitiveChecking
                   ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   : <FileSpreadsheet className="w-3.5 h-3.5" />}
                 Excel
@@ -1899,22 +1952,22 @@ export default function Admin() {
                   )}
                   <button
                     onClick={handleExportCSV}
-                    disabled={exportingCSV || filteredCustomers.length === 0}
+                    disabled={exportingCSV || sensitiveChecking || filteredCustomers.length === 0}
                     className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Export as CSV"
+                    title="Export as CSV (requires Sensitive Action Password)"
                   >
-                    {exportingCSV
+                    {exportingCSV || sensitiveChecking
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       : <Download className="w-3.5 h-3.5" />}
                     CSV
                   </button>
                   <button
                     onClick={handleExportXLSX}
-                    disabled={exportingXLSX || filteredCustomers.length === 0}
+                    disabled={exportingXLSX || sensitiveChecking || filteredCustomers.length === 0}
                     className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    title="Export as Excel"
+                    title="Export as Excel (requires Sensitive Action Password)"
                   >
-                    {exportingXLSX
+                    {exportingXLSX || sensitiveChecking
                       ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       : <FileSpreadsheet className="w-3.5 h-3.5" />}
                     Excel
@@ -2580,6 +2633,161 @@ export default function Admin() {
           </div>
         )}
 
+        {/* ── Security ── */}
+        {tab === "security" && (
+          <div className="space-y-6 max-w-2xl">
+            {/* Sensitive Action Password card */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-slate-800 text-base">Sensitive Action Password</h2>
+                    <p className="text-xs text-slate-500 mt-0.5 max-w-md leading-relaxed">
+                      A secondary password, completely independent of your login password. Required before any sensitive operation — exports, bulk deletions, billing settings, and other high-impact actions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {sensitiveStatusLoading && !sensitiveStatus ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                </div>
+              ) : (
+                <div className="px-6 py-5 space-y-5">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 rounded-lg px-4 py-3 space-y-1">
+                      <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Password</p>
+                      {sensitiveStatus?.configured ? (
+                        <div className="flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                          <span className="text-sm font-semibold text-emerald-700">Configured</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                          <span className="text-sm font-semibold text-amber-700">Not Configured</span>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-slate-50 rounded-lg px-4 py-3 space-y-1">
+                      <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Session</p>
+                      {sensitiveUnlocked && sensitiveCountdown > 0 ? (
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                          <span className="text-sm font-semibold text-emerald-700">Unlocked</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                          <span className="text-sm font-semibold text-slate-500">Locked</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {sensitiveUnlocked && sensitiveCountdown > 0 && (
+                      <div className="col-span-2 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-0.5">
+                            Sensitive actions unlocked
+                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="w-4 h-4 text-emerald-600" />
+                            <span className="text-sm font-semibold text-emerald-700 tabular-nums">
+                              {Math.floor(sensitiveCountdown / 60)}:{String(sensitiveCountdown % 60).padStart(2, "0")} remaining
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-xs text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full font-medium">Active</span>
+                      </div>
+                    )}
+
+                    {sensitiveStatus?.lastChangedAt && (
+                      <div className="col-span-2 bg-slate-50 rounded-lg px-4 py-3 space-y-1">
+                        <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Last Changed</p>
+                        <p className="text-sm text-slate-700">
+                          {new Date(sensitiveStatus.lastChangedAt).toLocaleString("en-IN", {
+                            day: "numeric", month: "long", year: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-slate-100">
+                    {!sensitiveStatus?.configured ? (
+                      <Button
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2"
+                        onClick={() => triggerSensitiveAction(() => {
+                          apiFetch<SensitiveAuthStatus>("/admin/sensitive-auth/status")
+                            .then(setSensitiveStatus).catch(() => {});
+                        })}
+                      >
+                        <KeyRound className="w-4 h-4" />
+                        Set Password
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        className="border-slate-200 gap-2"
+                        onClick={openSensitiveChangeDialog}
+                      >
+                        <KeyRound className="w-4 h-4" />
+                        Change Password
+                      </Button>
+                    )}
+
+                    {sensitiveUnlocked && sensitiveCountdown > 0 && (
+                      <Button
+                        variant="outline"
+                        className="border-red-200 text-red-600 hover:bg-red-50 gap-2"
+                        onClick={async () => {
+                          await lockSensitiveSession();
+                          setSensitiveStatus((s) => s ? { ...s, unlocked: false, expiresAt: null } : null);
+                        }}
+                      >
+                        <Lock className="w-4 h-4" />
+                        Lock Session
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Protected Operations info card */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm px-6 py-5 space-y-3">
+              <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                Protected Operations
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                The following actions require the Sensitive Action Password. The server enforces a 5-minute unlock window independently of the browser.
+              </p>
+              <ul className="space-y-1.5">
+                {[
+                  "Customer data export (CSV / Excel)",
+                  "Restaurant data export (CSV / Excel)",
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2 text-xs text-slate-600">
+                    <CheckCircle className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                    {item}
+                  </li>
+                ))}
+                <li className="flex items-center gap-2 text-xs text-slate-400 italic">
+                  <Clock className="w-3.5 h-3.5 flex-shrink-0" />
+                  More operations will be added here as the platform grows.
+                </li>
+              </ul>
+            </div>
+          </div>
+        )}
+
       {/* ── Edit Restaurant Modal ── */}
       {editRestModal && editRestForm && (
         <div
@@ -2723,6 +2931,15 @@ export default function Admin() {
             </p>
           </div>
         </div>
+      )}
+
+      {/* ── Sensitive Action Auth Dialog ── */}
+      {sensitiveDialogState?.open && (
+        <SensitiveAuthDialog
+          mode={sensitiveDialogState.mode}
+          onSuccess={sensitiveDialogState.onSuccess}
+          onClose={sensitiveDialogState.onClose}
+        />
       )}
 
     </AdminShell>

@@ -913,6 +913,301 @@ paths:
               schema:
                 $ref: "#/components/schemas/AdminResource"
 
+  # ─── Admin Sensitive Auth ────────────────────────────────────────────────────
+
+  /admin/sensitive-auth/status:
+    get:
+      operationId: getSensitiveAuthStatus
+      summary: Get sensitive auth status for the current admin session
+      tags: [admin, sensitive-auth]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SensitiveAuthStatus"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/sensitive-auth/setup:
+    post:
+      operationId: setupSensitiveAuth
+      summary: Set up the sensitive action password for the first time
+      tags: [admin, sensitive-auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensitiveAuthSetupInput"
+      responses:
+        "200":
+          description: OK — password saved, session unlocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SensitiveAuthVerifyResponse"
+        "400":
+          description: Password too short
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Already configured — use change endpoint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/sensitive-auth/verify:
+    post:
+      operationId: verifySensitiveAuth
+      summary: Verify the sensitive action password and unlock the session for 5 minutes
+      tags: [admin, sensitive-auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensitiveAuthVerifyInput"
+      responses:
+        "200":
+          description: OK — session unlocked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SensitiveAuthVerifyResponse"
+        "401":
+          description: Wrong password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/sensitive-auth/change:
+    put:
+      operationId: changeSensitiveAuth
+      summary: Change the sensitive action password (requires current password)
+      tags: [admin, sensitive-auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SensitiveAuthChangeInput"
+      responses:
+        "200":
+          description: OK — password changed, session locked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+        "401":
+          description: Wrong current password
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/sensitive-auth/lock:
+    post:
+      operationId: lockSensitiveAuth
+      summary: Immediately revoke the sensitive action session unlock
+      tags: [admin, sensitive-auth]
+      responses:
+        "200":
+          description: OK — session locked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required: [ok]
+
+  # ─── Admin Protected Exports ──────────────────────────────────────────────────
+
+  /admin/export/customers.csv:
+    get:
+      operationId: exportCustomersCsv
+      summary: Export customers as CSV (requires sensitive auth)
+      tags: [admin, export]
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: district
+          in: query
+          schema:
+            type: string
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Sensitive auth required or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/export/customers.xlsx:
+    get:
+      operationId: exportCustomersXlsx
+      summary: Export customers as Excel (requires sensitive auth)
+      tags: [admin, export]
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: district
+          in: query
+          schema:
+            type: string
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Excel file download
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Sensitive auth required or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/export/restaurants.csv:
+    get:
+      operationId: exportRestaurantsCsv
+      summary: Export restaurants as CSV (requires sensitive auth)
+      tags: [admin, export]
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: district
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Sensitive auth required or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/export/restaurants.xlsx:
+    get:
+      operationId: exportRestaurantsXlsx
+      summary: Export restaurants as Excel (requires sensitive auth)
+      tags: [admin, export]
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: district
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Excel file download
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "403":
+          description: Sensitive auth required or expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthCheckResponse:
@@ -928,6 +1223,58 @@ components:
         error:
           type: string
       required: [error]
+
+    SensitiveAuthStatus:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        unlocked:
+          type: boolean
+        expiresAt:
+          type: integer
+          nullable: true
+          description: Unix timestamp (ms) when the session unlock expires
+        lastChangedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required: [configured, unlocked, expiresAt, lastChangedAt]
+
+    SensitiveAuthSetupInput:
+      type: object
+      properties:
+        password:
+          type: string
+          minLength: 8
+      required: [password]
+
+    SensitiveAuthVerifyInput:
+      type: object
+      properties:
+        password:
+          type: string
+      required: [password]
+
+    SensitiveAuthChangeInput:
+      type: object
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 8
+      required: [currentPassword, newPassword]
+
+    SensitiveAuthVerifyResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        expiresAt:
+          type: integer
+          description: Unix timestamp (ms) when the session unlock expires
+      required: [ok, expiresAt]
 
     RequestUploadUrlBody:
       type: object

@@ -5,9 +5,10 @@
  * Bitebend QR Restaurant Marketplace API
  * OpenAPI spec version: 1.0.0
  */
-import type { Order } from './order';
-import type { OrderItem } from './orderItem';
 
-export type OrderWithItems = Order & {
-  items: OrderItem[];
+export type ExportCustomersXlsxParams = {
+state?: string;
+district?: string;
+city?: string;
+search?: string;
 };
