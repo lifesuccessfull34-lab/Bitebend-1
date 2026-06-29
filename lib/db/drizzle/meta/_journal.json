@@ -169,6 +169,13 @@
       "when": 1782780800000,
       "tag": "0023_rate_limit_windows",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782867200000,
+      "tag": "0024_admin_sensitive_auth",
+      "breakpoints": true
     }
   ]
 }

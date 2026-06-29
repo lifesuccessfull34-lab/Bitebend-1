@@ -6,6 +6,7 @@ type DbUser = typeof users.$inferSelect;
 declare module "express-session" {
   interface SessionData {
     userId: number;
+    sensitiveActionExpiresAt?: number;
   }
 }
 

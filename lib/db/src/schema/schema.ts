@@ -12,6 +12,21 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+// ── Admin Sensitive Auth (migration 0024) ─────────────────────────────────────
+// Stores the Sensitive Action Password hash for each super_admin.
+// Completely independent of the login password (users.password_hash).
+// One row per admin; ON DELETE CASCADE cleans up when the user is deleted.
+export const adminSensitiveAuth = pgTable("admin_sensitive_auth", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: "cascade" }),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 // ── Rate-limit windows (migration 0023) ───────────────────────────────────────
 // Backing store for the PostgreSQL-backed per-IP fixed-window rate limiter.
 // See artifacts/api-server/src/lib/rateLimiter.ts for usage.
