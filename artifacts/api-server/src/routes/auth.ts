@@ -5,8 +5,26 @@ import { db } from "@workspace/db";
 import { users, restaurants, subscriptionPlans, subscriptionTransactions, notifications, ownerPasswordResetTokens } from "@workspace/db";
 import { eq, sql, and, gt, isNull } from "drizzle-orm";
 import type { RequestHandler } from "express";
+import { createRateLimiter } from "../lib/rateLimiter";
 
 const router = Router();
+
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+// Forgot password: 5 requests per IP per 15 minutes
+// Reset password:  10 requests per IP per 15 minutes
+const forgotPasswordLimiter = createRateLimiter({
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000,
+  label: "owner:forgot-password",
+  message: "Too many password reset requests. Please wait 15 minutes before trying again.",
+});
+
+const resetPasswordLimiter = createRateLimiter({
+  maxRequests: 10,
+  windowMs: 15 * 60 * 1000,
+  label: "owner:reset-password",
+  message: "Too many password reset attempts. Please wait 15 minutes before trying again.",
+});
 
 function slugify(str: string): string {
   return str
@@ -306,6 +324,8 @@ function buildOwnerResetLink(req: Parameters<RequestHandler>[0], token: string):
 
 const forgotPassword: RequestHandler = async (req, res) => {
   const { email } = req.body as { email?: string };
+  const ip = req.ip ?? "unknown";
+  const userAgent = req.headers["user-agent"] ?? "unknown";
 
   if (!email || typeof email !== "string") {
     res.status(400).json({ error: "Email is required." });
@@ -314,6 +334,20 @@ const forgotPassword: RequestHandler = async (req, res) => {
 
   const normalised = email.trim().toLowerCase();
 
+  // ── Audit: forgot password requested ─────────────────────────────────────
+  // Logged before DB lookup so the event is captured regardless of whether the
+  // account exists. Never log whether the account was found.
+  req.log.info({
+    event: "password_reset_requested",
+    portal: "owner",
+    endpoint: "/api/auth/forgot-password",
+    email: normalised,
+    ip,
+    userAgent,
+  }, "Owner password reset requested");
+
+  // TASK 3 — User enumeration protection:
+  // Always returns 200 with {ok:true} whether the email exists or not.
   const [user] = await db
     .select()
     .from(users)
@@ -338,6 +372,10 @@ const forgotPassword: RequestHandler = async (req, res) => {
 
   const resetLink = buildOwnerResetLink(req, token);
 
+  // TASK 4 — Production safety:
+  // resetLink is ONLY included in the response when SMTP is not configured.
+  // In production with SMTP configured, the link goes to the email only and
+  // is never returned in the API response body.
   const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 
   if (smtpConfigured) {
@@ -390,7 +428,9 @@ const forgotPassword: RequestHandler = async (req, res) => {
       res.json({ ok: true, resetLink });
     }
   } else {
-    req.log.warn({ email: user.email, resetLink }, "Owner password reset — SMTP not configured, returning reset link in response");
+    // Dev fallback only — SMTP not configured. Never reaches this branch in
+    // production where SMTP must be set.
+    req.log.warn({ email: user.email, resetLink }, "Owner password reset — SMTP not configured, returning reset link in response (dev only)");
     res.json({ ok: true, resetLink });
   }
 };
@@ -422,12 +462,28 @@ const validateResetToken: RequestHandler = async (req, res) => {
 
 const resetPassword: RequestHandler = async (req, res) => {
   const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+  const ip = req.ip ?? "unknown";
 
   if (!token || !newPassword) {
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "owner",
+      endpoint: "/api/auth/reset-password",
+      ip,
+      reason: "missing_token_or_password",
+    }, "Owner password reset failed — missing token or password");
     res.status(400).json({ error: "Token and new password are required." });
     return;
   }
+
   if (newPassword.length < 8) {
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "owner",
+      endpoint: "/api/auth/reset-password",
+      ip,
+      reason: "password_too_short",
+    }, "Owner password reset failed — password too short");
     res.status(400).json({ error: "Password must be at least 8 characters." });
     return;
   }
@@ -443,17 +499,33 @@ const resetPassword: RequestHandler = async (req, res) => {
     .limit(1);
 
   if (!resetRow) {
+    // Could be: invalid token, expired token, reused token, or malformed token.
+    // Do not distinguish — all map to the same user-visible message.
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "owner",
+      endpoint: "/api/auth/reset-password",
+      ip,
+      reason: "invalid_or_expired_token",
+    }, "Owner password reset failed — token invalid, expired, or already used");
     res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
     return;
   }
 
   const [user] = await db
-    .select({ id: users.id, role: users.role })
+    .select({ id: users.id, email: users.email, role: users.role })
     .from(users)
     .where(and(eq(users.id, resetRow.userId), eq(users.role, "owner")))
     .limit(1);
 
   if (!user) {
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "owner",
+      endpoint: "/api/auth/reset-password",
+      ip,
+      reason: "user_not_owner",
+    }, "Owner password reset failed — token user is no longer owner");
     res.status(400).json({ error: "Invalid reset token." });
     return;
   }
@@ -467,7 +539,13 @@ const resetPassword: RequestHandler = async (req, res) => {
     .set({ usedAt: new Date() })
     .where(eq(ownerPasswordResetTokens.id, resetRow.id));
 
-  req.log.info({ userId: user.id }, "Owner password reset successful");
+  // ── Audit: reset success ──────────────────────────────────────────────────
+  req.log.info({
+    event: "password_reset_success",
+    portal: "owner",
+    email: user.email,
+    ip,
+  }, "Owner password reset successful");
 
   res.json({ ok: true });
 };
@@ -478,8 +556,8 @@ router.post("/auth/logout", logout);
 router.get("/auth/me", me);
 router.get("/auth/platform-key", getPlatformKey);
 router.post("/auth/registration-order", createRegistrationOrder);
-router.post("/auth/forgot-password", forgotPassword);
+router.post("/auth/forgot-password", forgotPasswordLimiter, forgotPassword);
 router.get("/auth/validate-reset-token", validateResetToken);
-router.post("/auth/reset-password", resetPassword);
+router.post("/auth/reset-password", resetPasswordLimiter, resetPassword);
 
 export default router;

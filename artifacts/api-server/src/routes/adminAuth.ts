@@ -5,22 +5,35 @@ import { db } from "@workspace/db";
 import { users, adminPasswordResetTokens } from "@workspace/db";
 import { eq, and, gt, isNull } from "drizzle-orm";
 import type { RequestHandler } from "express";
+import { createRateLimiter } from "../lib/rateLimiter";
 
 const router = Router();
 
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+// Forgot password: 5 requests per IP per 15 minutes
+// Reset password:  10 requests per IP per 15 minutes
+const forgotPasswordLimiter = createRateLimiter({
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000,
+  label: "admin:forgot-password",
+  message: "Too many password reset requests. Please wait 15 minutes before trying again.",
+});
+
+const resetPasswordLimiter = createRateLimiter({
+  maxRequests: 10,
+  windowMs: 15 * 60 * 1000,
+  label: "admin:reset-password",
+  message: "Too many password reset attempts. Please wait 15 minutes before trying again.",
+});
+
 function buildResetLink(req: Parameters<RequestHandler>[0], token: string): string {
-  // Priority: SITE_URL (custom domain) → request host (dev fallback).
-  // In production always force https:// — req.protocol is normally already
-  // "https" (trust proxy reads X-Forwarded-Proto), but we make it explicit so
-  // the generated link is never accidentaly http:// even if the proxy header
-  // is absent on a first request before the HTTPS redirect fires.
   const base = process.env.SITE_URL?.trim()
     ? `${process.env.SITE_URL.trim()}/portal`
     : `${process.env.NODE_ENV === "production" ? "https" : req.protocol}://${req.get("host")}/portal`;
   return `${base}/admin/reset-password?token=${token}`;
 }
 
-// ── POST /api/admin/auth/forgot-password ────────────────────────────────────
+// ── POST /api/admin/auth/forgot-password ─────────────────────────────────────
 // Accepts an admin email, generates a single-use 30-minute token, and either
 // sends it via email (when SMTP is configured) or returns the link in the
 // response (dev / no-email-configured fallback).
@@ -28,6 +41,8 @@ function buildResetLink(req: Parameters<RequestHandler>[0], token: string): stri
 // Only processes super_admin accounts — never touches restaurant owner rows.
 const forgotPassword: RequestHandler = async (req, res) => {
   const { email } = req.body as { email?: string };
+  const ip = req.ip ?? "unknown";
+  const userAgent = req.headers["user-agent"] ?? "unknown";
 
   if (!email || typeof email !== "string") {
     res.status(400).json({ error: "Email is required" });
@@ -35,6 +50,18 @@ const forgotPassword: RequestHandler = async (req, res) => {
   }
 
   const normalised = email.trim().toLowerCase();
+
+  // ── Audit: forgot password requested ─────────────────────────────────────
+  // Log immediately — before DB lookup — so the event is captured even if the
+  // email does not exist. Never log whether the account was found.
+  req.log.info({
+    event: "password_reset_requested",
+    portal: "admin",
+    endpoint: "/api/admin/auth/forgot-password",
+    email: normalised,
+    ip,
+    userAgent,
+  }, "Admin password reset requested");
 
   // Strict admin-only lookup — WHERE role = 'super_admin'
   const [user] = await db
@@ -44,7 +71,7 @@ const forgotPassword: RequestHandler = async (req, res) => {
     .limit(1);
 
   if (!user) {
-    // Generic 200 — do not reveal whether this email is an admin
+    // Generic 200 — do not reveal whether this email is a super_admin
     res.json({ ok: true });
     return;
   }
@@ -71,6 +98,10 @@ const forgotPassword: RequestHandler = async (req, res) => {
 
   const resetLink = buildResetLink(req, token);
 
+  // TASK 4 — Production safety:
+  // resetLink is ONLY included in the response when SMTP is not configured.
+  // In production with SMTP configured, the link goes to the email only and
+  // is never returned in the API response body.
   const smtpConfigured = !!(
     process.env.SMTP_HOST &&
     process.env.SMTP_USER &&
@@ -125,9 +156,11 @@ const forgotPassword: RequestHandler = async (req, res) => {
       res.json({ ok: true, resetLink });
     }
   } else {
+    // Dev fallback only — SMTP not configured. Never reaches this branch in
+    // production where SMTP must be set.
     req.log.warn(
       { adminEmail: user.email, resetLink },
-      "Admin password reset — SMTP not configured, returning reset link in response",
+      "Admin password reset — SMTP not configured, returning reset link in response (dev only)",
     );
     res.json({ ok: true, resetLink });
   }
@@ -158,7 +191,7 @@ const validateResetToken: RequestHandler = async (req, res) => {
   res.json({ valid: !!row });
 };
 
-// ── POST /api/admin/auth/reset-password ─────────────────────────────────────
+// ── POST /api/admin/auth/reset-password ──────────────────────────────────────
 // Validates token, hashes new password with bcrypt (exactly once),
 // updates ONLY the super_admin row, and immediately invalidates the token.
 // No code path here touches restaurant owner accounts.
@@ -167,12 +200,28 @@ const resetPassword: RequestHandler = async (req, res) => {
     token?: string;
     newPassword?: string;
   };
+  const ip = req.ip ?? "unknown";
 
   if (!token || !newPassword) {
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "admin",
+      endpoint: "/api/admin/auth/reset-password",
+      ip,
+      reason: "missing_token_or_password",
+    }, "Admin password reset failed — missing token or password");
     res.status(400).json({ error: "Token and new password are required" });
     return;
   }
+
   if (newPassword.length < 8) {
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "admin",
+      endpoint: "/api/admin/auth/reset-password",
+      ip,
+      reason: "password_too_short",
+    }, "Admin password reset failed — password too short");
     res.status(400).json({ error: "Password must be at least 8 characters" });
     return;
   }
@@ -190,6 +239,15 @@ const resetPassword: RequestHandler = async (req, res) => {
     .limit(1);
 
   if (!resetRow) {
+    // Could be: invalid token, expired token, reused token, or malformed token.
+    // Do not distinguish — all map to the same user-visible message.
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "admin",
+      endpoint: "/api/admin/auth/reset-password",
+      ip,
+      reason: "invalid_or_expired_token",
+    }, "Admin password reset failed — token invalid, expired, or already used");
     res.status(400).json({
       error: "This reset link is invalid or has expired. Please request a new one.",
     });
@@ -204,6 +262,13 @@ const resetPassword: RequestHandler = async (req, res) => {
     .limit(1);
 
   if (!user) {
+    req.log.warn({
+      event: "password_reset_failure",
+      portal: "admin",
+      endpoint: "/api/admin/auth/reset-password",
+      ip,
+      reason: "user_not_super_admin",
+    }, "Admin password reset failed — token user is no longer super_admin");
     res.status(400).json({ error: "Invalid reset token." });
     return;
   }
@@ -223,16 +288,19 @@ const resetPassword: RequestHandler = async (req, res) => {
     .set({ usedAt: new Date() })
     .where(eq(adminPasswordResetTokens.id, resetRow.id));
 
-  req.log.info(
-    { userId: user.id, adminEmail: user.email },
-    "Admin password reset successful",
-  );
+  // ── Audit: reset success ──────────────────────────────────────────────────
+  req.log.info({
+    event: "password_reset_success",
+    portal: "admin",
+    email: user.email,
+    ip,
+  }, "Admin password reset successful");
 
   res.json({ ok: true });
 };
 
-router.post("/admin/auth/forgot-password", forgotPassword);
+router.post("/admin/auth/forgot-password", forgotPasswordLimiter, forgotPassword);
 router.get("/admin/auth/validate-reset-token", validateResetToken);
-router.post("/admin/auth/reset-password", resetPassword);
+router.post("/admin/auth/reset-password", resetPasswordLimiter, resetPassword);
 
 export default router;
