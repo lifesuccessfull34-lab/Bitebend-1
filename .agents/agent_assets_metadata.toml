@@ -23,3 +23,9 @@ id = "5UAIixXdclX9kXdSBVadQ"
 uri = "file://screenshots/v2-after-poll.png"
 type = "image"
 title = "Verification 2 — After: LockedSessionView auto-appeared via 60s poll"
+
+[[outputs]]
+id = "4kzoekol-nSl1-8JiXZW0"
+uri = "file://bitebend-technical-audit.md"
+type = "text"
+title = "Bitebend Final Technical Audit"
