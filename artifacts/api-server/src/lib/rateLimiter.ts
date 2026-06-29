@@ -1,33 +1,48 @@
+import { pool } from "@workspace/db";
 import type { RequestHandler } from "express";
 
-interface Window {
-  count: number;
-  resetAt: number;
+// ── Cleanup timer ─────────────────────────────────────────────────────────────
+// Runs once per process (not once per limiter instance). Removes expired windows
+// every 5 minutes so the table stays small. .unref() prevents this timer from
+// keeping the Node process alive if everything else has stopped.
+
+let cleanupScheduled = false;
+
+function scheduleCleanup(): void {
+  if (cleanupScheduled) return;
+  cleanupScheduled = true;
+
+  setInterval(async () => {
+    try {
+      await pool.query("DELETE FROM rate_limit_windows WHERE expires_at < NOW()");
+    } catch {
+      // Non-fatal — expired rows are filtered at query time anyway via the
+      // fixed-window key scheme. The cleanup is a size optimisation, not a
+      // correctness requirement.
+    }
+  }, 5 * 60 * 1000).unref();
 }
 
-const store = new Map<string, Window>();
-
-// Clean up expired windows every 15 minutes to avoid unbounded memory growth.
-setInterval(
-  () => {
-    const now = Date.now();
-    for (const [key, w] of store) {
-      if (now > w.resetAt) store.delete(key);
-    }
-  },
-  15 * 60 * 1000,
-).unref();
-
 /**
- * createRateLimiter — lightweight per-IP sliding-window rate limiter.
+ * createRateLimiter — PostgreSQL-backed per-IP fixed-window rate limiter.
  *
- * Uses express's req.ip (which already honours the `trust proxy` setting
- * set in app.ts), so the real client IP is used rather than the proxy IP.
+ * Uses a single atomic  INSERT … ON CONFLICT DO UPDATE … RETURNING count
+ * statement so there is no read-modify-write race condition. The table
+ * (rate_limit_windows, migration 0023) is shared across all API server
+ * instances and survives process restarts.
+ *
+ * Window design: fixed window per {windowMs} bucket, keyed by
+ *   `{label}:{ip}:{bucketStart}` where bucketStart = floor(now / windowMs) * windowMs
+ *
+ * Fail-open policy: if the DB query fails (e.g. connection pool exhausted
+ * during an outage), the request is allowed through and the error is logged.
+ * Blocking all password reset requests during a DB outage is worse than
+ * briefly loosening the rate limit while the DB recovers.
  *
  * @param maxRequests   Max allowed requests per window
  * @param windowMs      Window duration in milliseconds
- * @param label         Unique key prefix to isolate limiters from each other
- * @param message       Human-readable 429 message (must not reveal account existence)
+ * @param label         Unique prefix to isolate limiters from each other
+ * @param message       Human-readable 429 message body
  */
 export function createRateLimiter(opts: {
   maxRequests: number;
@@ -42,28 +57,48 @@ export function createRateLimiter(opts: {
     message = "Too many requests. Please try again later.",
   } = opts;
 
-  return (req, res, next) => {
+  scheduleCleanup();
+
+  return async (req, res, next) => {
     const ip = req.ip ?? "unknown";
-    const key = `${label}:${ip}`;
-    const now = Date.now();
 
-    let w = store.get(key);
+    // Compute the start of the current fixed window so the key is stable for
+    // the entire window duration. All requests within the same window period
+    // share the same DB row and race safely to increment it.
+    const bucketStart = Math.floor(Date.now() / windowMs) * windowMs;
+    const key = `${label}:${ip}:${bucketStart}`;
+    const expiresAt = new Date(bucketStart + windowMs);
 
-    if (!w || now > w.resetAt) {
-      store.set(key, { count: 1, resetAt: now + windowMs });
+    try {
+      // Single atomic operation:
+      //   • If the row does not exist → INSERT with count = 1
+      //   • If the row exists         → UPDATE count = count + 1
+      // RETURNING count gives us the current value without a second round-trip.
+      const result = await pool.query<{ count: number }>(
+        `INSERT INTO rate_limit_windows (key, expires_at, count)
+         VALUES ($1, $2, 1)
+         ON CONFLICT (key) DO UPDATE
+           SET count = rate_limit_windows.count + 1
+         RETURNING count`,
+        [key, expiresAt],
+      );
+
+      const count = result.rows[0]?.count ?? 1;
+
+      if (count > maxRequests) {
+        const retryAfter = Math.ceil((expiresAt.getTime() - Date.now()) / 1000);
+        res.set("Retry-After", String(retryAfter));
+        res.status(429).json({ error: message });
+        return;
+      }
+
       next();
-      return;
+    } catch (err) {
+      // Fail open — log and continue rather than blocking legitimate requests
+      // during a transient DB error. The audit logging and handler logic still
+      // run normally; only the rate counter is lost for this request.
+      console.error("[rate-limiter] DB query failed — failing open:", (err as Error).message);
+      next();
     }
-
-    w.count += 1;
-
-    if (w.count > maxRequests) {
-      const retryAfter = Math.ceil((w.resetAt - now) / 1000);
-      res.set("Retry-After", String(retryAfter));
-      res.status(429).json({ error: message });
-      return;
-    }
-
-    next();
   };
 }

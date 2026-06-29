@@ -12,6 +12,17 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
+// ── Rate-limit windows (migration 0023) ───────────────────────────────────────
+// Backing store for the PostgreSQL-backed per-IP fixed-window rate limiter.
+// See artifacts/api-server/src/lib/rateLimiter.ts for usage.
+export const rateLimitWindows = pgTable("rate_limit_windows", {
+  key: text("key").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  count: integer("count").notNull().default(1),
+}, (t) => [
+  index("idx_rate_limit_windows_expires").on(t.expiresAt),
+]);
+
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
