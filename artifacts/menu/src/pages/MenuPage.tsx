@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { normalizeRestaurantParam } from "@workspace/url-utils";
+import { fetchWithTimeout, safeJson, extractApiError, TIMEOUTS } from "@/lib/net";
 import { lsGet, lsSet } from "./menu/utils";
 import type {
   RestaurantData,
@@ -118,25 +119,24 @@ export default function MenuPage() {
   const checkSessionStatus = useCallback(
     async (phone: string, tableNum: string | null): Promise<SessionLockState | null> => {
       if (!rawParam || (!phone && !tableNum)) return null;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 5000);
       try {
         const qs: string[] = [];
         if (phone) qs.push(`phone=${encodeURIComponent(phone)}`);
         if (tableNum) qs.push(`tableNumber=${encodeURIComponent(tableNum)}`);
-        const r = await fetch(
+        const r = await fetchWithTimeout(
           `${BASE}/api/menu/${encodeURIComponent(rawParam)}/session-status?${qs.join("&")}`,
-          { signal: controller.signal },
+          {},
+          TIMEOUTS.SHORT,
         );
         if (!r.ok) return null;
-        const data = await r.json() as {
+        const data = await safeJson<{
           locked: boolean;
           lockType?: string;
           billStatus?: string | null;
           billTotal?: number | null;
           billNumber?: string | null;
           tableOwnedByThisPhone?: boolean;
-        };
+        }>(r);
         if (data.locked && data.lockType) {
           return {
             lockType: data.lockType as SessionLockState["lockType"],
@@ -149,8 +149,6 @@ export default function MenuPage() {
         return null;
       } catch {
         return null;
-      } finally {
-        clearTimeout(timer);
       }
     },
     [rawParam],
@@ -162,11 +160,14 @@ export default function MenuPage() {
       setLoading(false);
       return;
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    fetch(`${BASE}/api/menu/${encodeURIComponent(rawParam)}`, { signal: controller.signal })
-      .then((r) => r.json())
-      .then((data: { restaurant: RestaurantData; categories: CategoryData[]; tables: TableData[] }) => {
+    void (async () => {
+      try {
+        const r = await fetchWithTimeout(
+          `${BASE}/api/menu/${encodeURIComponent(rawParam)}`,
+          {},
+          TIMEOUTS.DEFAULT,
+        );
+        const data = await safeJson<{ restaurant: RestaurantData; categories: CategoryData[]; tables: TableData[] }>(r);
         setRestaurant(data.restaurant);
         setCategories(data.categories);
         setTables(data.tables ?? []);
@@ -174,18 +175,16 @@ export default function MenuPage() {
           setOrderType("take_away");
           setView("menu");
         }
-      })
-      .catch((err) => {
-        if (err?.name === "AbortError") {
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
           setError("Menu took too long to load. Please check your connection and try again.");
         } else {
           setError("Failed to load menu. Please try again.");
         }
-      })
-      .finally(() => {
-        clearTimeout(timer);
+      } finally {
         setLoading(false);
-      });
+      }
+    })();
   }, [rawParam]);
 
   useEffect(() => {
@@ -340,43 +339,41 @@ export default function MenuPage() {
           : manualTableNumber.trim()
         : null;
     // 15-second timeout — prevents placing=true getting permanently stuck if server hangs
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      const res = await fetch(`${BASE}/api/menu/${restaurant!.id}/orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tableId: selectedTableId,
-          tableNumber: tableNum,
-          customerName: customerName.trim(),
-          customerPhone: customerPhone.trim(),
-          notes:
-            [
-              orderType === "take_away" ? "Take Away" : null,
-              extraNotes ?? null,
-              notes.trim() || null,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined,
-          items: cart.map((c) => ({ menuItemId: c.item.id, quantity: c.quantity })),
-        }),
-        signal: controller.signal,
-      });
+      const res = await fetchWithTimeout(
+        `${BASE}/api/menu/${restaurant!.id}/orders`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            tableId: selectedTableId,
+            tableNumber: tableNum,
+            customerName: customerName.trim(),
+            customerPhone: customerPhone.trim(),
+            notes:
+              [
+                orderType === "take_away" ? "Take Away" : null,
+                extraNotes ?? null,
+                notes.trim() || null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined,
+            items: cart.map((c) => ({ menuItemId: c.item.id, quantity: c.quantity })),
+          }),
+        },
+        TIMEOUTS.ORDER,
+      );
       // Read json-safely: non-JSON error pages (502 etc.) should not crash here
       if (!res.ok) {
-        let msg = "Failed to place order";
-        try { const d = await res.json(); msg = (d as { error?: string }).error ?? msg; } catch { /* non-JSON body */ }
+        const msg = await extractApiError(res, "Failed to place order");
         throw new Error(msg);
       }
-      return await res.json();
+      return await safeJson<{ id: number; items: Array<{ name: string; quantity: number; unitPrice: number; isVeg: boolean }> }>(res);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         throw new Error("Request timed out. Please check with restaurant staff if your order was received.");
       }
       throw err;
-    } finally {
-      clearTimeout(timer);
     }
   };
 
@@ -414,18 +411,21 @@ export default function MenuPage() {
   };
 
   const handleRazorpaySuccess = async (response: RazorpayResponse) => {
-    // Verify payment server-side
+    // Verify payment server-side (best-effort — webhook handles marking paid if this fails)
     if (orderId && restaurant) {
       try {
-        await fetch(`${BASE}/api/menu/${restaurant.id}/orders/${orderId}/verify-razorpay`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpayOrderId: response.razorpay_order_id,
-            razorpaySignature: response.razorpay_signature,
-          }),
-        });
+        await fetchWithTimeout(
+          `${BASE}/api/menu/${restaurant.id}/orders/${orderId}/verify-razorpay`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId: response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+            }),
+          },
+        );
       } catch { /* Webhook will handle marking paid — non-fatal */ }
     }
     setRazorpayCheckout(null);
@@ -443,8 +443,6 @@ export default function MenuPage() {
     if (!orderId || !restaurant) return;
     setUploadStage("uploading");
     // 60-second timeout — covers large screenshots on slow mobile connections
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -453,21 +451,21 @@ export default function MenuPage() {
         reader.readAsDataURL(file);
       });
       setUploadStage("verifying");
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${BASE}/api/menu/${restaurant.id}/orders/${orderId}/payment-proof`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type, forceReplace }),
-          signal: controller.signal,
         },
+        TIMEOUTS.UPLOAD,
       );
       if (res.status === 409) {
         setProofResult({ ocrConfigured: false, alreadyHasScreenshot: true });
         return;
       }
-      const data = await res.json();
-      setProofResult(data as ProofResult);
+      const data = await safeJson<ProofResult>(res);
+      setProofResult(data);
     } catch (err) {
       const msg =
         err instanceof Error && err.name === "AbortError"
@@ -475,7 +473,6 @@ export default function MenuPage() {
           : "Upload failed. Please try again.";
       setProofResult({ ocrConfigured: false, error: msg });
     } finally {
-      clearTimeout(timer);
       setUploadStage("idle");
     }
   };

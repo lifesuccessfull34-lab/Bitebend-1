@@ -5,6 +5,7 @@ import {
   ShoppingBag, ChevronDown, ChevronUp, QrCode, Upload,
   BadgeCheck, AlertTriangle,
 } from "lucide-react";
+import { fetchWithTimeout, safeJson, extractApiError, TIMEOUTS } from "@/lib/net";
 import { PaymentBillView } from "./menu/PaymentBillView";
 import type { UploadStage } from "./menu/PaymentBillView";
 import type { RestaurantData, PlacedOrderItem, OrderType } from "./menu/types";
@@ -162,8 +163,6 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
   const handleUploadProof = useCallback(async (file: File, forceReplace = false) => {
     setUploadStage("uploading");
     // 60-second timeout — covers large screenshots on slow mobile connections
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 60_000);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -172,20 +171,20 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
         reader.readAsDataURL(file);
       });
       setUploadStage("verifying");
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${BASE}/api/menu/${order.restaurantId}/orders/${order.id}/payment-proof`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ screenshotBase64: base64, mimeType: file.type, forceReplace }),
-          signal: controller.signal,
         },
+        TIMEOUTS.UPLOAD,
       );
       if (res.status === 409) {
         setProofResult({ ocrConfigured: false, alreadyHasScreenshot: true });
         return;
       }
-      const data = await res.json() as ProofResult;
+      const data = await safeJson<ProofResult>(res);
       setProofResult(data);
       onRefresh();
     } catch (err) {
@@ -195,7 +194,6 @@ function OrderCard({ order, expanded, onToggle, onRefresh }: OrderCardProps) {
           : "Upload failed. Please try again.";
       setProofResult({ ocrConfigured: false, error: msg });
     } finally {
-      clearTimeout(timer);
       setUploadStage("idle");
     }
   }, [order.restaurantId, order.id, onRefresh]);
@@ -612,16 +610,18 @@ export default function OrderHistoryPage() {
     setLoading(true);
     setError("");
     // 10-second timeout — prevents loading=true getting permanently stuck if server hangs
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10_000);
     try {
-      const res = await fetch(
+      const res = await fetchWithTimeout(
         `${BASE}/api/menu/customer/orders?phone=${encodeURIComponent(phone.trim())}`,
-        { signal: controller.signal },
+        {},
+        TIMEOUTS.DEFAULT,
       );
-      const data = await res.json() as CustomerOrder[] | { error: string };
-      if (!res.ok) throw new Error((data as { error: string }).error ?? "Failed to fetch orders");
-      setOrders(data as CustomerOrder[]);
+      if (!res.ok) {
+        const errMsg = await extractApiError(res, "Failed to fetch orders");
+        throw new Error(errMsg);
+      }
+      const data = await safeJson<CustomerOrder[]>(res);
+      setOrders(data);
       setSearched(true);
     } catch (err) {
       const msg =
@@ -630,7 +630,6 @@ export default function OrderHistoryPage() {
           : err instanceof Error ? err.message : "Failed to fetch orders";
       setError(msg);
     } finally {
-      clearTimeout(timer);
       setLoading(false);
     }
   }, []);
