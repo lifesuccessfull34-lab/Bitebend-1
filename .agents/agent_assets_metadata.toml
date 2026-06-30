@@ -25,7 +25,7 @@ type = "image"
 title = "Verification 2 — After: LockedSessionView auto-appeared via 60s poll"
 
 [[outputs]]
-id = "ob1k40ZF0uvrsi5u-xE55"
-uri = "file://bitebend-technical-audit-part3.md"
+id = "HUREYtJMQnTDzhru8aJe4"
+uri = "file://bitebend-technical-audit-part4.md"
 type = "text"
-title = "Bitebend Final Deep Audit — Part 3 (Architecture + Business Logic)"
+title = "Bitebend Final Deep Production Audit — Part 4"
