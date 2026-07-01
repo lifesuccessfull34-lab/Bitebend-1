@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { AdminShell, ADMIN_NAV_ITEMS } from "@/components/layout/AdminShell";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   Plus, X, Save, Loader2, BookOpen, CheckCircle, Ban, Edit2, Trash2,
+  Upload, Film,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -30,11 +31,11 @@ interface AdminResource {
 }
 
 interface ResourceFormState {
-  id: number | null; title: string; description: string; type: string;
-  category: string; url: string; fileUrl: string; tags: string;
+  id: number | null; title: string; type: string;
+  category: string; url: string; fileUrl: string;
   featured: boolean; displayOrder: number; status: string; approvalStatus: string;
   visibleTo: string; reviewNotes: string;
-  duration: string; videoSource: string; sizeLabel: string;
+  videoSource: string; sizeLabel: string;
   planName: string; planPrice: string; planPeriod: string;
   planFeatures: string; planHighlight: boolean; planBadge: string; planCta: string;
   iconName: string; iconColor: string; question: string; answer: string;
@@ -42,10 +43,10 @@ interface ResourceFormState {
 
 function emptyForm(): ResourceFormState {
   return {
-    id: null, title: "", description: "", type: "video", category: "",
-    url: "", fileUrl: "", tags: "", featured: false, displayOrder: 0,
+    id: null, title: "", type: "video", category: "",
+    url: "", fileUrl: "", featured: false, displayOrder: 0,
     status: "draft", approvalStatus: "pending", visibleTo: "all", reviewNotes: "",
-    duration: "", videoSource: "youtube", sizeLabel: "",
+    videoSource: "youtube", sizeLabel: "",
     planName: "", planPrice: "", planPeriod: "", planFeatures: "",
     planHighlight: false, planBadge: "", planCta: "",
     iconName: "", iconColor: "", question: "", answer: "",
@@ -54,13 +55,13 @@ function emptyForm(): ResourceFormState {
 
 function resourceToForm(r: AdminResource): ResourceFormState {
   return {
-    id: r.id, title: r.title, description: r.description ?? "",
+    id: r.id, title: r.title,
     type: r.type, category: r.category ?? "", url: r.url ?? "",
-    fileUrl: r.fileUrl ?? "", tags: (r.tags ?? []).join(", "),
+    fileUrl: r.fileUrl ?? "",
     featured: r.featured, displayOrder: r.displayOrder, status: r.status,
     approvalStatus: r.approvalStatus, visibleTo: r.visibleTo ?? "all",
     reviewNotes: r.reviewNotes ?? "",
-    duration: r.duration ?? "", videoSource: r.videoSource ?? "youtube",
+    videoSource: r.videoSource ?? "youtube",
     sizeLabel: r.sizeLabel ?? "", planName: r.planName ?? "",
     planPrice: r.planPrice ?? "", planPeriod: r.planPeriod ?? "",
     planFeatures: (r.planFeatures ?? []).join("\n"),
@@ -81,6 +82,9 @@ export default function ResourcesManage() {
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoFilename, setVideoFilename] = useState<string>("");
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   const handleAuthError = useCallback((e: unknown) => {
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
@@ -99,19 +103,44 @@ export default function ResourcesManage() {
       .finally(() => setLoading(false));
   }, [handleAuthError]);
 
+  const handleVideoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setVideoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("video", file);
+      const resp = await fetch("/api/admin/resources/upload-video", {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: "Upload failed" })) as { error?: string };
+        throw new Error(err.error ?? "Upload failed");
+      }
+      const { fileUrl, filename } = await resp.json() as { fileUrl: string; filename: string };
+      setForm((prev) => prev ? { ...prev, fileUrl } : prev);
+      setVideoFilename(filename);
+    } catch (err) {
+      alert((err as Error).message ?? "Video upload failed. Please try again.");
+    } finally {
+      setVideoUploading(false);
+      if (videoInputRef.current) videoInputRef.current.value = "";
+    }
+  }, []);
+
   const handleSave = useCallback(async () => {
     if (!form) return;
     setSaving(true);
     try {
       const body = {
-        title: form.title.trim(), description: form.description.trim() || null,
+        title: form.title.trim(),
         type: form.type, category: form.category.trim() || null,
         url: form.url.trim() || null, fileUrl: form.fileUrl.trim() || null,
-        tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
         featured: form.featured, displayOrder: form.displayOrder,
         status: form.status, approvalStatus: form.approvalStatus,
         visibleTo: form.visibleTo,
-        duration: form.duration.trim() || null,
         videoSource: form.videoSource || null,
         sizeLabel: form.sizeLabel.trim() || null,
         planName: form.planName.trim() || null,
@@ -322,11 +351,6 @@ export default function ResourcesManage() {
                 <Label className="text-xs">Title *</Label>
                 <Input value={f.title} onChange={(e) => setF({ title: e.target.value })} placeholder="Resource title" />
               </div>
-              {/* Description */}
-              <div className="sm:col-span-2 space-y-1">
-                <Label className="text-xs">Description</Label>
-                <Input value={f.description} onChange={(e) => setF({ description: e.target.value })} placeholder="Brief description" />
-              </div>
               {/* Category */}
               <div className="space-y-1">
                 <Label className="text-xs">Category</Label>
@@ -337,17 +361,55 @@ export default function ResourcesManage() {
                 <Label className="text-xs">URL</Label>
                 <Input value={f.url} onChange={(e) => setF({ url: e.target.value })} placeholder="https://" />
               </div>
-              {/* Tags */}
-              <div className="space-y-1">
-                <Label className="text-xs">Tags (comma-separated)</Label>
-                <Input value={f.tags} onChange={(e) => setF({ tags: e.target.value })} placeholder="setup, tutorial, demo" />
-              </div>
 
               {/* Video-specific */}
               {f.type === "video" && (<>
-                <div className="space-y-1">
-                  <Label className="text-xs">Duration</Label>
-                  <Input value={f.duration} onChange={(e) => setF({ duration: e.target.value })} placeholder="3:24" />
+                {/* Video upload */}
+                <div className="sm:col-span-2 space-y-2">
+                  <Label className="text-xs">Video File</Label>
+                  <input
+                    ref={videoInputRef}
+                    type="file"
+                    accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.avi,.mkv"
+                    className="hidden"
+                    onChange={handleVideoUpload}
+                  />
+                  {f.fileUrl ? (
+                    <div className="flex items-center gap-2.5 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                      <Film className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="text-xs text-emerald-700 font-medium flex-1 truncate min-w-0">
+                        {videoFilename || f.fileUrl.split("/").pop() || "Video uploaded"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => videoInputRef.current?.click()}
+                        disabled={videoUploading}
+                        className="text-xs text-indigo-600 hover:underline font-medium shrink-0 disabled:opacity-50"
+                      >
+                        Replace
+                      </button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full border-dashed border-slate-300 text-slate-600 hover:bg-slate-50 h-10"
+                      onClick={() => videoInputRef.current?.click()}
+                      disabled={videoUploading}
+                    >
+                      {videoUploading
+                        ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Uploading…</>
+                        : <><Upload className="w-3.5 h-3.5 mr-1.5" /> Upload Video</>
+                      }
+                    </Button>
+                  )}
+                  {videoUploading && (
+                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-full bg-indigo-500 rounded-full animate-pulse" style={{ width: "70%" }} />
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-400">MP4, WebM, MOV, AVI — max 100 MB. Or use the URL field above for YouTube / external links.</p>
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Video Source</Label>

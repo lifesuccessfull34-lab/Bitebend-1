@@ -2,6 +2,7 @@ import { Router } from "express";
 import bcrypt from "bcrypt";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { WORKSPACE_ROOT } from "../lib/workspace";
 import { db } from "@workspace/db";
 import {
@@ -17,10 +18,12 @@ import {
   platformSettings,
   billLinks,
   resources,
+  imageBlobs,
 } from "@workspace/db";
 import { eq, sql, inArray, gte, lt, and, isNotNull, isNull } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/auth";
 import type { RequestHandler } from "express";
+import multer from "multer";
 
 const router = Router();
 
@@ -1001,9 +1004,71 @@ const getAdminResourceStats: RequestHandler = async (_req, res) => {
   });
 };
 
+// ── Resource video upload ───────────────────────────────────────────────────
+
+const ALLOWED_VIDEO_MIME_TYPES = [
+  "video/mp4", "video/webm", "video/quicktime",
+  "video/x-msvideo", "video/x-matroska", "video/ogg",
+];
+const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
+
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_VIDEO_SIZE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_VIDEO_MIME_TYPES.includes(file.mimetype)) {
+      cb(new Error("Only MP4, WebM, MOV, AVI, and MKV videos are allowed"));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+const uploadResourceVideo: RequestHandler = async (req, res) => {
+  if (!req.file) {
+    res.status(400).json({ error: "No video file provided" });
+    return;
+  }
+  try {
+    const id = randomUUID();
+    await db.insert(imageBlobs).values({
+      id,
+      data: req.file.buffer.toString("base64"),
+      contentType: req.file.mimetype,
+    });
+    req.log.info(
+      { id, bytes: req.file.size, mimetype: req.file.mimetype },
+      "[RESOURCE_VIDEO_UPLOAD]",
+    );
+    res.json({ fileUrl: `/api/images/${id}`, filename: req.file.originalname });
+  } catch (err) {
+    req.log.error({ err }, "Resource video upload failed");
+    res.status(500).json({ error: "Upload failed. Please try again." });
+  }
+};
+
 router.get("/admin/resources/stats", requireAdmin, getAdminResourceStats);
 router.get("/admin/resources", requireAdmin, listAdminResources);
 router.post("/admin/resources", requireAdmin, createAdminResource);
+router.post(
+  "/admin/resources/upload-video",
+  requireAdmin,
+  (req, res, next) => {
+    videoUpload.single("video")(req, res, (err) => {
+      if (!err) { next(); return; }
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          res.status(400).json({ error: "Video must be smaller than 100 MB" });
+        } else {
+          res.status(400).json({ error: `Upload error: ${err.message}` });
+        }
+      } else {
+        res.status(400).json({ error: (err as Error).message ?? "Invalid video file" });
+      }
+    });
+  },
+  uploadResourceVideo,
+);
 router.put("/admin/resources/:id", requireAdmin, updateAdminResource);
 router.delete("/admin/resources/:id", requireAdmin, deleteAdminResource);
 router.post("/admin/resources/:id/approve", requireAdmin, approveAdminResource);
