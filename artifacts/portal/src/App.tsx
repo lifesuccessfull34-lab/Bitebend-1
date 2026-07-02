@@ -300,7 +300,10 @@ function Router() {
       <Route path="/admin/reset-password"    component={AdminResetPasswordPage} />
 
       {/* ── Public resource portal (no auth required) ────────────────── */}
+      {/* /portal/resources — canonical URL (production / artifact mode, no Wouter base) */}
       <Route path="/portal/resources"        component={ResourcesCenterPage} />
+      {/* /resources — same page, matched when Wouter base="/portal" strips the prefix (Start application dev mode) */}
+      <Route path="/resources"               component={ResourcesCenterPage} />
 
       {/* ── /portal/* → strip prefix and redirect (Replit canvas artifact iframe compat) ── */}
       <Route path="/portal/:rest*" component={({ params }: { params: { rest?: string } }) => {
