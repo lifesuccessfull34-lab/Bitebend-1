@@ -34,7 +34,10 @@ const TABS: { id: FilterTab; label: string; icon: React.ElementType }[] = [
 // ── Resource → typed adapters ─────────────────────────────────────────────────
 
 function toVideo(r: Resource): VideoResource {
-  return { id: r.id, type: "video", title: r.title, description: r.description ?? "", url: r.url ?? "", thumbnailUrl: r.thumbnail ?? undefined, duration: r.duration ?? undefined, source: r.videoSource ?? "youtube" };
+  // Self-hosted videos store the blob URL in fileUrl (e.g. /api/images/<uuid>).
+  // YouTube / external videos use the url field directly.
+  const videoUrl = (r.fileUrl ?? r.url) ?? "";
+  return { id: r.id, type: "video", title: r.title, description: r.description ?? "", url: videoUrl, thumbnailUrl: r.thumbnail ?? undefined, duration: r.duration ?? undefined, source: r.videoSource ?? "youtube" };
 }
 function toPdf(r: Resource): PdfResource {
   return { id: r.id, type: "pdf", title: r.title, description: r.description ?? "", url: (r.fileUrl ?? r.url) ?? "", sizeLabel: r.sizeLabel ?? undefined };
