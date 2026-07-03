@@ -7,6 +7,7 @@ import {
   getAllStatus,
 } from '../controllers/whatsappController';
 import { sendMessage } from '../controllers/sendMessageController';
+import { sendMedia } from '../controllers/sendMediaController';
 
 const router = Router();
 
@@ -18,5 +19,6 @@ router.get('/whatsapp/status', getAllStatus);
 router.get('/whatsapp/status/:restaurantId', getStatus);
 
 router.post('/send-message', sendMessage);
+router.post('/send-media', sendMedia);
 
 export default router;

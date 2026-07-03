@@ -76,6 +76,51 @@ async function tryBridgeSend(
   }
 }
 
+// Sends the bill PNG as a WhatsApp image attachment with a caption via the bridge.
+// Returns true on success. Returns false (never throws) on any failure so callers
+// can fall back to tryBridgeSend (text-only) or the wa.me deeplink.
+async function tryBridgeSendMedia(
+  restaurantId: number,
+  phone: string,
+  imageBase64: string,
+  caption: string,
+): Promise<boolean> {
+  try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (BRIDGE_API_SECRET) headers["x-bridge-secret"] = BRIDGE_API_SECRET;
+
+    const statusRes = await fetch(`${BRIDGE_URL}/api/whatsapp/status/${restaurantId}`, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(3000),
+    });
+    const statusData = (await statusRes.json()) as { status?: string };
+
+    if (statusData.status !== "connected") {
+      logger.info({ restaurantId, bridgeStatus: statusData.status }, "[tryBridgeSendMedia] not connected — skipping media send");
+      return false;
+    }
+
+    const sendRes = await fetch(`${BRIDGE_URL}/api/send-media`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ restaurantId, phone, imageBase64, mimeType: "image/png", caption }),
+      // Media uploads can take longer than text; allow 30 s
+      signal: AbortSignal.timeout(30000),
+    });
+    const sendData = (await sendRes.json()) as { success?: boolean; error?: string };
+    logger.info(
+      { restaurantId, phone, sendSuccess: sendData.success, sendError: sendData.error },
+      "[tryBridgeSendMedia] send-media response",
+    );
+
+    return sendData.success === true;
+  } catch (err) {
+    logger.warn({ restaurantId, error: (err as Error).message }, "[tryBridgeSendMedia] exception — falling back to text");
+    return false;
+  }
+}
+
 const router = Router();
 
 function getQrUrl(restaurantSlug: string, tableId: number): string {
@@ -976,11 +1021,13 @@ const getBill: RequestHandler = async (req, res) => {
   const [restaurant] = await db.select().from(restaurants).where(eq(restaurants.id, user.restaurantId!)).limit(1);
   const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
 
-  // UPI QR payload — auto-fills amount in GPay / PhonePe / Paytm
+  // UPI QR payload — auto-fills amount in GPay / PhonePe / Paytm.
+  // Amount is formatted with toFixed(2) to match PaymentBillView's generateUPILink()
+  // so both QR codes encode identical payloads (e.g. "249.10" not "249.1").
   const upiId = restaurant?.upiId ?? "";
   const qrPayload = upiId
-    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(restaurant?.name ?? "")}&am=${order.total}&tn=${encodeURIComponent(`Order#${order.id}`)}&cu=INR`
-    : `Order #${order.id} | Total: Rs.${order.total}`;
+    ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(restaurant?.name ?? "")}&am=${Number(order.total).toFixed(2)}&tn=${encodeURIComponent(`Order#${order.id}`)}&cu=INR`
+    : `Order #${order.id} | Total: Rs.${Number(order.total).toFixed(2)}`;
 
   const qrPngBuffer = await QRCode.toBuffer(qrPayload, { width: 400, margin: 2, errorCorrectionLevel: "H", type: "png" });
 
@@ -1027,14 +1074,34 @@ const getBill: RequestHandler = async (req, res) => {
     billUrl: shortUrl,
   });
 
-  // Try sending via the connected WhatsApp Bridge first.
-  // If the bridge is not connected, not running, or returns an error, we fall
-  // back silently to the wa.me deep-link so the UI can open WhatsApp manually.
-  const sentViaBridge = await tryBridgeSend(
+  // Caption sent alongside the bill PNG when the bridge is connected.
+  // Keeps the shortUrl so the customer can open the hosted bill if needed.
+  const mediaCaption = [
+    `🧾 *${restaurant?.name ?? "Restaurant"}*`,
+    `Order #${order.id} · Amount: ₹${Number(order.total).toFixed(2)}`,
+    `Scan the QR code in this bill to pay via GPay, PhonePe or any UPI app.`,
+    ``,
+    shortUrl,
+  ].join("\n");
+
+  // Delivery priority:
+  //   1. Bridge connected → send PNG bill as image attachment with caption
+  //   2. Bridge connected but media failed → send text-only message via bridge
+  //   3. Bridge unavailable → wa.me deeplink (manual WhatsApp open by staff)
+  let sentViaBridge = await tryBridgeSendMedia(
     user.restaurantId!,
     order.customerPhone,
-    message,
+    billPng.toString("base64"),
+    mediaCaption,
   );
+
+  if (!sentViaBridge) {
+    sentViaBridge = await tryBridgeSend(
+      user.restaurantId!,
+      order.customerPhone,
+      message,
+    );
+  }
 
   req.log.info(
     { orderId, restaurantId: user.restaurantId, shortId, sentViaBridge },
