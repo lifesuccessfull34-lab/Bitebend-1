@@ -29,3 +29,9 @@ id = "HUREYtJMQnTDzhru8aJe4"
 uri = "file://bitebend-technical-audit-part4.md"
 type = "text"
 title = "Bitebend Final Deep Production Audit — Part 4"
+
+[[outputs]]
+id = "hm5LgU89-aWemL0YnJGvp"
+uri = "file://public/sample_bill.png"
+type = "image"
+title = "Server-generated bill PNG — 600×736px with embedded UPI QR"
