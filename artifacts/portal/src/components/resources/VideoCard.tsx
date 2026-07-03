@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Clock, ExternalLink, X, Heart } from "lucide-react";
+import { Play, Clock, X, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VideoResource } from "@/data/resources";
 import { trackVideoPlay, trackResourceOpen } from "@/services/resourceService";
@@ -93,15 +93,6 @@ export function VideoCard({ video, isFavorited, onToggleFavorite }: Props) {
               <Play className="w-3 h-3" fill="currentColor" />
               Watch
             </button>
-            <a
-              href={video.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center w-8 h-8 rounded-lg border border-border hover:bg-accent text-muted-foreground transition-colors"
-              title="Open in new tab"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
           </div>
         </div>
       </div>

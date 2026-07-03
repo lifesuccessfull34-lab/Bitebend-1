@@ -6,7 +6,6 @@ import {
 import { cn } from "@/lib/utils";
 import {
   searchResources,
-  isRecent,
   type Resource,
 } from "@/services/resourceService";
 import { apiFetch } from "@/lib/api";
@@ -17,7 +16,6 @@ import { LinkCard } from "@/components/resources/LinkCard";
 import { FaqAccordion } from "@/components/resources/FaqAccordion";
 import { SectionHeader } from "@/components/resources/SectionHeader";
 import { FeaturedCarousel } from "@/components/resources/FeaturedCarousel";
-import { RecentlyAdded } from "@/components/resources/RecentlyAdded";
 import type { VideoResource, PdfResource, PlanResource, LinkResource, FaqResource } from "@/data/resources";
 
 type FilterTab = "all" | "videos" | "pdfs" | "plans" | "links" | "faqs";
@@ -74,10 +72,6 @@ export default function ResourcesCenter() {
   const faqs    = useMemo(() => searched.filter((r) => r.type === "faq"),   [searched]);
 
   const featuredResources = useMemo(() => allResources.filter((r) => r.featured), [allResources]);
-  const recentResources   = useMemo(() =>
-    allResources.filter(isRecent).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [allResources],
-  );
 
   const q = query.trim();
   const show = (tab: FilterTab) => activeTab === "all" || activeTab === tab;
@@ -134,11 +128,6 @@ export default function ResourcesCenter() {
         {/* Featured carousel — no search, all tab only */}
         {!apiLoading && !q && activeTab === "all" && featuredResources.length > 0 && (
           <FeaturedCarousel resources={featuredResources} />
-        )}
-
-        {/* Recently Added — no search, all tab only */}
-        {!apiLoading && !q && activeTab === "all" && recentResources.length > 0 && (
-          <RecentlyAdded resources={recentResources.slice(0, 8)} />
         )}
 
         {/* Search */}
@@ -207,17 +196,25 @@ export default function ResourcesCenter() {
         {!apiLoading && (
           <div className="space-y-10 pb-16">
 
-            {/* Videos */}
-            {show("videos") && videos.length > 0 && (
-              <section>
-                <SectionHeader icon={Video} title="Demo Videos" description="Watch walkthroughs and tutorials to get started quickly." count={videos.length} />
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {videos.map((r) => (
-                    <VideoCard key={r.id} video={toVideo(r)} />
-                  ))}
-                </div>
-              </section>
-            )}
+            {/* Videos — grouped by category */}
+            {show("videos") && videos.length > 0 && (() => {
+              const groups = new Map<string, Resource[]>();
+              for (const r of videos) {
+                const cat = r.category?.trim() || "Videos";
+                if (!groups.has(cat)) groups.set(cat, []);
+                groups.get(cat)!.push(r);
+              }
+              return Array.from(groups.entries()).map(([cat, items]) => (
+                <section key={cat}>
+                  <SectionHeader icon={Video} title={cat} description="Watch walkthroughs and tutorials to get started quickly." count={items.length} />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {items.map((r) => (
+                      <VideoCard key={r.id} video={toVideo(r)} />
+                    ))}
+                  </div>
+                </section>
+              ));
+            })()}
 
             {/* PDFs */}
             {show("pdfs") && pdfs.length > 0 && (
