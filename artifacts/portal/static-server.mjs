@@ -17,7 +17,7 @@ import { createGzip } from "node:zlib";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PORT = Number(process.env.PORT) || 3000;
 const BASE = (process.env.BASE_PATH ?? "/portal/").replace(/\/$/, ""); // e.g. "/portal"
-const ROOT = join(__dirname, "dist/public");
+const ROOT = join(__dirname, "dist");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
