@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "if lsof -ti:5000 >/dev/null 2>&1; then echo '[portal] Port 5000 already in use — sharing with existing server'; exec tail -f /dev/null; fi; fuser -k 5000/tcp 2>/dev/null; exec vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
+    "build:root": "BASE_PATH=/ vite build --config vite.config.ts --outDir dist-root --emptyOutDir",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

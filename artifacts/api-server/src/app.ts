@@ -140,7 +140,12 @@ if (process.env.NODE_ENV !== "production") {
   );
 } else {
   // ── Production: serve built frontend static files ─────────────────────────
-  const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist");
+  // portal/dist-root is a dedicated build compiled with BASE_PATH=/ (separate
+  // from portal/dist, which is compiled with BASE_PATH=/portal/ for the Portal
+  // artifact's own /portal/* route). The API server owns root-level routes
+  // (/login, /admin/login, /, etc.) and must serve a bundle whose router base
+  // matches "/", not "/portal".
+  const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist-root");
   const menuDist   = join(WORKSPACE_ROOT, "artifacts/menu/dist/public");
 
   // Backwards-compat: old /portal/* URLs → redirect to the same path without prefix.

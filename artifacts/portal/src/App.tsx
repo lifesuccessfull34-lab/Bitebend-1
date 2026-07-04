@@ -347,7 +347,13 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AuthProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <WouterRouter
+            base={
+              window.location.pathname.startsWith("/portal")
+                ? "/portal"
+                : import.meta.env.BASE_URL.replace(/\/$/, "")
+            }
+          >
             <ChunkErrorBoundary>
               <Suspense fallback={<Spinner />}>
                 <Router />
