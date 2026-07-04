@@ -117,7 +117,6 @@ export default function Dashboard() {
   const [updatingId, setUpdatingId]       = useState<number | null>(null);
   const [verifyingId, setVerifyingId]     = useState<number | null>(null);
   const [rejectingId, setRejectingId]     = useState<number | null>(null);
-  const [filter, setFilter] = useState<string>("active");
   const [orderErrors, setOrderErrors] = useState<Record<number, string>>({});
 
 
@@ -374,16 +373,6 @@ export default function Dashboard() {
       .filter((s) => s.status === "active" || s.status === "awaiting_payment" || s.status === "awaiting_verification")
       .flatMap((s) => s.orders.map((o) => o.id)),
   );
-
-  const filteredOrders = orders.filter((o) => {
-    // Orders in active sessions are shown in the Sessions section, not here
-    if (activeSessionOrderIds.has(o.id)) return false;
-    if (filter === "active")    return ACTIVE_STATUSES.includes(o.status);
-    if (filter === "completed") return o.status === "completed";
-    if (filter === "cancelled") return o.status === "cancelled" || o.status === "payment_failed";
-    return true;
-  });
-
 
   const subBanner = (() => {
     if (!stats) return null;
@@ -959,45 +948,6 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-
-        {/* ── Orders ─────────────────────────────────────────────────────── */}
-        <div className="bg-card rounded-xl border border-border">
-          <div className="p-4 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-            <div className="shrink-0">
-              <h2 className="text-base font-semibold">Orders</h2>
-            </div>
-            <div className="flex gap-1 flex-wrap">
-              {["active", "completed", "cancelled", "all"].map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={cn(
-                    "text-xs px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-full font-medium capitalize transition-all whitespace-nowrap",
-                    filter === f ? "bg-orange-500 text-white" : "bg-muted text-muted-foreground hover:bg-muted/80",
-                  )}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredOrders.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <AlertCircle className="w-10 h-10 mb-3 opacity-30" />
-              <p className="font-medium">No {filter} orders</p>
-              <p className="text-sm mt-1">Orders will appear here automatically</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {filteredOrders.map((order, i) => renderOrderCard(order, i))}
-            </div>
-          )}
-        </div>
 
         </>}
       </div>
