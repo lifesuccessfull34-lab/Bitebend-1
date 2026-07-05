@@ -1,41 +1,51 @@
-FROM node:20-bookworm-slim
+FROM node:22-bookworm
 
-WORKDIR /app
-
+# Install Chromium dependencies
 RUN apt-get update && apt-get install -y \
     chromium \
-    libglib2.0-0 \
-    libnss3 \
+    ca-certificates \
+    fonts-liberation \
+    libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
     libcups2 \
+    libdbus-1-3 \
     libdrm2 \
-    libxkbcommon0 \
+    libgbm1 \
+    libglib2.0-0 \
+    libgtk-3-0 \
+    libnspr4 \
+    libnss3 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb1 \
     libxcomposite1 \
     libxdamage1 \
+    libxext6 \
     libxfixes3 \
     libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpangocairo-1.0-0 \
-    libpango-1.0-0 \
-    libcairo2 \
-    fonts-liberation \
     xdg-utils \
-    --no-install-recommends \
- && rm -rf /var/lib/apt/lists/*
+    wget \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
+WORKDIR /app
+
+# Copy package files first
+COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
-COPY tsconfig.json ./
-COPY src ./src
+# Copy source
+COPY . .
 
-RUN npm run build && npm prune --omit=dev
+# Build
+RUN npm run build
 
+# Railway variables
 ENV NODE_ENV=production
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 EXPOSE 3001
 
-CMD ["npm", "start"]
+CMD ["npm", "run", "start"]
