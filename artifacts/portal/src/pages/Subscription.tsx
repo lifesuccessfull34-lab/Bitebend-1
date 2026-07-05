@@ -8,7 +8,7 @@ import {
   Loader2, Users, IndianRupee, BellOff,
   Zap, Star, Crown, RefreshCw, AlertTriangle,
   Copy, Check, X, Smartphone, CreditCard, CheckCircle2,
-  ShieldCheck, ChevronRight, Clock,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -49,9 +49,6 @@ export default function Subscription() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<number | null>(null);
   const [tab, setTab] = useState<"plans" | "history" | "notifications">("plans");
-
-  // Payment method picker modal
-  const [methodPickerPlan, setMethodPickerPlan] = useState<SubscriptionPlan | null>(null);
 
   // UPI modal state
   const [upiModal, setUpiModal] = useState<UpiModalState | null>(null);
@@ -105,9 +102,9 @@ export default function Subscription() {
     }
   };
 
-  // Called after user picks a payment method
+  // Called when user clicks Subscribe/Recharge — Razorpay is the only method
+  // exposed in the UI. UPI backend support is retained but not surfaced here.
   const handleSubscribe = async (plan: SubscriptionPlan, paymentMethod: "upi" | "razorpay") => {
-    setMethodPickerPlan(null);
     setPaying(plan.id);
     try {
       const orderRes = await apiFetch<{
@@ -389,7 +386,7 @@ export default function Subscription() {
                     className="w-full bg-orange-500 hover:bg-orange-600 text-white"
                     size="sm"
                     disabled={paying === plan.id}
-                    onClick={() => setMethodPickerPlan(plan)}
+                    onClick={() => handleSubscribe(plan, "razorpay")}
                   >
                     {paying === plan.id ? (
                       <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -479,77 +476,6 @@ export default function Subscription() {
           </div>
         )}
       </div>
-
-      {/* ── Payment Method Picker Modal ───────────────────────────────────────── */}
-      {methodPickerPlan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <div>
-                <h2 className="font-bold text-base">Choose Payment Method</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {methodPickerPlan.name} Plan — ₹{Number(methodPickerPlan.price).toLocaleString("en-IN")}
-                </p>
-              </div>
-              <button
-                onClick={() => setMethodPickerPlan(null)}
-                className="p-1 rounded-md hover:bg-muted transition-colors"
-              >
-                <X className="w-4 h-4 text-muted-foreground" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3">
-              {/* Razorpay option */}
-              <button
-                onClick={() => handleSubscribe(methodPickerPlan, "razorpay")}
-                disabled={!paymentConfig.razorpayAvailable}
-                className={cn(
-                  "w-full flex items-center gap-4 rounded-xl border-2 p-4 text-left transition-all",
-                  paymentConfig.razorpayAvailable
-                    ? "border-blue-200 bg-blue-50 hover:border-blue-400 hover:bg-blue-100 cursor-pointer"
-                    : "border-gray-100 bg-gray-50 cursor-not-allowed opacity-60"
-                )}
-              >
-                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                  <ShieldCheck className="w-5 h-5 text-blue-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-foreground">Razorpay</p>
-                  <p className="text-xs text-muted-foreground">Card, Net Banking, UPI, Wallet</p>
-                  {!paymentConfig.razorpayAvailable && (
-                    <p className="text-xs text-amber-600 font-medium mt-0.5">Not configured yet</p>
-                  )}
-                </div>
-                {paymentConfig.razorpayAvailable && (
-                  <ChevronRight className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                )}
-              </button>
-
-              {/* UPI manual option */}
-              <button
-                onClick={() => handleSubscribe(methodPickerPlan, "upi")}
-                className="w-full flex items-center gap-4 rounded-xl border-2 border-orange-200 bg-orange-50 hover:border-orange-400 hover:bg-orange-100 p-4 text-left transition-all cursor-pointer"
-              >
-                <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0">
-                  <Smartphone className="w-5 h-5 text-orange-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-sm text-foreground">UPI Transfer</p>
-                  <p className="text-xs text-muted-foreground">PhonePe, GPay, Paytm, BHIM</p>
-                  <p className="text-xs text-orange-600 font-medium mt-0.5">Manual — submit UTR after paying</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-orange-400 flex-shrink-0" />
-              </button>
-
-              <p className="text-xs text-center text-muted-foreground pt-1">
-                Your plan activates instantly after payment verification.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── UPI Payment Modal ─────────────────────────────────────────────────── */}
       {upiModal && (
