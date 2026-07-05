@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { getReadyClient } from '../services/whatsappClient';
+import { getReadyClient, reportClientFailure } from '../services/whatsappClient';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -32,9 +32,8 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
   }
   const chatId = `${normalised}@c.us`;
 
-  let client;
   try {
-    client = getReadyClient(restaurantId);
+    getReadyClient(restaurantId);
   } catch (err) {
     res.status(409).json({
       success: false,
@@ -48,6 +47,26 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let client;
+    try {
+      // Re-fetch on every attempt so a mid-retry reconnect (triggered by
+      // reportClientFailure below) is picked up instead of reusing a client
+      // whose Puppeteer page/frame has already died.
+      client = getReadyClient(restaurantId);
+    } catch (err) {
+      lastError = err as Error;
+      logger.warn(`Client unavailable on attempt ${attempt}/${maxAttempts}`, {
+        restaurantId,
+        to: normalised,
+        error: lastError.message,
+      });
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+        continue;
+      }
+      break;
+    }
+
     try {
       await client.sendMessage(chatId, message.trim());
       logger.info(`Message sent`, { restaurantId, to: normalised, attempt });
@@ -60,6 +79,7 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
         to: normalised,
         error: lastError.message,
       });
+      await reportClientFailure(restaurantId, lastError);
       if (attempt < maxAttempts) {
         await new Promise((r) => setTimeout(r, 1000 * attempt));
       }

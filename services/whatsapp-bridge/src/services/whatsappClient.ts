@@ -173,21 +173,7 @@ function attachEventHandlers(managed: ManagedClient): void {
     managed.status = 'disconnected';
     logger.warn(`Restaurant ${restaurantId} disconnected: ${reason}`);
     emitStatus(restaurantId, 'disconnected');
-
-    if (managed.retryCount < MAX_AUTO_RECONNECT && reason !== 'LOGOUT') {
-      managed.retryCount++;
-      const delay = managed.retryCount * 5_000;
-      logger.info(
-        `Auto-reconnect attempt ${managed.retryCount}/${MAX_AUTO_RECONNECT} for restaurant ${restaurantId} in ${delay}ms`
-      );
-      await new Promise((r) => setTimeout(r, delay));
-      if (clients.get(restaurantId) === managed) {
-        await initClient(restaurantId);
-      }
-    } else {
-      logger.warn(`Restaurant ${restaurantId} requires manual reconnect (QR scan)`);
-      clients.delete(restaurantId);
-    }
+    await scheduleReconnect(managed, reason);
   });
 
   client.on('message', async (msg: Message) => {
@@ -199,6 +185,72 @@ function attachEventHandlers(managed: ManagedClient): void {
       });
     }
   });
+}
+
+// ── Shared reconnect flow ──────────────────────────────────────────────────────
+// Used both by the library's own 'disconnected' event and by reportClientFailure()
+// below, so there is exactly one reconnect code path regardless of how the
+// unhealthy state was detected.
+async function scheduleReconnect(managed: ManagedClient, reason: string): Promise<void> {
+  const { restaurantId } = managed;
+
+  if (managed.retryCount < MAX_AUTO_RECONNECT && reason !== 'LOGOUT') {
+    managed.retryCount++;
+    const delay = managed.retryCount * 5_000;
+    logger.info(
+      `Auto-reconnect attempt ${managed.retryCount}/${MAX_AUTO_RECONNECT} for restaurant ${restaurantId} in ${delay}ms`
+    );
+    await new Promise((r) => setTimeout(r, delay));
+    if (clients.get(restaurantId) === managed) {
+      await initClient(restaurantId);
+    }
+  } else {
+    logger.warn(`Restaurant ${restaurantId} requires manual reconnect (QR scan)`);
+    clients.delete(restaurantId);
+  }
+}
+
+// ── Detached-Frame / dead-page failure detection ───────────────────────────────
+// whatsapp-web.js drives a real Puppeteer page. When that page silently reloads
+// or navigates internally (a known upstream behaviour, independent of the
+// auth/socket lifecycle), the cached Frame/execution context can die WITHOUT
+// the library ever emitting a 'disconnected' event. status stays 'connected',
+// so getReadyClient() keeps handing out a dead client. reportClientFailure()
+// lets callers (e.g. sendMessage/sendMedia error handlers) report exactly this
+// condition so it gets funnelled into the same reconnect flow as a normal
+// disconnect.
+const RECOVERABLE_ERROR_PATTERNS = [
+  /Attempted to use detached Frame/i,
+  /Execution context was destroyed/i,
+  /Session closed/i,
+  /Protocol error/i,
+];
+
+export function isRecoverableClientFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return RECOVERABLE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+export async function reportClientFailure(restaurantId: number, error: unknown): Promise<boolean> {
+  if (!isRecoverableClientFailure(error)) return false;
+
+  const managed = clients.get(restaurantId);
+  if (!managed) return false;
+
+  // Already being torn down / reconnected by another path — nothing to do.
+  if (managed.status === 'disconnected') return false;
+
+  const message = error instanceof Error ? error.message : String(error);
+  logger.error(
+    `Detected dead Puppeteer page/frame for restaurant ${restaurantId} — forcing reconnect`,
+    { error: message }
+  );
+
+  managed.status = 'disconnected';
+  emitStatus(restaurantId, 'disconnected');
+
+  await scheduleReconnect(managed, 'FRAME_DETACHED');
+  return true;
 }
 
 export function getClientStatus(restaurantId: number): ClientStatus | 'not_initialised' {

@@ -26,3 +26,11 @@ Migration `0013_whatsapp_bridge.sql` adds `whatsapp_status text NOT NULL DEFAULT
 - `BITEBEND_WEBHOOK_SECRET` — optional env var; webhook accepts all payloads when empty
 - Workflow name: "WhatsApp Bridge", command: `pnpm --filter @workspace/whatsapp-bridge run dev`, port 3001
 - Portal Vite proxy in `artifacts/portal/vite.config.ts` routes `/whatsapp-bridge` → port 3001 with `ws: true` for Socket.IO
+
+## Detached-frame / dead-client recovery
+
+`whatsappClient.ts` exports `reportClientFailure(restaurantId, error)` — call this from any send/media controller's catch block when a Puppeteer/whatsapp-web.js call throws. It pattern-matches known dead-client errors ("detached Frame", "Execution context was destroyed", "Session closed", "Protocol error") and, if matched, forces disconnect + reconnect through the *same* `scheduleReconnect` path used by the library's own `disconnected` event — do not write a second reconnect implementation.
+
+**Why:** whatsapp-web.js can leave a client object alive in memory (status still "connected") after its underlying Puppeteer page/frame has actually died, so `getReadyClient()` alone can't detect it — the failure only surfaces when a send call throws.
+
+**How to apply:** In retry loops, call `getReadyClient()` *inside* the loop (not once before it) so each attempt gets a fresh client reference after a reconnect. `reportClientFailure()` is async and does not return until the full reconnect cycle (delay + destroy + re-init) completes — don't assume it returns immediately after flipping status to "disconnected".
