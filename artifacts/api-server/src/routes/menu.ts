@@ -491,40 +491,12 @@ const placeOrder: RequestHandler = async (req, res) => {
     // the existing application-level check (RULE 3) below.
     try {
       sessionId = await db.transaction(async (tx) => {
-        // RULE 1: Phone-first — does this phone already own an ACTIVE dine-in
-        // session in this restaurant? If so reuse it, even if the table differs.
-        const [phoneOwnedSession] = await tx
-          .select({ id: tableSessions.id, tableNumber: tableSessions.tableNumber })
-          .from(tableSessions)
-          .where(
-            and(
-              eq(tableSessions.restaurantId, restaurantId),
-              eq(tableSessions.sessionType, "dine_in"),
-              eq(tableSessions.customerPhone, normalizedPhone),
-              eq(tableSessions.status, "active"),
-            ),
-          )
-          .orderBy(desc(tableSessions.createdAt))
-          .limit(1);
-
-        if (phoneOwnedSession) {
-          // RULE 1: Reuse existing active session owned by this phone
-          req.log.info(
-            {
-              sessionId: phoneOwnedSession.id,
-              restaurantId,
-              requestedTable: trimmedTableNumber,
-              sessionTable: phoneOwnedSession.tableNumber,
-              customerPhone: normalizedPhone,
-              rule: "RULE_1_PHONE_SESSION_REUSE",
-            },
-            "[Session] Dine-in: reused phone-owned active session",
-          );
-          return phoneOwnedSession.id;
-        }
-
-        // No active session for this phone — check if the requested table is
-        // already occupied by a different phone (RULE 3).
+        // RULE 3 must run BEFORE RULE 1. Table ownership is checked first so
+        // that switching to a table already owned by a DIFFERENT phone is
+        // always rejected — even if the requesting phone already has its own
+        // active session on a different table. Checking phone-reuse first
+        // would let a phone bypass another table's active session simply by
+        // already having an unrelated session elsewhere (the bug this fixes).
         const [tableOwnedSession] = await tx
           .select({ id: tableSessions.id, customerPhone: tableSessions.customerPhone })
           .from(tableSessions)
@@ -566,7 +538,42 @@ const placeOrder: RequestHandler = async (req, res) => {
               "[Session] Dine-in: claimed legacy unclaimed session (backfill heal)",
             );
           }
+          // Table already owned by this same phone — direct reuse.
           return tableOwnedSession.id;
+        }
+
+        // Requested table is free (no active session on it). Now check RULE 1:
+        // does this phone already own an ACTIVE dine-in session elsewhere in
+        // this restaurant? If so reuse it rather than fragmenting the phone's
+        // orders across two open sessions.
+        const [phoneOwnedSession] = await tx
+          .select({ id: tableSessions.id, tableNumber: tableSessions.tableNumber })
+          .from(tableSessions)
+          .where(
+            and(
+              eq(tableSessions.restaurantId, restaurantId),
+              eq(tableSessions.sessionType, "dine_in"),
+              eq(tableSessions.customerPhone, normalizedPhone),
+              eq(tableSessions.status, "active"),
+            ),
+          )
+          .orderBy(desc(tableSessions.createdAt))
+          .limit(1);
+
+        if (phoneOwnedSession) {
+          // RULE 1: Reuse existing active session owned by this phone
+          req.log.info(
+            {
+              sessionId: phoneOwnedSession.id,
+              restaurantId,
+              requestedTable: trimmedTableNumber,
+              sessionTable: phoneOwnedSession.tableNumber,
+              customerPhone: normalizedPhone,
+              rule: "RULE_1_PHONE_SESSION_REUSE",
+            },
+            "[Session] Dine-in: reused phone-owned active session",
+          );
+          return phoneOwnedSession.id;
         }
 
         // No session for this table and no session for this phone — create new.
