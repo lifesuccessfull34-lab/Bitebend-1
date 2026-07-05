@@ -104,6 +104,11 @@ const createPlanOrder: RequestHandler = async (req, res) => {
   const { keyId, keySecret } = await getRazorpayKeys();
 
   // ── Razorpay path ────────────────────────────────────────────────────────
+  // IMPORTANT: no local record is created here. Selecting a plan or opening
+  // Razorpay Checkout must have zero side effects in our DB — the order only
+  // exists on Razorpay's side until payment is verified (see verifyPayment).
+  // This guarantees a cancelled/closed checkout leaves nothing pending in the
+  // admin panel or the owner dashboard.
   if (paymentMethod === "razorpay") {
     if (!keyId || !keySecret) {
       res
@@ -119,21 +124,9 @@ const createPlanOrder: RequestHandler = async (req, res) => {
       receipt: `sub_${user.restaurantId}_${planId}_${Date.now()}`,
     });
 
-    const [txn] = await db
-      .insert(subscriptionTransactions)
-      .values({
-        restaurantId: user.restaurantId!,
-        planId,
-        amount: plan.price,
-        paymentMethod: "razorpay",
-        razorpayOrderId: order.id,
-        status: "pending",
-        customersAdded: plan.customerLimit,
-      })
-      .returning();
-
     res.json({
-      transactionId: txn.id,
+      transactionId: null,
+      planId: plan.id,
       amount: plan.price,
       planName: plan.name,
       paymentMethod: "razorpay",
@@ -172,27 +165,26 @@ const createPlanOrder: RequestHandler = async (req, res) => {
 
 const verifyPayment: RequestHandler = async (req, res) => {
   const user = req.user!;
-  const { transactionId, razorpayPaymentId, razorpayOrderId, razorpaySignature, utrRef } =
+  const { transactionId, planId, razorpayPaymentId, razorpayOrderId, razorpaySignature, utrRef } =
     req.body as {
-      transactionId: number;
+      transactionId?: number;
+      planId?: number;
       razorpayPaymentId?: string;
       razorpayOrderId?: string;
       razorpaySignature?: string;
       utrRef?: string;
     };
 
-  const [txn] = await db
-    .select()
-    .from(subscriptionTransactions)
-    .where(eq(subscriptionTransactions.id, transactionId))
-    .limit(1);
-  if (!txn || txn.restaurantId !== user.restaurantId) {
-    res.status(404).json({ error: "Transaction not found" });
-    return;
-  }
-
   if (razorpayPaymentId && razorpayOrderId && razorpaySignature) {
-    // ── Razorpay: verify HMAC signature before activating ──────────────────
+    // ── Razorpay: verify HMAC signature — this is the ONLY point where a
+    // subscription_transactions row is created for Razorpay payments. No
+    // record exists before this, so a cancelled/failed checkout never shows
+    // up as "pending" anywhere. ──────────────────────────────────────────
+    if (!planId) {
+      res.status(400).json({ error: "Missing plan reference" });
+      return;
+    }
+
     const { keySecret } = await getRazorpayKeys();
     const crypto = await import("crypto");
     const expectedSignature = crypto
@@ -205,25 +197,52 @@ const verifyPayment: RequestHandler = async (req, res) => {
       return;
     }
 
-    // Fetch plan to compute validity-based expiry
     const [plan] = await db
       .select()
       .from(subscriptionPlans)
-      .where(eq(subscriptionPlans.id, txn.planId))
+      .where(eq(subscriptionPlans.id, planId))
       .limit(1);
-    const now = new Date();
-    const expiry = computeExpiry(plan?.validityType ?? "days", plan?.validityValue ?? 30);
+    if (!plan) {
+      res.status(404).json({ error: "Plan not found" });
+      return;
+    }
 
-    await db
-      .update(subscriptionTransactions)
-      .set({ status: "paid", razorpayPaymentId })
-      .where(eq(subscriptionTransactions.id, transactionId));
+    // Idempotency guard: Razorpay's handler can theoretically fire more than
+    // once for the same payment — never double-activate the same payment id.
+    const [existing] = await db
+      .select()
+      .from(subscriptionTransactions)
+      .where(eq(subscriptionTransactions.razorpayPaymentId, razorpayPaymentId))
+      .limit(1);
+    if (existing) {
+      const [already] = await db
+        .select()
+        .from(restaurants)
+        .where(eq(restaurants.id, user.restaurantId!))
+        .limit(1);
+      res.json({ pending: false, restaurant: already });
+      return;
+    }
+
+    const now = new Date();
+    const expiry = computeExpiry(plan.validityType, plan.validityValue);
+
+    await db.insert(subscriptionTransactions).values({
+      restaurantId: user.restaurantId!,
+      planId: plan.id,
+      amount: plan.price,
+      paymentMethod: "razorpay",
+      razorpayOrderId,
+      razorpayPaymentId,
+      status: "paid",
+      customersAdded: plan.customerLimit,
+    });
 
     await db
       .update(restaurants)
       .set({
-        planId: txn.planId,
-        customerLimit: sql`customer_limit + ${txn.customersAdded}`,
+        planId: plan.id,
+        customerLimit: sql`customer_limit + ${plan.customerLimit}`,
         customersUsed: 0,
         subscriptionStatus: "active",
         subscriptionExpiresAt: expiry,
@@ -235,7 +254,7 @@ const verifyPayment: RequestHandler = async (req, res) => {
     await db.insert(notifications).values({
       restaurantId: user.restaurantId!,
       title: "Subscription Activated",
-      message: `Your ${plan?.name ?? "plan"} plan is now active. ${txn.customersAdded.toLocaleString()} customer quota added. Valid till ${expiryLabel}.`,
+      message: `Your ${plan.name} plan is now active. ${plan.customerLimit.toLocaleString()} customer quota added. Valid till ${expiryLabel}.`,
       type: "success",
     });
 
@@ -249,7 +268,24 @@ const verifyPayment: RequestHandler = async (req, res) => {
     return;
   }
 
-  // ── UPI: store UTR for admin review — do NOT activate plan yet ──────────
+  // ── UPI: requires an existing pending transaction (created eagerly in
+  // createPlanOrder since manual UPI genuinely needs admin review). Store
+  // the UTR for admin review — do NOT activate plan yet ──────────────────
+  if (!transactionId) {
+    res.status(400).json({ error: "Missing transaction reference" });
+    return;
+  }
+
+  const [txn] = await db
+    .select()
+    .from(subscriptionTransactions)
+    .where(eq(subscriptionTransactions.id, transactionId))
+    .limit(1);
+  if (!txn || txn.restaurantId !== user.restaurantId) {
+    res.status(404).json({ error: "Transaction not found" });
+    return;
+  }
+
   if (!utrRef || utrRef.trim().length < 6) {
     res.status(400).json({ error: "A valid UTR / transaction reference is required." });
     return;

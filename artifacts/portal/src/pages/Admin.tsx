@@ -494,6 +494,15 @@ export default function Admin() {
     finally { setActionId(null); }
   };
 
+  const [clearingHistory, setClearingHistory] = useState(false);
+  const handleClearPaymentHistory = async () => {
+    if (!confirm("Delete ALL payment/revenue history? This removes every subscription transaction record and cannot be undone. Restaurants, orders, menus, and active subscriptions are not affected.")) return;
+    setClearingHistory(true); setActionError(null);
+    try { await apiFetch("/admin/payment-history/clear", { method: "POST" }); await fetchData(); }
+    catch (e) { if (!handleAuthError(e)) setActionError((e as Error).message); }
+    finally { setClearingHistory(false); }
+  };
+
   const handleSaveUpiId = async () => {
     if (!upiIdEdit.trim()) return;
     setUpiSaving(true); setActionError(null);
@@ -1758,6 +1767,18 @@ export default function Admin() {
                 <p className="text-2xl font-bold text-slate-700">{transactions.length}</p>
                 <p className="text-xs text-slate-400 mt-0.5">All time subscription payments</p>
               </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-red-200 text-red-600 hover:bg-red-50"
+                disabled={clearingHistory || transactions.length === 0}
+                onClick={handleClearPaymentHistory}
+              >
+                {clearingHistory ? "Clearing…" : "Clear Payment History"}
+              </Button>
             </div>
 
             {/* ── Transactions Table ─────────────────────────────────────── */}

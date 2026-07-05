@@ -108,7 +108,8 @@ export default function Subscription() {
     setPaying(plan.id);
     try {
       const orderRes = await apiFetch<{
-        transactionId: number;
+        transactionId: number | null;
+        planId?: number;
         amount: number;
         planName: string;
         paymentMethod: string;
@@ -125,7 +126,9 @@ export default function Subscription() {
         setUtrError("");
         setUpiSuccess(false);
         setUpiModal({
-          transactionId: orderRes.transactionId,
+          // UPI orders always return a real transactionId (created eagerly
+          // server-side); only the Razorpay path can return null here.
+          transactionId: orderRes.transactionId!,
           amount: orderRes.amount,
           planName: orderRes.planName,
           upiId: orderRes.upiId || paymentConfig.upiId,
@@ -150,7 +153,7 @@ export default function Subscription() {
             await apiFetch("/subscription/verify", {
               method: "POST",
               body: JSON.stringify({
-                transactionId: orderRes.transactionId,
+                planId: orderRes.planId ?? plan.id,
                 razorpayPaymentId: response.razorpay_payment_id,
                 razorpayOrderId: response.razorpay_order_id,
                 razorpaySignature: response.razorpay_signature,

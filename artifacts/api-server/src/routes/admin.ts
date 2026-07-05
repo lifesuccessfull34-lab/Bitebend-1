@@ -272,7 +272,31 @@ const updatePlan: RequestHandler = async (req, res) => {
 
 const deletePlan: RequestHandler = async (req, res) => {
   const planId = parseInt(String(req.params.planId));
-  await db.delete(subscriptionPlans).where(eq(subscriptionPlans.id, planId));
+
+  const [{ count: restaurantCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(restaurants)
+    .where(eq(restaurants.planId, planId));
+  const [{ count: transactionCount }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(subscriptionTransactions)
+    .where(eq(subscriptionTransactions.planId, planId));
+
+  if (restaurantCount > 0 || transactionCount > 0) {
+    res.status(409).json({
+      error: `Cannot delete this plan — it is referenced by ${restaurantCount} restaurant(s) and ${transactionCount} transaction(s). Deactivate it instead to stop new signups.`,
+    });
+    return;
+  }
+
+  const [deleted] = await db
+    .delete(subscriptionPlans)
+    .where(eq(subscriptionPlans.id, planId))
+    .returning();
+  if (!deleted) {
+    res.status(404).json({ error: "Plan not found" });
+    return;
+  }
   res.status(204).send();
 };
 
@@ -576,6 +600,15 @@ const getPaymentSettings: RequestHandler = async (_req, res) => {
   });
 };
 
+// One-time data-hygiene action: wipe payment/revenue history (subscription
+// transactions) without touching restaurants, users, menu, orders, tables,
+// settings, or active subscriptions (those live on the restaurants table,
+// not on the transaction rows).
+const clearPaymentHistory: RequestHandler = async (_req, res) => {
+  const deleted = await db.delete(subscriptionTransactions).returning({ id: subscriptionTransactions.id });
+  res.json({ deletedCount: deleted.length });
+};
+
 const updatePaymentSettings: RequestHandler = async (req, res) => {
   const { upiId, razorpayKeyId, razorpayKeySecret, clearRazorpay } = req.body as {
     upiId?: string;
@@ -696,6 +729,7 @@ router.post("/admin/notifications", requireAdmin, sendNotification);
 
 router.get("/admin/payment-settings", requireAdmin, getPaymentSettings);
 router.put("/admin/payment-settings", requireAdmin, updatePaymentSettings);
+router.post("/admin/payment-history/clear", requireAdmin, clearPaymentHistory);
 
 // ── Build info (admin diagnostics) ────────────────────────────────────────────
 //
