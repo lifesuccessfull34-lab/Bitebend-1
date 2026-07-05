@@ -1,4 +1,4 @@
-FROM node:20-bookworm
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
@@ -25,15 +25,17 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+COPY package.json ./
+RUN npm install
 
-RUN corepack enable
-RUN pnpm install
-RUN pnpm run build
+COPY tsconfig.json ./
+COPY src ./src
+
+RUN npm run build && npm prune --omit=dev
 
 ENV NODE_ENV=production
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 EXPOSE 3001
 
-CMD ["pnpm", "start"]
+CMD ["npm", "start"]
