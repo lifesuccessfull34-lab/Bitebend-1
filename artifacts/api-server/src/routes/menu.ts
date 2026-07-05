@@ -12,6 +12,18 @@ import { extractPaymentData, matchPayment, isOcrConfigured } from "../services/o
 const router = Router();
 
 /**
+ * Thrown when a dine-in table is already occupied by an active session
+ * belonging to a different phone number (RULE 3). Used to unwind out of a
+ * db.transaction() and map to a 409 TABLE_SESSION_CONFLICT response.
+ */
+class TableSessionConflictError extends Error {}
+
+/** True if `err` is a Postgres unique-constraint violation (SQLSTATE 23505). */
+function isUniqueViolation(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
+}
+
+/**
  * Feature flag: ENABLE_CUSTOMER_RAZORPAY
  * When false (default): Razorpay customer checkout is disabled.
  * When true: legacy per-restaurant Razorpay checkout is available.
@@ -468,90 +480,101 @@ const placeOrder: RequestHandler = async (req, res) => {
 
   if (trimmedTableNumber) {
     // ── Dine-in ────────────────────────────────────────────────────────────
+    // The whole read-then-write sequence below runs inside a single DB
+    // transaction, and the table is protected by a partial unique index
+    // (restaurant_id, table_number) WHERE session_type='dine_in' AND
+    // status='active' (migration 0025). This closes the race window where
+    // two customers scanning the same table at the same instant could both
+    // pass the "no active session yet" check before either INSERT lands —
+    // whichever request loses the race gets a unique-violation (23505),
+    // which we translate into the same TABLE_SESSION_CONFLICT response as
+    // the existing application-level check (RULE 3) below.
+    try {
+      sessionId = await db.transaction(async (tx) => {
+        // RULE 1: Phone-first — does this phone already own an ACTIVE dine-in
+        // session in this restaurant? If so reuse it, even if the table differs.
+        const [phoneOwnedSession] = await tx
+          .select({ id: tableSessions.id, tableNumber: tableSessions.tableNumber })
+          .from(tableSessions)
+          .where(
+            and(
+              eq(tableSessions.restaurantId, restaurantId),
+              eq(tableSessions.sessionType, "dine_in"),
+              eq(tableSessions.customerPhone, normalizedPhone),
+              eq(tableSessions.status, "active"),
+            ),
+          )
+          .orderBy(desc(tableSessions.createdAt))
+          .limit(1);
 
-    // RULE 1: Phone-first — does this phone already own an ACTIVE dine-in
-    // session in this restaurant? If so reuse it, even if the table differs.
-    const [phoneOwnedSession] = await db
-      .select({ id: tableSessions.id, tableNumber: tableSessions.tableNumber })
-      .from(tableSessions)
-      .where(
-        and(
-          eq(tableSessions.restaurantId, restaurantId),
-          eq(tableSessions.sessionType, "dine_in"),
-          eq(tableSessions.customerPhone, normalizedPhone),
-          eq(tableSessions.status, "active"),
-        ),
-      )
-      .orderBy(desc(tableSessions.createdAt))
-      .limit(1);
-
-    if (phoneOwnedSession) {
-      // RULE 1: Reuse existing active session owned by this phone
-      sessionId = phoneOwnedSession.id;
-      req.log.info(
-        {
-          sessionId,
-          restaurantId,
-          requestedTable: trimmedTableNumber,
-          sessionTable: phoneOwnedSession.tableNumber,
-          customerPhone: normalizedPhone,
-          rule: "RULE_1_PHONE_SESSION_REUSE",
-        },
-        "[Session] Dine-in: reused phone-owned active session",
-      );
-    } else {
-      // No active session for this phone — check if the requested table is
-      // already occupied by a different phone (RULE 3).
-      const [tableOwnedSession] = await db
-        .select({ id: tableSessions.id, customerPhone: tableSessions.customerPhone })
-        .from(tableSessions)
-        .where(
-          and(
-            eq(tableSessions.restaurantId, restaurantId),
-            eq(tableSessions.tableNumber, trimmedTableNumber),
-            eq(tableSessions.sessionType, "dine_in"),
-            eq(tableSessions.status, "active"),
-          ),
-        )
-        .limit(1);
-
-      if (tableOwnedSession) {
-        if (tableOwnedSession.customerPhone !== null && tableOwnedSession.customerPhone !== normalizedPhone) {
-          // RULE 3: Table is occupied by a different phone — reject
-          req.log.warn(
-            {
-              restaurantId,
-              tableNumber: trimmedTableNumber,
-              existingPhone: tableOwnedSession.customerPhone,
-              incomingPhone: normalizedPhone,
-              existingSessionId: tableOwnedSession.id,
-              rule: "RULE_3_TABLE_CONFLICT",
-            },
-            "[Session] Dine-in: table ownership conflict — rejecting order",
-          );
-          res.status(409).json({
-            error: "This table already has an active session. Please contact restaurant staff.",
-            code: "TABLE_SESSION_CONFLICT",
-          });
-          return;
-        }
-
-        // Session exists but phone is NULL (legacy unclaimed session — heal it).
-        sessionId = tableOwnedSession.id;
-        if (tableOwnedSession.customerPhone === null) {
-          await db
-            .update(tableSessions)
-            .set({ customerPhone: normalizedPhone, updatedAt: new Date() })
-            .where(eq(tableSessions.id, tableOwnedSession.id));
+        if (phoneOwnedSession) {
+          // RULE 1: Reuse existing active session owned by this phone
           req.log.info(
-            { sessionId, restaurantId, tableNumber: trimmedTableNumber, customerPhone: normalizedPhone },
-            "[Session] Dine-in: claimed legacy unclaimed session (backfill heal)",
+            {
+              sessionId: phoneOwnedSession.id,
+              restaurantId,
+              requestedTable: trimmedTableNumber,
+              sessionTable: phoneOwnedSession.tableNumber,
+              customerPhone: normalizedPhone,
+              rule: "RULE_1_PHONE_SESSION_REUSE",
+            },
+            "[Session] Dine-in: reused phone-owned active session",
           );
+          return phoneOwnedSession.id;
         }
-      } else {
+
+        // No active session for this phone — check if the requested table is
+        // already occupied by a different phone (RULE 3).
+        const [tableOwnedSession] = await tx
+          .select({ id: tableSessions.id, customerPhone: tableSessions.customerPhone })
+          .from(tableSessions)
+          .where(
+            and(
+              eq(tableSessions.restaurantId, restaurantId),
+              eq(tableSessions.tableNumber, trimmedTableNumber),
+              eq(tableSessions.sessionType, "dine_in"),
+              eq(tableSessions.status, "active"),
+            ),
+          )
+          .limit(1);
+
+        if (tableOwnedSession) {
+          if (tableOwnedSession.customerPhone !== null && tableOwnedSession.customerPhone !== normalizedPhone) {
+            // RULE 3: Table is occupied by a different phone — reject
+            req.log.warn(
+              {
+                restaurantId,
+                tableNumber: trimmedTableNumber,
+                existingPhone: tableOwnedSession.customerPhone,
+                incomingPhone: normalizedPhone,
+                existingSessionId: tableOwnedSession.id,
+                rule: "RULE_3_TABLE_CONFLICT",
+              },
+              "[Session] Dine-in: table ownership conflict — rejecting order",
+            );
+            throw new TableSessionConflictError();
+          }
+
+          // Session exists but phone is NULL (legacy unclaimed session — heal it).
+          if (tableOwnedSession.customerPhone === null) {
+            await tx
+              .update(tableSessions)
+              .set({ customerPhone: normalizedPhone, updatedAt: new Date() })
+              .where(eq(tableSessions.id, tableOwnedSession.id));
+            req.log.info(
+              { sessionId: tableOwnedSession.id, restaurantId, tableNumber: trimmedTableNumber, customerPhone: normalizedPhone },
+              "[Session] Dine-in: claimed legacy unclaimed session (backfill heal)",
+            );
+          }
+          return tableOwnedSession.id;
+        }
+
         // No session for this table and no session for this phone — create new.
         // RULE 2: Always persist customerPhone on the new session.
-        const [newSession] = await db
+        // If a concurrent request wins the race and inserts first, the
+        // partial unique index rejects this insert with a 23505 error,
+        // caught below and converted to TABLE_SESSION_CONFLICT.
+        const [newSession] = await tx
           .insert(tableSessions)
           .values({
             restaurantId,
@@ -562,10 +585,9 @@ const placeOrder: RequestHandler = async (req, res) => {
             updatedAt: new Date(),
           })
           .returning({ id: tableSessions.id });
-        sessionId = newSession.id;
         req.log.info(
           {
-            sessionId,
+            sessionId: newSession.id,
             restaurantId,
             tableNumber: trimmedTableNumber,
             customerPhone: normalizedPhone,
@@ -573,7 +595,23 @@ const placeOrder: RequestHandler = async (req, res) => {
           },
           "[Session] Dine-in: created new session with phone owner",
         );
+        return newSession.id;
+      });
+    } catch (err) {
+      if (err instanceof TableSessionConflictError || isUniqueViolation(err)) {
+        if (isUniqueViolation(err)) {
+          req.log.warn(
+            { restaurantId, tableNumber: trimmedTableNumber, customerPhone: normalizedPhone, rule: "RULE_3_TABLE_CONFLICT_RACE" },
+            "[Session] Dine-in: concurrent insert race lost — rejecting order",
+          );
+        }
+        res.status(409).json({
+          error: "This table already has an active session. Please contact restaurant staff.",
+          code: "TABLE_SESSION_CONFLICT",
+        });
+        return;
       }
+      throw err;
     }
   } else {
     // ── Takeaway ───────────────────────────────────────────────────────────

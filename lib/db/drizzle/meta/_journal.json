@@ -176,6 +176,13 @@
       "when": 1782867200000,
       "tag": "0024_admin_sensitive_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1783248203000,
+      "tag": "0025_table_session_race_guard",
+      "breakpoints": true
     }
   ]
 }

@@ -270,6 +270,7 @@ export interface Order {
 }
 
 export interface DashboardStats {
+  restaurantName: string | null;
   todayOrders: number;
   todayRevenue: number;
   activeOrders: number;

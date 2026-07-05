@@ -2185,6 +2185,7 @@ const getStats: RequestHandler = async (req, res) => {
   }
 
   res.json({
+    restaurantName: restaurant?.name ?? null,
     todayOrders: todayStats?.count ?? 0,
     todayRevenue: todayStats?.revenue ?? 0,
     activeOrders: activeStats?.count ?? 0,

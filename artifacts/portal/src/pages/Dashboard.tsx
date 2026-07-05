@@ -652,7 +652,7 @@ export default function Dashboard() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">Welcome back, {user?.name}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">Welcome back, {stats?.restaurantName ?? user?.name}</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex gap-1 bg-muted rounded-lg p-0.5">
