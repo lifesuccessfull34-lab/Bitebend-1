@@ -227,16 +227,39 @@ const verifyPayment: RequestHandler = async (req, res) => {
     const now = new Date();
     const expiry = computeExpiry(plan.validityType, plan.validityValue);
 
-    await db.insert(subscriptionTransactions).values({
-      restaurantId: user.restaurantId!,
-      planId: plan.id,
-      amount: plan.price,
-      paymentMethod: "razorpay",
-      razorpayOrderId,
-      razorpayPaymentId,
-      status: "paid",
-      customersAdded: plan.customerLimit,
-    });
+    // DB-level idempotency backstop: a unique index on razorpay_payment_id
+    // (migration 0026) guarantees only one row can ever exist per payment,
+    // even if two verify requests race past the SELECT check above at the
+    // same instant. If this insert loses that race, treat it exactly like
+    // the "already exists" branch above instead of surfacing a 500.
+    try {
+      await db.insert(subscriptionTransactions).values({
+        restaurantId: user.restaurantId!,
+        planId: plan.id,
+        amount: plan.price,
+        paymentMethod: "razorpay",
+        razorpayOrderId,
+        razorpayPaymentId,
+        status: "paid",
+        customersAdded: plan.customerLimit,
+      });
+    } catch (err) {
+      // node-postgres sets `code` directly on the thrown error, but
+      // drizzle-orm wraps driver errors in a DrizzleQueryError whose
+      // `cause` holds the original pg error — check both shapes.
+      const pgCode =
+        (err as { code?: string })?.code ??
+        (err as { cause?: { code?: string } })?.cause?.code;
+      if (pgCode !== "23505") throw err;
+
+      const [already] = await db
+        .select()
+        .from(restaurants)
+        .where(eq(restaurants.id, user.restaurantId!))
+        .limit(1);
+      res.json({ pending: false, restaurant: already });
+      return;
+    }
 
     await db
       .update(restaurants)
