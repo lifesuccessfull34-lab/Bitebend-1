@@ -99,12 +99,33 @@ app.use(
 
 app.use("/api", router);
 
+// ── WhatsApp Bridge proxy (Socket.IO + REST) ─────────────────────────────────
+// Registered unconditionally — in both development AND production — because
+// the QR code and connection status are pushed to the browser over Socket.IO
+// at /whatsapp-bridge/socket.io, not fetched via a plain REST call. If this
+// proxy is missing in production, /whatsapp-bridge/* falls through to the SPA
+// catch-all and the dashboard never receives the "whatsapp:qr" event.
+// Target is BRIDGE_URL (the same env var used by the REST bridge calls in
+// routes/whatsappBridge.ts and routes/owner.ts) so this works whether the
+// bridge runs locally (dev: localhost:3001) or on external infra such as
+// Railway (prod: BRIDGE_URL=https://<bridge>.up.railway.app).
+// Path /whatsapp-bridge/* is rewritten to /* on the bridge.
+app.use(
+  createProxyMiddleware({
+    target: process.env.BRIDGE_URL ?? "http://localhost:3001",
+    changeOrigin: true,
+    ws: true,
+    pathFilter: (path) => path.startsWith("/whatsapp-bridge"),
+    pathRewrite: { "^/whatsapp-bridge": "" },
+  }),
+);
+
 // ── Dev proxy: forward requests to Vite dev servers ──────────────────────────
 // In development the portal and menu are served by separate Vite processes.
 // The Replit preview pane only sees port 5000 (this API server), so we
 // proxy those paths to the appropriate Vite dev server ports.
-// Order matters: /menu and /whatsapp-bridge are matched first, then everything
-// else (except /api which is already handled above) goes to the portal.
+// Order matters: /menu is matched first (then /whatsapp-bridge is already
+// handled above), then everything else goes to the portal.
 if (process.env.NODE_ENV !== "production") {
   app.use(
     createProxyMiddleware({
@@ -112,17 +133,6 @@ if (process.env.NODE_ENV !== "production") {
       changeOrigin: true,
       ws: true,
       pathFilter: (path) => path.startsWith("/menu"),
-    }),
-  );
-  // Proxy Socket.IO and REST calls for the WhatsApp Bridge service.
-  // Path /whatsapp-bridge/* is rewritten to /* on the bridge (port 3001).
-  app.use(
-    createProxyMiddleware({
-      target: "http://localhost:3001",
-      changeOrigin: true,
-      ws: true,
-      pathFilter: (path) => path.startsWith("/whatsapp-bridge"),
-      pathRewrite: { "^/whatsapp-bridge": "" },
     }),
   );
   // Portal catch-all: proxy everything that isn't /api, /menu, /whatsapp-bridge
