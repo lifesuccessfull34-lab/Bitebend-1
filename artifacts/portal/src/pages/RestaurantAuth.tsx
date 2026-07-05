@@ -557,7 +557,7 @@ export default function RestaurantAuth() {
                   href="/portal/resources"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-orange-500 transition-colors"
+                  className="inline-flex items-center gap-1.5 text-xs bg-primary text-gray-400 hover:text-orange-500 transition-colors"
                 >
                   <BookOpen className="w-3 h-3" />
                   Tutorials
