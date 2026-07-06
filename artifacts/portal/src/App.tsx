@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { lazy, Suspense, Component, useState, useCallback, useRef, useEffect, type ReactNode, type ErrorInfo } from "react";
 import { useInactivityTimer } from "@/hooks/useInactivityTimer";
 import { SessionWarningDialog } from "@/components/SessionWarningDialog";
+import { ChatzyWidget } from "@/components/ChatzyWidget";
 
 // ── Eagerly import the pages users land on first ─────────────────────────────
 // These MUST be in the main bundle (not lazy chunks) so that a transient
@@ -362,6 +363,7 @@ function App() {
           </WouterRouter>
           <Toaster />
           <SessionGuard />
+          <ChatzyWidget />
         </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>

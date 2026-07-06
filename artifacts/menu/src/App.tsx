@@ -1,6 +1,7 @@
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ChatzyWidget } from "@/components/ChatzyWidget";
 
 import MenuPage from "@/pages/MenuPage";
 import OrderHistoryPage from "@/pages/OrderHistoryPage";
@@ -94,6 +95,7 @@ function App() {
       </WouterRouter>
 
       <Toaster />
+      <ChatzyWidget />
     </ErrorBoundary>
   );
 }
