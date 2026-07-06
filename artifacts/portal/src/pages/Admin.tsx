@@ -21,7 +21,7 @@ import {
   LayoutDashboard, TrendingDown, KeyRound, Copy, Eye, EyeOff,
   Filter, ChevronDown, Smartphone, ShieldCheck, Pencil, Clock,
   FileText, ScrollText, ExternalLink, Download, FileSpreadsheet,
-  Receipt, BookOpen, Database, Lock,
+  Receipt, BookOpen, Database, Lock, PowerOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATE_NAMES, getDistricts } from "@/data/india-states-districts";
@@ -632,8 +632,26 @@ export default function Admin() {
   const handleDeletePlan = async (id: number) => {
     if (!confirm("Delete this plan? Existing subscribers are unaffected.")) return;
     setActionError(null);
-    try { await apiFetch(`/admin/plans/${id}`, { method: "DELETE" }); await fetchData(); }
-    catch (e) { setActionError((e as Error).message); }
+    try {
+      await apiFetch(`/admin/plans/${id}`, { method: "DELETE" });
+      await fetchData();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        if (confirm(`${e.message}\n\nDeactivate it now instead?`)) {
+          await handleTogglePlanActive(id, false);
+        }
+        return;
+      }
+      setActionError((e as Error).message);
+    }
+  };
+
+  const handleTogglePlanActive = async (id: number, isActive: boolean) => {
+    setActionError(null);
+    try {
+      await apiFetch(`/admin/plans/${id}`, { method: "PUT", body: JSON.stringify({ isActive }) });
+      await fetchData();
+    } catch (e) { setActionError((e as Error).message); }
   };
 
   const handleSendNotif = async () => {
@@ -1564,6 +1582,14 @@ export default function Admin() {
                       <div className="flex gap-2">
                         <Button size="sm" variant="outline" className="flex-1 border-slate-200" onClick={() => openEditPlan(plan)}>
                           <Edit2 className="w-3.5 h-3.5 mr-1" /> Edit
+                        </Button>
+                        <Button
+                          size="sm" variant="outline"
+                          className={plan.isActive ? "text-amber-500 border-slate-200 hover:text-amber-600 hover:border-amber-200" : "text-emerald-500 border-slate-200 hover:text-emerald-600 hover:border-emerald-200"}
+                          onClick={() => handleTogglePlanActive(plan.id, !plan.isActive)}
+                        >
+                          {plan.isActive ? <PowerOff className="w-3.5 h-3.5 mr-1" /> : <CheckCircle className="w-3.5 h-3.5 mr-1" />}
+                          {plan.isActive ? "Deactivate" : "Activate"}
                         </Button>
                         <Button size="sm" variant="outline" className="text-red-400 border-slate-200 hover:text-red-600 hover:border-red-200" onClick={() => handleDeletePlan(plan.id)}>
                           <Trash2 className="w-3.5 h-3.5" />

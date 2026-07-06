@@ -22,6 +22,7 @@ import {
 } from "@workspace/db";
 import { eq, sql, inArray, gte, lt, and, isNotNull, isNull } from "drizzle-orm";
 import { requireAdmin } from "../middlewares/auth";
+import { invalidatePlansCache } from "./subscriptions";
 import type { RequestHandler } from "express";
 import multer from "multer";
 
@@ -243,6 +244,7 @@ const createPlan: RequestHandler = async (req, res) => {
     ...(validityType !== undefined && { validityType }),
     ...(validityValue !== undefined && { validityValue }),
   }).returning();
+  invalidatePlansCache();
   res.status(201).json(plan);
 };
 
@@ -267,6 +269,7 @@ const updatePlan: RequestHandler = async (req, res) => {
     .where(eq(subscriptionPlans.id, planId))
     .returning();
   if (!plan) { res.status(404).json({ error: "Plan not found" }); return; }
+  invalidatePlansCache();
   res.json(plan);
 };
 
@@ -297,6 +300,7 @@ const deletePlan: RequestHandler = async (req, res) => {
     res.status(404).json({ error: "Plan not found" });
     return;
   }
+  invalidatePlansCache();
   res.status(204).send();
 };
 

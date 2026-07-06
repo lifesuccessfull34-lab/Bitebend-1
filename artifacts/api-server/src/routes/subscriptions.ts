@@ -47,6 +47,12 @@ const router = Router();
 let plansCache: { data: unknown; expiresAt: number } | null = null;
 const PLANS_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+// Called by admin plan create/update/delete routes so changes (e.g. deactivating
+// a plan) are reflected immediately instead of waiting out the TTL.
+export function invalidatePlansCache(): void {
+  plansCache = null;
+}
+
 const listPlans: RequestHandler = async (_req, res) => {
   const now = Date.now();
   if (plansCache && now < plansCache.expiresAt) {
