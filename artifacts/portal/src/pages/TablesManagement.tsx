@@ -7,8 +7,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Plus, Trash2, Loader2, Download, QrCode, Copy, Check,
-  ExternalLink, UtensilsCrossed, Store, Save, Printer,
+  Plus,
+  Trash2,
+  Loader2,
+  Download,
+  QrCode,
+  Copy,
+  Check,
+  ExternalLink,
+  UtensilsCrossed,
+  Store,
+  Save,
+  Printer,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { QRCodeCanvas } from "qrcode.react";
@@ -31,9 +41,13 @@ declare const __REPLIT_DOMAINS__: string;
 ───────────────────────────────────────────────────────────────────────────── */
 
 /** Convert centimetres → pixels at 300 DPI */
-function cm(v: number) { return Math.round(v * 300 / 2.54); }
+function cm(v: number) {
+  return Math.round((v * 300) / 2.54);
+}
 /** Convert points → pixels at 300 DPI */
-function pt(v: number) { return Math.round(v * 300 / 72); }
+function pt(v: number) {
+  return Math.round((v * 300) / 72);
+}
 
 async function buildQRLabelPNG(opts: {
   url: string;
@@ -42,10 +56,10 @@ async function buildQRLabelPNG(opts: {
   const { url, restaurantName } = opts;
 
   // ── Physical canvas: 8.5 cm wide × 14 cm tall at 300 DPI ─────────────────
-  const W = cm(8.5);   // 1004 px
-  const H = cm(14);    // 1654 px
+  const W = cm(8.5); // 1004 px
+  const H = cm(14); // 1654 px
 
-  const H_PAD   = cm(0.65);
+  const H_PAD = cm(0.65);
   const MAX_TXT = W - H_PAD * 2;
 
   // ── Layout ────────────────────────────────────────────────────────────────
@@ -60,25 +74,25 @@ async function buildQRLabelPNG(opts: {
   // 11.2  cm : divider
   // 11.9  cm : centre "Table No:"
 
-  const HEADER_H   = cm(3.5);
-  const NAME_Y     = cm(1.45);
+  const HEADER_H = cm(3.5);
+  const NAME_Y = cm(1.45);
   const SUBTITLE_Y = cm(2.65);
 
-  const QR_SIZE  = cm(5.0);
+  const QR_SIZE = cm(5.0);
   const CARD_PAD = cm(0.35);
-  const CARD_W   = QR_SIZE + CARD_PAD * 2;
-  const CARD_H   = QR_SIZE + CARD_PAD * 2;
-  const CARD_X   = Math.round((W - CARD_W) / 2);
-  const CARD_Y   = HEADER_H + cm(0.45);
-  const QR_LEFT  = CARD_X + CARD_PAD;
-  const QR_TOP   = CARD_Y + CARD_PAD;
+  const CARD_W = QR_SIZE + CARD_PAD * 2;
+  const CARD_H = QR_SIZE + CARD_PAD * 2;
+  const CARD_X = Math.round((W - CARD_W) / 2);
+  const CARD_Y = HEADER_H + cm(0.45);
+  const QR_LEFT = CARD_X + CARD_PAD;
+  const QR_TOP = CARD_Y + CARD_PAD;
 
   // "bitebend" straddles the bottom border of the card
   const CARD_BOTTOM = CARD_Y + CARD_H;
 
-  const AREA_Y   = CARD_BOTTOM + cm(0.85);
-  const DIV_Y    = AREA_Y  + cm(0.70);
-  const TABLE_Y  = DIV_Y   + cm(0.70);
+  const AREA_Y = CARD_BOTTOM + cm(0.85);
+  const DIV_Y = AREA_Y + cm(0.7);
+  const TABLE_Y = DIV_Y + cm(0.7);
 
   // Border weight: 4.5 pt → pixels at 300 DPI
   const BORDER_PX = pt(4.5);
@@ -94,7 +108,7 @@ async function buildQRLabelPNG(opts: {
 
   // ── 2. Compose ────────────────────────────────────────────────────────────
   const canvas = document.createElement("canvas");
-  canvas.width  = W;
+  canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
 
@@ -107,9 +121,9 @@ async function buildQRLabelPNG(opts: {
   ctx.fillRect(0, 0, W, HEADER_H);
 
   // Restaurant name — Engravers MT / Georgia fallback, bold white uppercase, 20 pt
-  ctx.fillStyle    = "#ffffff";
-  ctx.font         = `700 ${pt(20)}px 'Engravers MT','Palatino Linotype',Georgia,serif`;
-  ctx.textAlign    = "center";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `700 ${pt(20)}px 'Engravers MT','Palatino Linotype',Georgia,serif`;
+  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.letterSpacing = `${pt(1)}px`;
   ctx.fillText(restaurantName.toUpperCase(), W / 2, NAME_Y, MAX_TXT);
@@ -117,7 +131,7 @@ async function buildQRLabelPNG(opts: {
 
   // Subtitle — Times New Roman bold white, 18 pt
   ctx.fillStyle = "#ffffff";
-  ctx.font      = `700 ${pt(18)}px 'Times New Roman',serif`;
+  ctx.font = `700 ${pt(18)}px 'Times New Roman',serif`;
   ctx.fillText("Scan to View Menu & Order", W / 2, SUBTITLE_Y, MAX_TXT);
 
   // ── QR card — navy rounded border, fill white ─────────────────────────────
@@ -126,13 +140,19 @@ async function buildQRLabelPNG(opts: {
     ctx.beginPath();
     ctx.moveTo(CARD_X + cardR, CARD_Y);
     ctx.lineTo(CARD_X + CARD_W - cardR, CARD_Y);
-    ctx.arcTo(CARD_X + CARD_W, CARD_Y,         CARD_X + CARD_W, CARD_Y + cardR,         cardR);
+    ctx.arcTo(CARD_X + CARD_W, CARD_Y, CARD_X + CARD_W, CARD_Y + cardR, cardR);
     ctx.lineTo(CARD_X + CARD_W, CARD_Y + CARD_H - cardR);
-    ctx.arcTo(CARD_X + CARD_W, CARD_Y + CARD_H, CARD_X + CARD_W - cardR, CARD_Y + CARD_H, cardR);
+    ctx.arcTo(
+      CARD_X + CARD_W,
+      CARD_Y + CARD_H,
+      CARD_X + CARD_W - cardR,
+      CARD_Y + CARD_H,
+      cardR,
+    );
     ctx.lineTo(CARD_X + cardR, CARD_Y + CARD_H);
-    ctx.arcTo(CARD_X,           CARD_Y + CARD_H, CARD_X, CARD_Y + CARD_H - cardR,          cardR);
+    ctx.arcTo(CARD_X, CARD_Y + CARD_H, CARD_X, CARD_Y + CARD_H - cardR, cardR);
     ctx.lineTo(CARD_X, CARD_Y + cardR);
-    ctx.arcTo(CARD_X,           CARD_Y,           CARD_X + cardR, CARD_Y,                   cardR);
+    ctx.arcTo(CARD_X, CARD_Y, CARD_X + cardR, CARD_Y, cardR);
     ctx.closePath();
   }
 
@@ -143,7 +163,7 @@ async function buildQRLabelPNG(opts: {
 
   // Stroke full border
   ctx.strokeStyle = "#162b6e";
-  ctx.lineWidth   = BORDER_PX;
+  ctx.lineWidth = BORDER_PX;
   drawCardPath();
   ctx.stroke();
 
@@ -155,32 +175,32 @@ async function buildQRLabelPNG(opts: {
   const brandFont18 = `italic 400 ${pt(18)}px 'Gabriola','Segoe Script',Georgia,serif`;
   ctx.font = brandFont18;
   const brandMeasure = ctx.measureText("bitebend");
-  const brandTextW   = brandMeasure.width;
-  const gapPad       = cm(0.28);
-  const gapW         = brandTextW + gapPad * 2;
-  const gapX         = W / 2 - gapW / 2;
-  const gapY         = CARD_BOTTOM - BORDER_PX - 1;
-  const gapHt        = BORDER_PX * 2 + 2;
+  const brandTextW = brandMeasure.width;
+  const gapPad = cm(0.28);
+  const gapW = brandTextW + gapPad * 2;
+  const gapX = W / 2 - gapW / 2;
+  const gapY = CARD_BOTTOM - BORDER_PX - 1;
+  const gapHt = BORDER_PX * 2 + 2;
 
   // Erase border segment at bottom center with white fill
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(gapX, gapY, gapW, gapHt);
 
   // Draw brand text centred in the gap, straddling the border line
-  ctx.fillStyle    = "#ea580c";
-  ctx.textAlign    = "center";
+  ctx.fillStyle = "#ea580c";
+  ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("bitebend", W / 2, CARD_BOTTOM);
 
   // ── "Area:" label + underline ─────────────────────────────────────────────
-  ctx.fillStyle    = "#162b6e";
-  ctx.font         = `700 ${pt(16)}px 'Times New Roman',serif`;
-  ctx.textAlign    = "left";
+  ctx.fillStyle = "#162b6e";
+  ctx.font = `700 ${pt(16)}px 'Times New Roman',serif`;
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("Area:", H_PAD, AREA_Y);
   const areaLabelW = ctx.measureText("Area:").width;
   ctx.strokeStyle = "#162b6e";
-  ctx.lineWidth   = pt(1.2);
+  ctx.lineWidth = pt(1.2);
   ctx.beginPath();
   ctx.moveTo(H_PAD + areaLabelW + cm(0.22), AREA_Y + cm(0.18));
   ctx.lineTo(W - H_PAD, AREA_Y + cm(0.18));
@@ -188,21 +208,21 @@ async function buildQRLabelPNG(opts: {
 
   // ── Horizontal divider ────────────────────────────────────────────────────
   ctx.strokeStyle = "#d1d5db";
-  ctx.lineWidth   = pt(1);
+  ctx.lineWidth = pt(1);
   ctx.beginPath();
   ctx.moveTo(H_PAD, DIV_Y);
   ctx.lineTo(W - H_PAD, DIV_Y);
   ctx.stroke();
 
   // ── "Table No:" label + underline ─────────────────────────────────────────
-  ctx.fillStyle    = "#162b6e";
-  ctx.font         = `700 ${pt(16)}px 'Times New Roman',serif`;
-  ctx.textAlign    = "left";
+  ctx.fillStyle = "#162b6e";
+  ctx.font = `700 ${pt(16)}px 'Times New Roman',serif`;
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   ctx.fillText("Table No:", H_PAD, TABLE_Y);
   const tableNoLabelW = ctx.measureText("Table No:").width;
   ctx.strokeStyle = "#162b6e";
-  ctx.lineWidth   = pt(1.2);
+  ctx.lineWidth = pt(1.2);
   ctx.beginPath();
   ctx.moveTo(H_PAD + tableNoLabelW + cm(0.22), TABLE_Y + cm(0.18));
   ctx.lineTo(W - H_PAD, TABLE_Y + cm(0.18));
@@ -445,7 +465,12 @@ async function printQRLabel(opts: {
 /* ─────────────────────────────────────────────────────────────────────────────
    Restaurant-wide QR section
 ───────────────────────────────────────────────────────────────────────────── */
-function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, seatingLabel }: {
+function RestaurantQRSection({
+  restaurantId,
+  restaurantSlug,
+  restaurantName,
+  seatingLabel,
+}: {
   restaurantId: number;
   restaurantSlug?: string;
   restaurantName: string;
@@ -459,12 +484,12 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
   // Priority: SITE_URL (custom domain) → REPLIT_DOMAINS (.replit.app) → current origin.
 
   const _publicOrigin =
-    (typeof __SITE_URL__ !== "undefined" &&
-      __SITE_URL__?.trim()) ||
+    (typeof __SITE_URL__ !== "undefined" && __SITE_URL__?.trim()) ||
     window.location.origin;
-  
-    // Use slug for clean URLs; fall back to numeric ID for backward compat.
-  const menuUrl = `${_publicOrigin}/menu/${restaurantSlug ?? restaurantId}`;
+
+  // Use slug for clean URLs; fall back to numeric ID for backward compat.
+
+  const menuUrl = `https://menu.bitebend.in/${restaurantSlug ?? restaurantId}`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(menuUrl);
@@ -496,7 +521,9 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
         restaurantName,
       });
       if (!opened) {
-        alert("Pop-up blocked. Please allow pop-ups for this site, then try again.");
+        alert(
+          "Pop-up blocked. Please allow pop-ups for this site, then try again.",
+        );
       }
     } finally {
       setPrinting(false);
@@ -506,7 +533,9 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden">
       <div className="bg-gradient-to-r from-orange-500 to-amber-500 px-5 py-4">
-        <h2 className="text-white font-bold text-base">Your Restaurant QR Code</h2>
+        <h2 className="text-white font-bold text-base">
+          Your Restaurant QR Code
+        </h2>
         <p className="text-orange-100 text-xs mt-0.5">
           {seatingLabel
             ? `Print and display this at your counter or ${seatingLabel.toLowerCase()}s. Customers scan to order.`
@@ -527,13 +556,24 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
 
         <div className="flex-1 min-w-0 space-y-4 w-full">
           <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">Menu Link</p>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+              Menu Link
+            </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs bg-muted px-3 py-2 rounded-lg truncate font-mono border border-border">
                 {menuUrl}
               </code>
-              <Button size="sm" variant="outline" className="h-8 shrink-0" onClick={handleCopy}>
-                {copied ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0"
+                onClick={handleCopy}
+              >
+                {copied ? (
+                  <Check className="w-3.5 h-3.5 text-green-600" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
               </Button>
             </div>
           </div>
@@ -543,7 +583,11 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
             {seatingLabel ? (
               <ol className="list-decimal list-inside space-y-0.5 text-orange-600">
                 <li>Customer scans this QR code</li>
-                <li>Chooses <strong>Dine In</strong> (enters {seatingLabel.toLowerCase()} no.) or <strong>Take Away</strong></li>
+                <li>
+                  Chooses <strong>Dine In</strong> (enters{" "}
+                  {seatingLabel.toLowerCase()} no.) or{" "}
+                  <strong>Take Away</strong>
+                </li>
                 <li>Browses your menu and places order</li>
               </ol>
             ) : (
@@ -562,9 +606,11 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
               onClick={handleDownload}
               disabled={downloading || printing}
             >
-              {downloading
-                ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                : <Download className="w-3.5 h-3.5 mr-1.5" />}
+              {downloading ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5 mr-1.5" />
+              )}
               Download PNG
             </Button>
             <Button
@@ -574,12 +620,19 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
               onClick={handlePrint}
               disabled={printing || downloading}
             >
-              {printing
-                ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                : <Printer className="w-3.5 h-3.5 mr-1.5" />}
+              {printing ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Printer className="w-3.5 h-3.5 mr-1.5" />
+              )}
               Print / Save PDF
             </Button>
-            <Button size="sm" variant="outline" className="h-9" onClick={() => window.open(menuUrl, "_blank")}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9"
+              onClick={() => window.open(menuUrl, "_blank")}
+            >
               <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> Preview Menu
             </Button>
           </div>
@@ -592,8 +645,16 @@ function RestaurantQRSection({ restaurantId, restaurantSlug, restaurantName, sea
 /* ─────────────────────────────────────────────────────────────────────────────
    Seating settings panel
 ───────────────────────────────────────────────────────────────────────────── */
-function SeatingSettings({ restaurant, onSaved }: { restaurant: Restaurant; onSaved: (label: string | null) => void }) {
-  const [dineInEnabled, setDineInEnabled] = useState(restaurant.seatingLabel !== null);
+function SeatingSettings({
+  restaurant,
+  onSaved,
+}: {
+  restaurant: Restaurant;
+  onSaved: (label: string | null) => void;
+}) {
+  const [dineInEnabled, setDineInEnabled] = useState(
+    restaurant.seatingLabel !== null,
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -620,7 +681,9 @@ function SeatingSettings({ restaurant, onSaved }: { restaurant: Restaurant; onSa
         </div>
         <div>
           <h2 className="font-bold text-base">Ordering Mode</h2>
-          <p className="text-xs text-muted-foreground">Controls the customer ordering experience</p>
+          <p className="text-xs text-muted-foreground">
+            Controls the customer ordering experience
+          </p>
         </div>
       </div>
 
@@ -632,15 +695,33 @@ function SeatingSettings({ restaurant, onSaved }: { restaurant: Restaurant; onSa
               "flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-left",
               !dineInEnabled
                 ? "border-primary bg-primary/5"
-                : "border-border text-muted-foreground hover:border-primary/30"
+                : "border-border text-muted-foreground hover:border-primary/30",
             )}
           >
-            <Store className={cn("w-6 h-6", !dineInEnabled ? "text-primary" : "text-muted-foreground")} />
+            <Store
+              className={cn(
+                "w-6 h-6",
+                !dineInEnabled ? "text-primary" : "text-muted-foreground",
+              )}
+            />
             <div>
-              <p className={cn("font-bold text-sm", !dineInEnabled ? "text-primary" : "text-foreground")}>Take Away Only</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Customers go straight to menu — no table selection</p>
+              <p
+                className={cn(
+                  "font-bold text-sm",
+                  !dineInEnabled ? "text-primary" : "text-foreground",
+                )}
+              >
+                Take Away Only
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Customers go straight to menu — no table selection
+              </p>
             </div>
-            {!dineInEnabled && <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center self-end"><Check className="w-3 h-3 text-white" /></div>}
+            {!dineInEnabled && (
+              <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center self-end">
+                <Check className="w-3 h-3 text-white" />
+              </div>
+            )}
           </button>
 
           <button
@@ -649,21 +730,41 @@ function SeatingSettings({ restaurant, onSaved }: { restaurant: Restaurant; onSa
               "flex-1 flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all text-left",
               dineInEnabled
                 ? "border-primary bg-primary/5"
-                : "border-border text-muted-foreground hover:border-primary/30"
+                : "border-border text-muted-foreground hover:border-primary/30",
             )}
           >
-            <UtensilsCrossed className={cn("w-6 h-6", dineInEnabled ? "text-primary" : "text-muted-foreground")} />
+            <UtensilsCrossed
+              className={cn(
+                "w-6 h-6",
+                dineInEnabled ? "text-primary" : "text-muted-foreground",
+              )}
+            />
             <div>
-              <p className={cn("font-bold text-sm", dineInEnabled ? "text-primary" : "text-foreground")}>Dine-In Enabled</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Customers choose Dine In (enter table no.) or Take Away</p>
+              <p
+                className={cn(
+                  "font-bold text-sm",
+                  dineInEnabled ? "text-primary" : "text-foreground",
+                )}
+              >
+                Dine-In Enabled
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Customers choose Dine In (enter table no.) or Take Away
+              </p>
             </div>
-            {dineInEnabled && <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center self-end"><Check className="w-3 h-3 text-white" /></div>}
+            {dineInEnabled && (
+              <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center self-end">
+                <Check className="w-3 h-3 text-white" />
+              </div>
+            )}
           </button>
         </div>
 
         {dineInEnabled && (
           <p className="text-xs text-muted-foreground bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
-            Customers will see <strong>"Dine In"</strong> and <strong>"Take Away"</strong> options. Dine In asks for their Table Number.
+            Customers will see <strong>"Dine In"</strong> and{" "}
+            <strong>"Take Away"</strong> options. Dine In asks for their Table
+            Number.
           </p>
         )}
 
@@ -672,7 +773,13 @@ function SeatingSettings({ restaurant, onSaved }: { restaurant: Restaurant; onSa
           disabled={saving}
           className="bg-orange-500 hover:bg-orange-600 text-white h-9"
         >
-          {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : saved ? <Check className="w-4 h-4 mr-2 text-white" /> : <Save className="w-4 h-4 mr-2" />}
+          {saving ? (
+            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+          ) : saved ? (
+            <Check className="w-4 h-4 mr-2 text-white" />
+          ) : (
+            <Save className="w-4 h-4 mr-2" />
+          )}
           {saved ? "Saved!" : "Save Settings"}
         </Button>
       </div>
@@ -710,7 +817,9 @@ export default function TablesManagement() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -765,7 +874,8 @@ export default function TablesManagement() {
           <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-center">
             <p className="text-red-700 font-medium">{loadError}</p>
             <p className="text-sm text-red-500 mt-1">
-              Your restaurant account could not be found. Please contact support.
+              Your restaurant account could not be found. Please contact
+              support.
             </p>
           </div>
         </div>
@@ -779,14 +889,17 @@ export default function TablesManagement() {
         <div>
           <h1 className="text-2xl font-bold">QR Code & Seating</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Configure your venue type, seating label, and customer ordering flow.
+            Configure your venue type, seating label, and customer ordering
+            flow.
           </p>
         </div>
 
         {restaurant && (
           <SeatingSettings
             restaurant={restaurant}
-            onSaved={(label) => setRestaurant((r) => r ? { ...r, seatingLabel: label } : r)}
+            onSaved={(label) =>
+              setRestaurant((r) => (r ? { ...r, seatingLabel: label } : r))
+            }
           />
         )}
 
@@ -799,171 +912,218 @@ export default function TablesManagement() {
           />
         )}
 
-        {seatingLabel !== null && (() => {
-          const existingAreas = Array.from(new Set(tables.map((t) => t.area).filter((a): a is string => !!a)));
-          const areaGroups = tables.reduce<Record<string, RestaurantTable[]>>((acc, t) => {
-            const key = t.area ?? "__none__";
-            if (!acc[key]) acc[key] = [];
-            acc[key].push(t);
-            return acc;
-          }, {});
-          const sortedKeys = Object.keys(areaGroups).sort((a, b) =>
-            a === "__none__" ? 1 : b === "__none__" ? -1 : a.localeCompare(b)
-          );
+        {seatingLabel !== null &&
+          (() => {
+            const existingAreas = Array.from(
+              new Set(
+                tables.map((t) => t.area).filter((a): a is string => !!a),
+              ),
+            );
+            const areaGroups = tables.reduce<Record<string, RestaurantTable[]>>(
+              (acc, t) => {
+                const key = t.area ?? "__none__";
+                if (!acc[key]) acc[key] = [];
+                acc[key].push(t);
+                return acc;
+              },
+              {},
+            );
+            const sortedKeys = Object.keys(areaGroups).sort((a, b) =>
+              a === "__none__" ? 1 : b === "__none__" ? -1 : a.localeCompare(b),
+            );
 
-          return (
-            <div className="space-y-4">
-              <div>
-                <h3 className="font-semibold text-base">{labelName} Setup</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Add your areas and {labelName.toLowerCase()}s. Customers will select from these buttons — no manual typing.
-                </p>
-              </div>
+            return (
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold text-base">{labelName} Setup</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Add your areas and {labelName.toLowerCase()}s. Customers
+                    will select from these buttons — no manual typing.
+                  </p>
+                </div>
 
-              <form onSubmit={handleAdd} className="bg-card border border-border rounded-xl p-4 space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">
-                    Step 1 — Select or create an area
-                    <span className="text-muted-foreground font-normal ml-1">(optional)</span>
-                  </Label>
-                  <div className="flex flex-wrap gap-2">
-                    {existingAreas.map((area) => (
+                <form
+                  onSubmit={handleAdd}
+                  className="bg-card border border-border rounded-xl p-4 space-y-4"
+                >
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Step 1 — Select or create an area
+                      <span className="text-muted-foreground font-normal ml-1">
+                        (optional)
+                      </span>
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {existingAreas.map((area) => (
+                        <button
+                          key={area}
+                          type="button"
+                          onClick={() => {
+                            setFormArea(area);
+                            setShowNewAreaInput(false);
+                            setNewAreaInput("");
+                          }}
+                          className={cn(
+                            "px-3 py-1.5 rounded-lg border text-sm font-medium transition-all",
+                            formArea === area && !showNewAreaInput
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-border bg-background hover:border-primary/50",
+                          )}
+                        >
+                          {area}
+                        </button>
+                      ))}
+
                       <button
-                        key={area}
                         type="button"
-                        onClick={() => { setFormArea(area); setShowNewAreaInput(false); setNewAreaInput(""); }}
+                        onClick={() => {
+                          setShowNewAreaInput(true);
+                          setFormArea("");
+                        }}
                         className={cn(
-                          "px-3 py-1.5 rounded-lg border text-sm font-medium transition-all",
-                          formArea === area && !showNewAreaInput
+                          "px-3 py-1.5 rounded-lg border text-sm font-medium transition-all flex items-center gap-1",
+                          showNewAreaInput
                             ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-background hover:border-primary/50"
+                            : "border-dashed border-border hover:border-primary/50 text-muted-foreground",
                         )}
                       >
-                        {area}
+                        <Plus className="w-3.5 h-3.5" /> New Area
                       </button>
-                    ))}
 
-                    <button
-                      type="button"
-                      onClick={() => { setShowNewAreaInput(true); setFormArea(""); }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg border text-sm font-medium transition-all flex items-center gap-1",
-                        showNewAreaInput
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-dashed border-border hover:border-primary/50 text-muted-foreground"
+                      {(formArea || showNewAreaInput) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormArea("");
+                            setShowNewAreaInput(false);
+                            setNewAreaInput("");
+                          }}
+                          className="px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:border-primary/50 transition-all"
+                        >
+                          No Area
+                        </button>
                       )}
-                    >
-                      <Plus className="w-3.5 h-3.5" /> New Area
-                    </button>
+                    </div>
 
-                    {(formArea || showNewAreaInput) && (
-                      <button
-                        type="button"
-                        onClick={() => { setFormArea(""); setShowNewAreaInput(false); setNewAreaInput(""); }}
-                        className="px-3 py-1.5 rounded-lg border border-border text-sm text-muted-foreground hover:border-primary/50 transition-all"
-                      >
-                        No Area
-                      </button>
+                    {showNewAreaInput && (
+                      <Input
+                        placeholder="Area name, e.g. Rooftop, Lounge, Ground Floor"
+                        value={newAreaInput}
+                        onChange={(e) => {
+                          setNewAreaInput(e.target.value);
+                        }}
+                        className="h-10 max-w-xs"
+                        autoFocus
+                      />
                     )}
                   </div>
 
-                  {showNewAreaInput && (
-                    <Input
-                      placeholder="Area name, e.g. Rooftop, Lounge, Ground Floor"
-                      value={newAreaInput}
-                      onChange={(e) => { setNewAreaInput(e.target.value); }}
-                      className="h-10 max-w-xs"
-                      autoFocus
-                    />
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">
-                    Step 2 — Enter {labelName.toLowerCase()} number
-                  </Label>
-                  <div className="flex gap-3 items-center">
-                    <Input
-                      placeholder={`e.g. ${labelName} 1, A1, 12`}
-                      value={newTableNumber}
-                      onChange={(e) => setNewTableNumber(e.target.value)}
-                      className="h-10 max-w-xs"
-                    />
-                    <Button
-                      type="submit"
-                      className="bg-orange-500 hover:bg-orange-600 text-white h-10 shrink-0"
-                      disabled={addLoading || !newTableNumber.trim()}
-                    >
-                      {addLoading
-                        ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-                        : <Plus className="w-4 h-4 mr-1.5" />}
-                      Add {labelName}
-                    </Button>
-                  </div>
-                  {(formArea || (showNewAreaInput && newAreaInput.trim())) && (
-                    <p className="text-xs text-muted-foreground">
-                      Adding to area: <strong>{showNewAreaInput ? newAreaInput : formArea}</strong>
-                    </p>
-                  )}
-                </div>
-              </form>
-
-              {tables.length === 0 ? (
-                <div className="text-center py-10 text-muted-foreground border-2 border-dashed border-border rounded-xl">
-                  <QrCode className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm font-medium">No {labelName.toLowerCase()}s added yet</p>
-                  <p className="text-xs mt-1">Add areas and {labelName.toLowerCase()}s above — customers will tap to select</p>
-                </div>
-              ) : (
-                <div className="space-y-5">
-                  {sortedKeys.map((key) => (
-                    <div key={key}>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                        <span className="w-4 h-px bg-border inline-block" />
-                        {key === "__none__" ? "No Area" : key}
-                        <span className="flex-1 h-px bg-border inline-block" />
-                        <span className="normal-case font-normal tracking-normal">
-                          {areaGroups[key].length} {labelName.toLowerCase()}{areaGroups[key].length !== 1 ? "s" : ""}
-                        </span>
-                      </p>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                        {areaGroups[key].map((table) => (
-                          <div
-                            key={table.id}
-                            className={cn(
-                              "bg-card border rounded-xl p-3 flex items-center justify-between gap-2",
-                              table.isOccupied ? "border-orange-300 bg-orange-50/30" : "border-border"
-                            )}
-                          >
-                            <div className="min-w-0">
-                              <p className="font-semibold text-sm truncate">{table.tableNumber}</p>
-                              <span className={cn(
-                                "text-xs font-medium",
-                                table.isOccupied ? "text-orange-600" : "text-green-600"
-                              )}>
-                                {table.isOccupied ? "Occupied" : "Available"}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-1 shrink-0">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                onClick={() => handleDelete(table.id)}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium">
+                      Step 2 — Enter {labelName.toLowerCase()} number
+                    </Label>
+                    <div className="flex gap-3 items-center">
+                      <Input
+                        placeholder={`e.g. ${labelName} 1, A1, 12`}
+                        value={newTableNumber}
+                        onChange={(e) => setNewTableNumber(e.target.value)}
+                        className="h-10 max-w-xs"
+                      />
+                      <Button
+                        type="submit"
+                        className="bg-orange-500 hover:bg-orange-600 text-white h-10 shrink-0"
+                        disabled={addLoading || !newTableNumber.trim()}
+                      >
+                        {addLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+                        ) : (
+                          <Plus className="w-4 h-4 mr-1.5" />
+                        )}
+                        Add {labelName}
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })()}
+                    {(formArea ||
+                      (showNewAreaInput && newAreaInput.trim())) && (
+                      <p className="text-xs text-muted-foreground">
+                        Adding to area:{" "}
+                        <strong>
+                          {showNewAreaInput ? newAreaInput : formArea}
+                        </strong>
+                      </p>
+                    )}
+                  </div>
+                </form>
+
+                {tables.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground border-2 border-dashed border-border rounded-xl">
+                    <QrCode className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm font-medium">
+                      No {labelName.toLowerCase()}s added yet
+                    </p>
+                    <p className="text-xs mt-1">
+                      Add areas and {labelName.toLowerCase()}s above — customers
+                      will tap to select
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {sortedKeys.map((key) => (
+                      <div key={key}>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                          <span className="w-4 h-px bg-border inline-block" />
+                          {key === "__none__" ? "No Area" : key}
+                          <span className="flex-1 h-px bg-border inline-block" />
+                          <span className="normal-case font-normal tracking-normal">
+                            {areaGroups[key].length} {labelName.toLowerCase()}
+                            {areaGroups[key].length !== 1 ? "s" : ""}
+                          </span>
+                        </p>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                          {areaGroups[key].map((table) => (
+                            <div
+                              key={table.id}
+                              className={cn(
+                                "bg-card border rounded-xl p-3 flex items-center justify-between gap-2",
+                                table.isOccupied
+                                  ? "border-orange-300 bg-orange-50/30"
+                                  : "border-border",
+                              )}
+                            >
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm truncate">
+                                  {table.tableNumber}
+                                </p>
+                                <span
+                                  className={cn(
+                                    "text-xs font-medium",
+                                    table.isOccupied
+                                      ? "text-orange-600"
+                                      : "text-green-600",
+                                  )}
+                                >
+                                  {table.isOccupied ? "Occupied" : "Available"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                  onClick={() => handleDelete(table.id)}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
       </div>
     </AppShell>
   );
