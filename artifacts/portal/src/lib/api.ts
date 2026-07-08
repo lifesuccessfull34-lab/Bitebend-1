@@ -1,4 +1,6 @@
-export const API_BASE = "/api";
+const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+
+export const API_BASE = `${BASE}/api`;
 
 let onUnauthorized: (() => void) | null = null;
 
@@ -7,7 +9,10 @@ export function setUnauthorizedHandler(handler: () => void) {
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
     super(message);
     this.name = "ApiError";
   }
