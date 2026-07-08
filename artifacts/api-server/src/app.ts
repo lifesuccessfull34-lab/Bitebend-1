@@ -29,7 +29,9 @@ app.set("trust proxy", 1);
 // In development X-Forwarded-Proto is absent so this middleware is a no-op.
 if (process.env.NODE_ENV === "production") {
   app.use((req, res, next) => {
-    const proto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
+    const proto = (req.headers["x-forwarded-proto"] as string | undefined)
+      ?.split(",")[0]
+      ?.trim();
     if (proto === "http") {
       const host = req.headers["host"] ?? "";
       return res.redirect(301, `https://${host}${req.url}`);
@@ -92,7 +94,10 @@ app.use(
       // On truly local dev (no REPL_ID): fall back to lax + non-secure.
       secure: process.env.NODE_ENV === "production" || !!process.env.REPL_ID,
       maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: (process.env.NODE_ENV === "production" || !!process.env.REPL_ID) ? "none" : "lax",
+      sameSite:
+        process.env.NODE_ENV === "production" || !!process.env.REPL_ID
+          ? "none"
+          : "lax",
     },
   }),
 );
@@ -155,14 +160,17 @@ if (process.env.NODE_ENV !== "production") {
   // artifact's own /portal/* route). The API server owns root-level routes
   // (/login, /admin/login, /, etc.) and must serve a bundle whose router base
   // matches "/", not "/portal".
-  const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist-root");
-  const menuDist   = join(WORKSPACE_ROOT, "artifacts/menu/dist/public");
+  const portalDist = join(WORKSPACE_ROOT, "artifacts/portal/dist");
+  const menuDist = join(WORKSPACE_ROOT, "artifacts/menu/dist/public");
 
   // Backwards-compat: old /portal/* URLs → redirect to the same path without prefix.
   // Handles any bookmarks or links that still use the old /portal/ base.
-  app.get("/portal", (_req, res) => { res.redirect(301, "/"); });
+  app.get("/portal", (_req, res) => {
+    res.redirect(301, "/");
+  });
   app.get("/portal/*path", (req, res) => {
-    const raw = (req.params as unknown as { path: string | string[] }).path ?? "";
+    const raw =
+      (req.params as unknown as { path: string | string[] }).path ?? "";
     const rest = Array.isArray(raw) ? raw.join("/") : raw;
     res.redirect(301, `/${rest}`);
   });
@@ -199,15 +207,24 @@ if (process.env.NODE_ENV !== "production") {
 
 // ── JSON error handler ──────────────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-app.use((_err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const status = (typeof _err === "object" && _err !== null && "status" in _err)
-    ? Number((_err as { status: unknown }).status)
-    : 500;
-  const message = (typeof _err === "object" && _err !== null && "message" in _err)
-    ? String((_err as { message: unknown }).message)
-    : "Internal Server Error";
-  logger.error({ err: _err }, message);
-  res.status(status).json({ error: message });
-});
+app.use(
+  (
+    _err: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    const status =
+      typeof _err === "object" && _err !== null && "status" in _err
+        ? Number((_err as { status: unknown }).status)
+        : 500;
+    const message =
+      typeof _err === "object" && _err !== null && "message" in _err
+        ? String((_err as { message: unknown }).message)
+        : "Internal Server Error";
+    logger.error({ err: _err }, message);
+    res.status(status).json({ error: message });
+  },
+);
 
 export default app;
