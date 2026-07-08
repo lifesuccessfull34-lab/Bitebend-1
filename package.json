@@ -8,7 +8,7 @@
     "preinstall": "rm -f package-lock.json yarn.lock",
 
     "build": "pnpm --filter @workspace/api-server build",
-    "build:menu": "BASE_PATH=/menu/ pnpm --filter @workspace/menu build",
+    "build:menu": "node scripts/inject-env.mjs && BASE_PATH=/menu/ pnpm --filter @workspace/menu build",
     "build:portal": "pnpm --filter @workspace/portal build",
     "build:all": "bash -c 'BASE_PATH=/menu/ pnpm --filter @workspace/menu build & P1=$!; pnpm --filter @workspace/portal build & P2=$!; wait $P1; C1=$?; wait $P2; C2=$?; exit $((C1+C2))' && pnpm run build",
     "start": "pnpm --filter @workspace/api-server start",
