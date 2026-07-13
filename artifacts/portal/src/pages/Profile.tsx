@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveImageUrl } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Restaurant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -597,7 +597,7 @@ export default function Profile() {
               {form.qrImageData && (
                 <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-lg p-3">
                   <img
-                    src={form.qrImageData}
+                    src={resolveImageUrl(form.qrImageData)!}
                     alt="Payment QR"
                     className="w-28 h-28 object-contain rounded border border-green-200 bg-white shrink-0"
                   />

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { apiFetch, API_BASE } from "@/lib/api";
+import { apiFetch, API_BASE, resolveImageUrl } from "@/lib/api";
 import type { MenuCategory, MenuItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -264,7 +264,7 @@ function ItemForm({ itemForm, setItemForm, itemLoading, onSave, onCancel }: Item
             >
               {(localPreview || itemForm.imageUrl) ? (
                 <img
-                  src={localPreview ?? itemForm.imageUrl!}
+                  src={localPreview ?? resolveImageUrl(itemForm.imageUrl)!}
                   alt="Dish preview"
                   className="w-full h-full object-cover rounded-lg"
                 />
@@ -656,7 +656,7 @@ export default function MenuManagement() {
                               {/* Dish thumbnail or veg/non-veg dot */}
                               {item.imageUrl ? (
                                 <img
-                                  src={item.imageUrl}
+                                  src={resolveImageUrl(item.imageUrl)!}
                                   alt={item.name}
                                   className="w-10 h-10 rounded-lg object-cover shrink-0 border border-border"
                                 />

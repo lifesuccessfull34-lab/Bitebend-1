@@ -2,6 +2,27 @@ const BASE = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
 export const API_BASE = `${BASE}/api`;
 
+// Origin only (no /api suffix) — used to resolve relative /api/... media URLs
+// (e.g. /api/images/<uuid>) to an absolute URL when the frontend is deployed
+// on a different domain than the API server (e.g. separate Railway services).
+export const API_ORIGIN = BASE;
+
+/**
+ * Converts a possibly-relative media URL (as returned by upload endpoints,
+ * e.g. "/api/images/<uuid>") into an absolute URL pointing at the API
+ * server, using VITE_API_URL. Leaves already-absolute URLs (http/https),
+ * data URIs, blob URLs, and other non-/api paths untouched. Preserves
+ * null/undefined so callers can keep using `value ?? fallback` patterns.
+ */
+export function resolveImageUrl<T extends string | null | undefined>(url: T): T {
+  if (url == null || url === "") return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/api/")) {
+    return `${API_ORIGIN}${url}` as T;
+  }
+  return url;
+}
+
 let onUnauthorized: (() => void) | null = null;
 
 export function setUnauthorizedHandler(handler: () => void) {

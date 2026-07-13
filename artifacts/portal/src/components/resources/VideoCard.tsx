@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Play, Clock, X, Heart } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveImageUrl } from "@/lib/api";
 import type { VideoResource } from "@/data/resources";
 import { trackVideoPlay, trackResourceOpen } from "@/services/resourceService";
 
@@ -42,7 +43,7 @@ export function VideoCard({ video, isFavorited, onToggleFavorite }: Props) {
         >
           {thumbnail ? (
             <img
-              src={thumbnail}
+              src={resolveImageUrl(thumbnail)!}
               alt={video.title}
               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
@@ -122,7 +123,7 @@ export function VideoCard({ video, isFavorited, onToggleFavorite }: Props) {
                 className="w-full h-full"
               />
             ) : (
-              <video src={video.url} controls autoPlay className="w-full h-full" />
+              <video src={resolveImageUrl(video.url)} controls autoPlay className="w-full h-full" />
             )}
           </div>
         </div>
