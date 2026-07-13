@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { AdminShell, ADMIN_NAV_ITEMS } from "@/components/layout/AdminShell";
 import type { AdminSection } from "@/components/layout/AdminShell";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, ApiError, API_BASE } from "@/lib/api";
 import { useSensitiveAuth } from "@/hooks/useSensitiveAuth";
 import type { SensitiveAuthStatus } from "@/hooks/useSensitiveAuth";
 import { SensitiveAuthDialog } from "@/components/SensitiveAuthDialog";
@@ -272,7 +272,7 @@ export default function Admin() {
       // session cookie is cleared.  Without this, after the hard redirect the
       // AdminPublicRoute would see a non-super_admin user and bounce to
       // /restaurant/dashboard instead of showing the admin login form.
-      fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+      fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" })
         .catch(() => {})
         .finally(() => { window.location.href = "/portal/admin/login"; });
       return true;

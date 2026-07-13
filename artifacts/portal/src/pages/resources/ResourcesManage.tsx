@@ -4,7 +4,7 @@ import { AdminShell, ADMIN_NAV_ITEMS } from "@/components/layout/AdminShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiFetch, ApiError, API_BASE } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   Plus, X, Save, Loader2, BookOpen, CheckCircle, Ban, Edit2, Trash2,
@@ -88,7 +88,7 @@ export default function ResourcesManage() {
 
   const handleAuthError = useCallback((e: unknown) => {
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-      fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+      fetch(`${API_BASE}/auth/logout`, { method: "POST", credentials: "include" })
         .catch(() => {})
         .finally(() => { window.location.href = "/portal/admin/login"; });
       return true;
@@ -110,7 +110,7 @@ export default function ResourcesManage() {
     try {
       const fd = new FormData();
       fd.append("video", file);
-      const resp = await fetch("/api/admin/resources/upload-video", {
+      const resp = await fetch(`${API_BASE}/admin/resources/upload-video`, {
         method: "POST",
         body: fd,
         credentials: "include",

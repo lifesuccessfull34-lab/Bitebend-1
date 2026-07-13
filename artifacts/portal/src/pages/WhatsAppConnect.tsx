@@ -6,6 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { Wifi, WifiOff, Loader2, Smartphone, CheckCircle2, XCircle, RefreshCw, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { API_BASE } from "@/lib/api";
 
 type WhatsAppStatus =
   | "not_initialised"
@@ -51,7 +52,7 @@ export default function WhatsAppConnect() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const r = await fetch("/api/owner/whatsapp/status", { credentials: "include" });
+      const r = await fetch(`${API_BASE}/owner/whatsapp/status`, { credentials: "include" });
       if (r.ok) {
         const data = await r.json() as {
           status: WhatsAppStatus;
@@ -134,7 +135,7 @@ export default function WhatsAppConnect() {
     setStatus("initialising");
 
     try {
-      const r = await fetch("/api/owner/whatsapp/connect", {
+      const r = await fetch(`${API_BASE}/owner/whatsapp/connect`, {
         method: "POST",
         credentials: "include",
       });
@@ -175,7 +176,7 @@ export default function WhatsAppConnect() {
   const handleDisconnect = async () => {
     setError(null);
     try {
-      await fetch("/api/owner/whatsapp/disconnect", {
+      await fetch(`${API_BASE}/owner/whatsapp/disconnect`, {
         method: "POST",
         credentials: "include",
       });
