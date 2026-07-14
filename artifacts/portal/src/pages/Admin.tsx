@@ -6,6 +6,7 @@ import { apiFetch, ApiError, API_BASE } from "@/lib/api";
 import { useSensitiveAuth } from "@/hooks/useSensitiveAuth";
 import type { SensitiveAuthStatus } from "@/hooks/useSensitiveAuth";
 import { SensitiveAuthDialog } from "@/components/SensitiveAuthDialog";
+import { LoginPasswordDialog } from "@/components/LoginPasswordDialog";
 import type {
   RestaurantWithOwner, AdminStats, AdminCustomer,
   SubscriptionPlan, SubscriptionTransaction, Notification, Order,
@@ -370,6 +371,9 @@ export default function Admin() {
   const [sensitiveStatus, setSensitiveStatus] = useState<SensitiveAuthStatus | null>(null);
   const [sensitiveStatusLoading, setSensitiveStatusLoading] = useState(false);
   const [sensitiveCountdown, setSensitiveCountdown] = useState(0);
+
+  const [showLoginPasswordDialog, setShowLoginPasswordDialog] = useState(false);
+  const [loginPasswordChanged, setLoginPasswordChanged] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -2683,6 +2687,39 @@ export default function Admin() {
         {/* ── Security ── */}
         {tab === "security" && (
           <div className="space-y-6 max-w-2xl">
+            {/* Login Password card */}
+            <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <KeyRound className="w-5 h-5 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="font-semibold text-slate-800 text-base">Login Password</h2>
+                    <p className="text-xs text-slate-500 mt-0.5 max-w-md leading-relaxed">
+                      The password you use to sign in to the Super Admin Portal. Change it here — your current password is required.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                {loginPasswordChanged && (
+                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-4 py-2.5 text-sm">
+                    <CheckCircle className="w-4 h-4" /> Your login password was changed successfully.
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  className="border-slate-200 gap-2"
+                  onClick={() => { setLoginPasswordChanged(false); setShowLoginPasswordDialog(true); }}
+                >
+                  <KeyRound className="w-4 h-4" />
+                  Change Password
+                </Button>
+              </div>
+            </div>
+
             {/* Sensitive Action Password card */}
             <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="px-6 py-5 border-b border-slate-100">
@@ -2986,6 +3023,17 @@ export default function Admin() {
           mode={sensitiveDialogState.mode}
           onSuccess={sensitiveDialogState.onSuccess}
           onClose={sensitiveDialogState.onClose}
+        />
+      )}
+
+      {/* ── Login Password Change Dialog ── */}
+      {showLoginPasswordDialog && (
+        <LoginPasswordDialog
+          onSuccess={() => {
+            setShowLoginPasswordDialog(false);
+            setLoginPasswordChanged(true);
+          }}
+          onClose={() => setShowLoginPasswordDialog(false)}
         />
       )}
 

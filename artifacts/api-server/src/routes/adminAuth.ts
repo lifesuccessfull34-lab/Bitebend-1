@@ -6,8 +6,23 @@ import { users, adminPasswordResetTokens } from "@workspace/db";
 import { eq, and, gt, isNull } from "drizzle-orm";
 import type { RequestHandler } from "express";
 import { createRateLimiter } from "../lib/rateLimiter";
+import { requireAdmin } from "../middlewares/auth";
 
 const router = Router();
+
+// Shared password-strength rule for the Super Admin's own login password:
+// at least 8 characters, containing at least one letter and one digit.
+const PASSWORD_STRENGTH_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+
+function describePasswordStrengthError(password: string): string | null {
+  if (password.length < 8) {
+    return "New password must be at least 8 characters long";
+  }
+  if (!PASSWORD_STRENGTH_REGEX.test(password)) {
+    return "New password must contain at least one letter and one number";
+  }
+  return null;
+}
 
 // ── Rate limiters ─────────────────────────────────────────────────────────────
 // Forgot password: 5 requests per IP per 15 minutes
@@ -24,6 +39,14 @@ const resetPasswordLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   label: "admin:reset-password",
   message: "Too many password reset attempts. Please wait 15 minutes before trying again.",
+});
+
+// Change password (logged-in Super Admin): 5 attempts per IP per 15 minutes
+const changePasswordLimiter = createRateLimiter({
+  maxRequests: 5,
+  windowMs: 15 * 60 * 1000,
+  label: "admin:change-password",
+  message: "Too many password change attempts. Please wait 15 minutes before trying again.",
 });
 
 function buildResetLink(req: Parameters<RequestHandler>[0], token: string): string {
@@ -299,8 +322,91 @@ const resetPassword: RequestHandler = async (req, res) => {
   res.json({ ok: true });
 };
 
+// ── PUT /api/admin/auth/change-password ──────────────────────────────────────
+// Logged-in Super Admin self-service password change. Requires the current
+// password. Validates strength and updates ONLY the caller's super_admin row.
+// Never touches restaurant owner accounts — the session user is always
+// re-verified as super_admin below.
+const changePassword: RequestHandler = async (req, res) => {
+  const sessionUserId = req.user!.id;
+  const ip = req.ip ?? "unknown";
+  const { currentPassword, newPassword, confirmPassword } = req.body as {
+    currentPassword?: string;
+    newPassword?: string;
+    confirmPassword?: string;
+  };
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    res.status(400).json({
+      error: "Current password, new password, and confirmation are required",
+    });
+    return;
+  }
+
+  if (newPassword !== confirmPassword) {
+    res.status(400).json({ error: "New password and confirmation do not match" });
+    return;
+  }
+
+  const strengthError = describePasswordStrengthError(newPassword);
+  if (strengthError) {
+    res.status(400).json({ error: strengthError });
+    return;
+  }
+
+  // Re-fetch and re-verify role — do not trust req.user alone for a write path.
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.id, sessionUserId), eq(users.role, "super_admin")))
+    .limit(1);
+
+  if (!user) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
+  const currentValid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!currentValid) {
+    req.log.warn({
+      event: "password_change_failure",
+      portal: "admin",
+      endpoint: "/api/admin/auth/change-password",
+      userId: user.id,
+      ip,
+      reason: "wrong_current_password",
+    }, "Admin password change failed — current password incorrect");
+    res.status(401).json({ error: "Current password is incorrect" });
+    return;
+  }
+
+  if (currentPassword === newPassword) {
+    res.status(400).json({ error: "New password must be different from your current password" });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  // Update ONLY this super_admin row — role guard in WHERE clause.
+  await db
+    .update(users)
+    .set({ passwordHash, tempPassword: null })
+    .where(and(eq(users.id, user.id), eq(users.role, "super_admin")));
+
+  req.log.info({
+    event: "password_change_success",
+    portal: "admin",
+    userId: user.id,
+    email: user.email,
+    ip,
+  }, "Admin password changed successfully");
+
+  res.json({ ok: true });
+};
+
 router.post("/admin/auth/forgot-password", forgotPasswordLimiter, forgotPassword);
 router.get("/admin/auth/validate-reset-token", validateResetToken);
 router.post("/admin/auth/reset-password", resetPasswordLimiter, resetPassword);
+router.put("/admin/auth/change-password", requireAdmin, changePasswordLimiter, changePassword);
 
 export default router;
