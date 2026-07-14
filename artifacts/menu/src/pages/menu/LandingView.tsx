@@ -6,6 +6,7 @@ import {
   MapPin,
   ArrowRight,
 } from "lucide-react";
+import { resolveImageUrl } from "@/lib/image";
 import type { RestaurantData, OrderType, TableData } from "./types";
 
 const C = {
@@ -110,7 +111,7 @@ export function LandingView({
         <div style={{ display: "flex", alignItems: "center", gap: "12px", maxWidth: "480px", margin: "0 auto" }}>
           {restaurant.logoUrl ? (
             <img
-              src={restaurant.logoUrl}
+              src={resolveImageUrl(restaurant.logoUrl)!}
               alt={restaurant.name}
               style={{
                 width: "48px", height: "48px", borderRadius: "12px",

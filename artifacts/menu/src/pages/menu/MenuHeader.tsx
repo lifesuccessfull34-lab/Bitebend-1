@@ -1,5 +1,6 @@
 import { MapPin, UtensilsCrossed, Receipt } from "lucide-react";
 import { useLocation } from "wouter";
+import { resolveImageUrl } from "@/lib/image";
 import type { RestaurantData, OrderType } from "./types";
 
 interface Props {
@@ -38,7 +39,7 @@ export function MenuHeader({
         paddingLeft: "16px",
         paddingRight: "16px",
         background: restaurant.logoUrl
-          ? `linear-gradient(rgba(180,55,0,0.72), rgba(220,78,0,0.68)), url(${restaurant.logoUrl}) center/cover no-repeat`
+          ? `linear-gradient(rgba(180,55,0,0.72), rgba(220,78,0,0.68)), url(${resolveImageUrl(restaurant.logoUrl)}) center/cover no-repeat`
           : "linear-gradient(135deg, #c2410c 0%, #ea580c 55%, #f97316 100%)",
         boxShadow: "0 2px 12px rgba(0,0,0,0.15)",
       }}
@@ -47,7 +48,7 @@ export function MenuHeader({
         {/* Logo or icon */}
         {restaurant.logoUrl ? (
           <img
-            src={restaurant.logoUrl}
+            src={resolveImageUrl(restaurant.logoUrl)!}
             alt={restaurant.name}
             style={{
               width: "48px", height: "48px",

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Minus, Plus } from "lucide-react";
+import { resolveImageUrl } from "@/lib/image";
 import type { MenuItemData } from "./types";
 
 interface Props {
@@ -164,7 +165,7 @@ export function MenuItemCard({ item, qty, onAdd, onRemove }: Props) {
           overflow: "hidden",
         }}>
           <img
-            src={item.imageUrl!}
+            src={resolveImageUrl(item.imageUrl)!}
             alt={item.name}
             style={{ width: "90px", height: "90px", objectFit: "cover", display: "block" }}
             loading="lazy"

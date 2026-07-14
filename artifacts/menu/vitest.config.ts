@@ -13,6 +13,11 @@ export default defineConfig({
     setupFiles: ["./src/__tests__/setup.ts"],
     // Exclude Vite build files
     exclude: ["**/dist/**", "**/node_modules/**"],
+    // Pin VITE_API_URL for deterministic image-URL-resolution assertions,
+    // independent of whatever .env.local points at (e.g. a Railway staging URL).
+    env: {
+      VITE_API_URL: "http://127.0.0.1:8080",
+    },
   },
   resolve: {
     alias: {
