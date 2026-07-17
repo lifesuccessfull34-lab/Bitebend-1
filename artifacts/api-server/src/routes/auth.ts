@@ -13,6 +13,7 @@ import {
 import { eq, sql, and, gt, isNull } from "drizzle-orm";
 import type { RequestHandler } from "express";
 import { createRateLimiter } from "../lib/rateLimiter";
+import { sendEmail } from "../lib/email";
 
 const router = Router();
 
@@ -458,73 +459,83 @@ const forgotPassword: RequestHandler = async (req, res) => {
   // resetLink is ONLY included in the response when SMTP is not configured.
   // In production with SMTP configured, the link goes to the email only and
   // is never returned in the API response body.
-  const smtpConfigured = !!(
-    process.env.SMTP_HOST &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS
-  );
 
-  if (smtpConfigured) {
+  const emailConfigured = !!process.env.BREVO_API_KEY;
+
+  if (emailConfigured) {
     try {
-      const nodemailer = (await import("nodemailer")).default;
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT ?? "587"),
-        secure: process.env.SMTP_SECURE === "true",
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      });
-
       const [restaurant] = await db
         .select({ name: restaurants.name })
         .from(restaurants)
         .where(eq(restaurants.id, user.restaurantId!))
         .limit(1);
 
-      await transporter.sendMail({
-        from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
-        to: user.email,
+      await sendEmail({
+        to: {
+          email: user.email,
+          name: user.name,
+        },
         subject: "Bitebend — Password Reset Request",
         html: `
-          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
-            <h2 style="color:#ea580c;margin-bottom:8px;">Bitebend Restaurant Portal</h2>
-            <p style="color:#374151;margin-bottom:8px;">Hi ${user.name},</p>
-            <p style="color:#374151;margin-bottom:24px;">
-              A password reset was requested for your account
-              ${restaurant ? `(<strong>${restaurant.name}</strong>)` : ""} at <strong>${user.email}</strong>.
-            </p>
-            <a href="${resetLink}"
-               style="display:inline-block;background:#ea580c;color:#fff;font-weight:700;
-                      text-decoration:none;padding:14px 28px;border-radius:10px;font-size:15px;">
-              Reset My Password
-            </a>
-            <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-              This link expires in <strong>30 minutes</strong> and can only be used once.<br>
-              If you did not request this, you can safely ignore this email.
-            </p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
-            <p style="color:#9ca3af;font-size:12px;">Bitebend Platform</p>
-          </div>
-        `,
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
+          <h2 style="color:#ea580c;margin-bottom:8px;">Bitebend Restaurant Portal</h2>
+
+          <p style="color:#374151;margin-bottom:8px;">
+            Hi ${user.name},
+          </p>
+
+          <p style="color:#374151;margin-bottom:24px;">
+            A password reset was requested for your account
+            ${restaurant ? `(<strong>${restaurant.name}</strong>)` : ""}
+            at <strong>${user.email}</strong>.
+          </p>
+
+          <a href="${resetLink}"
+             style="display:inline-block;
+                    background:#ea580c;
+                    color:#fff;
+                    font-weight:700;
+                    text-decoration:none;
+                    padding:14px 28px;
+                    border-radius:10px;
+                    font-size:15px;">
+            Reset My Password
+          </a>
+
+          <p style="color:#6b7280;font-size:13px;margin-top:24px;">
+            This link expires in <strong>30 minutes</strong> and can only be used once.<br>
+            If you did not request this, you can safely ignore this email.
+          </p>
+
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+
+          <p style="color:#9ca3af;font-size:12px;">
+            Bitebend Platform
+          </p>
+        </div>
+      `,
       });
 
       req.log.info({ email: user.email }, "Owner password reset email sent");
+
       res.json({ ok: true });
     } catch (err) {
-      console.dir(err, { depth: null }); //temporay add kiya hai SMTP log dekhne ke liye
-      req.log.error(
-        err,
-        "Failed to send owner password reset email — returning link as fallback",
-      );
-      res.json({ ok: true, resetLink });
+      console.error(err);
+
+      req.log.error(err, "Failed to send owner password reset email");
+
+      res.json({
+        ok: true,
+        resetLink,
+      });
     }
   } else {
-    // Dev fallback only — SMTP not configured. Never reaches this branch in
-    // production where SMTP must be set.
-    req.log.warn(
-      { email: user.email, resetLink },
-      "Owner password reset — SMTP not configured, returning reset link in response (dev only)",
-    );
-    res.json({ ok: true, resetLink });
+    req.log.warn({ email: user.email, resetLink }, "BREVO_API_KEY missing");
+
+    res.json({
+      ok: true,
+      resetLink,
+    });
   }
 };
 
@@ -617,12 +628,10 @@ const resetPassword: RequestHandler = async (req, res) => {
       },
       "Owner password reset failed — token invalid, expired, or already used",
     );
-    res
-      .status(400)
-      .json({
-        error:
-          "This reset link is invalid or has expired. Please request a new one.",
-      });
+    res.status(400).json({
+      error:
+        "This reset link is invalid or has expired. Please request a new one.",
+    });
     return;
   }
 
