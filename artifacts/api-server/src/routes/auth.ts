@@ -2,7 +2,14 @@ import { Router } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { users, restaurants, subscriptionPlans, subscriptionTransactions, notifications, ownerPasswordResetTokens } from "@workspace/db";
+import {
+  users,
+  restaurants,
+  subscriptionPlans,
+  subscriptionTransactions,
+  notifications,
+  ownerPasswordResetTokens,
+} from "@workspace/db";
 import { eq, sql, and, gt, isNull } from "drizzle-orm";
 import type { RequestHandler } from "express";
 import { createRateLimiter } from "../lib/rateLimiter";
@@ -16,14 +23,16 @@ const forgotPasswordLimiter = createRateLimiter({
   maxRequests: 5,
   windowMs: 15 * 60 * 1000,
   label: "owner:forgot-password",
-  message: "Too many password reset requests. Please wait 15 minutes before trying again.",
+  message:
+    "Too many password reset requests. Please wait 15 minutes before trying again.",
 });
 
 const resetPasswordLimiter = createRateLimiter({
   maxRequests: 10,
   windowMs: 15 * 60 * 1000,
   label: "owner:reset-password",
-  message: "Too many password reset attempts. Please wait 15 minutes before trying again.",
+  message:
+    "Too many password reset attempts. Please wait 15 minutes before trying again.",
 });
 
 function slugify(str: string): string {
@@ -72,11 +81,21 @@ const register: RequestHandler = async (req, res) => {
   };
 
   if (termsAccepted !== true || privacyAccepted !== true) {
-    res.status(400).json({ error: "You must accept Terms & Privacy Policy to register" });
+    res
+      .status(400)
+      .json({ error: "You must accept Terms & Privacy Policy to register" });
     return;
   }
 
-  if (!name || !email || !password || !restaurantName || !restaurantPhone || !restaurantCity || !cuisineType) {
+  if (
+    !name ||
+    !email ||
+    !password ||
+    !restaurantName ||
+    !restaurantPhone ||
+    !restaurantCity ||
+    !cuisineType
+  ) {
     res.status(400).json({ error: "All fields are required" });
     return;
   }
@@ -85,7 +104,11 @@ const register: RequestHandler = async (req, res) => {
     return;
   }
 
-  const existing = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
   if (existing.length > 0) {
     res.status(409).json({ error: "Email already registered" });
     return;
@@ -94,7 +117,11 @@ const register: RequestHandler = async (req, res) => {
   // Validate plan if provided
   let plan = null;
   if (planId) {
-    const [p] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, planId)).limit(1);
+    const [p] = await db
+      .select()
+      .from(subscriptionPlans)
+      .where(eq(subscriptionPlans.id, planId))
+      .limit(1);
     if (!p) {
       res.status(400).json({ error: "Invalid plan selected" });
       return;
@@ -118,52 +145,68 @@ const register: RequestHandler = async (req, res) => {
   const passwordHash = await bcrypt.hash(password, 10);
 
   let slug = slugify(restaurantName);
-  const existing2 = await db.select().from(restaurants).where(eq(restaurants.slug, slug)).limit(1);
+  const existing2 = await db
+    .select()
+    .from(restaurants)
+    .where(eq(restaurants.slug, slug))
+    .limit(1);
   if (existing2.length > 0) slug = `${slug}-${Date.now()}`;
 
-  const [restaurant] = await db.insert(restaurants).values({
-    name: restaurantName,
-    slug,
-    phone: restaurantPhone,
-    email,
-    address: restaurantAddress ?? null,
-    city: restaurantCity,
-    state: restaurantState ?? null,
-    district: restaurantDistrict ?? null,
-    cuisineType,
-    isActive: true,
-    taxPercent: 5,
-    planId: plan?.id ?? null,
-    customerLimit: plan?.customerLimit ?? 0,
-    customersUsed: 0,
-    subscriptionStatus: "active",
-    termsAccepted: true,
-    privacyAccepted: true,
-    acceptedAt: new Date(),
-  }).returning();
+  const [restaurant] = await db
+    .insert(restaurants)
+    .values({
+      name: restaurantName,
+      slug,
+      phone: restaurantPhone,
+      email,
+      address: restaurantAddress ?? null,
+      city: restaurantCity,
+      state: restaurantState ?? null,
+      district: restaurantDistrict ?? null,
+      cuisineType,
+      isActive: true,
+      taxPercent: 5,
+      planId: plan?.id ?? null,
+      customerLimit: plan?.customerLimit ?? 0,
+      customersUsed: 0,
+      subscriptionStatus: "active",
+      termsAccepted: true,
+      privacyAccepted: true,
+      acceptedAt: new Date(),
+    })
+    .returning();
 
-  const [user] = await db.insert(users).values({
-    name,
-    email,
-    passwordHash,
-    role: "owner",
-    restaurantId: restaurant.id,
-  }).returning();
+  const [user] = await db
+    .insert(users)
+    .values({
+      name,
+      email,
+      passwordHash,
+      role: "owner",
+      restaurantId: restaurant.id,
+    })
+    .returning();
 
-  await db.update(restaurants).set({ ownerId: user.id }).where(eq(restaurants.id, restaurant.id));
+  await db
+    .update(restaurants)
+    .set({ ownerId: user.id })
+    .where(eq(restaurants.id, restaurant.id));
 
   // Record subscription transaction if plan was paid
   if (plan && razorpayPaymentId) {
-    const [txn] = await db.insert(subscriptionTransactions).values({
-      restaurantId: restaurant.id,
-      planId: plan.id,
-      amount: plan.price,
-      paymentMethod: "razorpay",
-      razorpayOrderId: razorpayOrderId ?? null,
-      razorpayPaymentId,
-      status: "paid",
-      customersAdded: plan.customerLimit,
-    }).returning();
+    const [txn] = await db
+      .insert(subscriptionTransactions)
+      .values({
+        restaurantId: restaurant.id,
+        planId: plan.id,
+        amount: plan.price,
+        paymentMethod: "razorpay",
+        razorpayOrderId: razorpayOrderId ?? null,
+        razorpayPaymentId,
+        status: "paid",
+        customersAdded: plan.customerLimit,
+      })
+      .returning();
 
     await db.insert(notifications).values({
       restaurantId: restaurant.id,
@@ -191,7 +234,8 @@ const register: RequestHandler = async (req, res) => {
     await db.insert(notifications).values({
       restaurantId: restaurant.id,
       title: "Welcome to Bitebend!",
-      message: "Your account is set up. Please subscribe to a plan to start accepting orders.",
+      message:
+        "Your account is set up. Please subscribe to a plan to start accepting orders.",
       type: "info",
     });
   }
@@ -217,7 +261,11 @@ const login: RequestHandler = async (req, res) => {
     return;
   }
 
-  const [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
   if (!user) {
     res.status(401).json({ error: "Invalid credentials" });
     return;
@@ -260,7 +308,11 @@ const me: RequestHandler = async (req, res) => {
     return;
   }
 
-  const [user] = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, req.session.userId))
+    .limit(1);
   if (!user) {
     res.status(401).json({ error: "Unauthorized" });
     return;
@@ -285,14 +337,26 @@ const getPlatformKey: RequestHandler = (_req, res) => {
 // Create Razorpay order for registration plan payment (before account created)
 const createRegistrationOrder: RequestHandler = async (req, res) => {
   const { planId } = req.body as { planId: number };
-  const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, planId)).limit(1);
-  if (!plan) { res.status(404).json({ error: "Plan not found" }); return; }
+  const [plan] = await db
+    .select()
+    .from(subscriptionPlans)
+    .where(eq(subscriptionPlans.id, planId))
+    .limit(1);
+  if (!plan) {
+    res.status(404).json({ error: "Plan not found" });
+    return;
+  }
 
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
   if (!keyId || !keySecret) {
-    res.json({ razorpayOrderId: null, keyId: null, amount: plan.price, planName: plan.name });
+    res.json({
+      razorpayOrderId: null,
+      keyId: null,
+      amount: plan.price,
+      planName: plan.name,
+    });
     return;
   }
 
@@ -304,12 +368,20 @@ const createRegistrationOrder: RequestHandler = async (req, res) => {
     receipt: `reg_plan_${planId}_${Date.now()}`,
   });
 
-  res.json({ razorpayOrderId: order.id, keyId, amount: plan.price, planName: plan.name });
+  res.json({
+    razorpayOrderId: order.id,
+    keyId,
+    amount: plan.price,
+    planName: plan.name,
+  });
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildOwnerResetLink(req: Parameters<RequestHandler>[0], token: string): string {
+function buildOwnerResetLink(
+  req: Parameters<RequestHandler>[0],
+  token: string,
+): string {
   const base = process.env.SITE_URL?.trim()
     ? `${process.env.SITE_URL.trim()}/portal`
     : `${process.env.NODE_ENV === "production" ? "https" : req.protocol}://${req.get("host")}/portal`;
@@ -337,14 +409,17 @@ const forgotPassword: RequestHandler = async (req, res) => {
   // ── Audit: forgot password requested ─────────────────────────────────────
   // Logged before DB lookup so the event is captured regardless of whether the
   // account exists. Never log whether the account was found.
-  req.log.info({
-    event: "password_reset_requested",
-    portal: "owner",
-    endpoint: "/api/auth/forgot-password",
-    email: normalised,
-    ip,
-    userAgent,
-  }, "Owner password reset requested");
+  req.log.info(
+    {
+      event: "password_reset_requested",
+      portal: "owner",
+      endpoint: "/api/auth/forgot-password",
+      email: normalised,
+      ip,
+      userAgent,
+    },
+    "Owner password reset requested",
+  );
 
   // TASK 3 — User enumeration protection:
   // Always returns 200 with {ok:true} whether the email exists or not.
@@ -363,12 +438,19 @@ const forgotPassword: RequestHandler = async (req, res) => {
   await db
     .update(ownerPasswordResetTokens)
     .set({ usedAt: new Date() })
-    .where(and(eq(ownerPasswordResetTokens.userId, user.id), isNull(ownerPasswordResetTokens.usedAt)));
+    .where(
+      and(
+        eq(ownerPasswordResetTokens.userId, user.id),
+        isNull(ownerPasswordResetTokens.usedAt),
+      ),
+    );
 
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
 
-  await db.insert(ownerPasswordResetTokens).values({ userId: user.id, token, expiresAt });
+  await db
+    .insert(ownerPasswordResetTokens)
+    .values({ userId: user.id, token, expiresAt });
 
   const resetLink = buildOwnerResetLink(req, token);
 
@@ -376,7 +458,11 @@ const forgotPassword: RequestHandler = async (req, res) => {
   // resetLink is ONLY included in the response when SMTP is not configured.
   // In production with SMTP configured, the link goes to the email only and
   // is never returned in the API response body.
-  const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  const smtpConfigured = !!(
+    process.env.SMTP_HOST &&
+    process.env.SMTP_USER &&
+    process.env.SMTP_PASS
+  );
 
   if (smtpConfigured) {
     try {
@@ -424,13 +510,20 @@ const forgotPassword: RequestHandler = async (req, res) => {
       req.log.info({ email: user.email }, "Owner password reset email sent");
       res.json({ ok: true });
     } catch (err) {
-      req.log.error(err, "Failed to send owner password reset email — returning link as fallback");
+      console.dir(err, { depth: null }); //temporay add kiya hai SMTP log dekhne ke liye
+      req.log.error(
+        err,
+        "Failed to send owner password reset email — returning link as fallback",
+      );
       res.json({ ok: true, resetLink });
     }
   } else {
     // Dev fallback only — SMTP not configured. Never reaches this branch in
     // production where SMTP must be set.
-    req.log.warn({ email: user.email, resetLink }, "Owner password reset — SMTP not configured, returning reset link in response (dev only)");
+    req.log.warn(
+      { email: user.email, resetLink },
+      "Owner password reset — SMTP not configured, returning reset link in response (dev only)",
+    );
     res.json({ ok: true, resetLink });
   }
 };
@@ -448,11 +541,13 @@ const validateResetToken: RequestHandler = async (req, res) => {
   const [row] = await db
     .select({ id: ownerPasswordResetTokens.id })
     .from(ownerPasswordResetTokens)
-    .where(and(
-      eq(ownerPasswordResetTokens.token, token),
-      isNull(ownerPasswordResetTokens.usedAt),
-      gt(ownerPasswordResetTokens.expiresAt, new Date()),
-    ))
+    .where(
+      and(
+        eq(ownerPasswordResetTokens.token, token),
+        isNull(ownerPasswordResetTokens.usedAt),
+        gt(ownerPasswordResetTokens.expiresAt, new Date()),
+      ),
+    )
     .limit(1);
 
   res.json({ valid: !!row });
@@ -461,29 +556,38 @@ const validateResetToken: RequestHandler = async (req, res) => {
 // ── POST /api/auth/reset-password ────────────────────────────────────────────
 
 const resetPassword: RequestHandler = async (req, res) => {
-  const { token, newPassword } = req.body as { token?: string; newPassword?: string };
+  const { token, newPassword } = req.body as {
+    token?: string;
+    newPassword?: string;
+  };
   const ip = req.ip ?? "unknown";
 
   if (!token || !newPassword) {
-    req.log.warn({
-      event: "password_reset_failure",
-      portal: "owner",
-      endpoint: "/api/auth/reset-password",
-      ip,
-      reason: "missing_token_or_password",
-    }, "Owner password reset failed — missing token or password");
+    req.log.warn(
+      {
+        event: "password_reset_failure",
+        portal: "owner",
+        endpoint: "/api/auth/reset-password",
+        ip,
+        reason: "missing_token_or_password",
+      },
+      "Owner password reset failed — missing token or password",
+    );
     res.status(400).json({ error: "Token and new password are required." });
     return;
   }
 
   if (newPassword.length < 8) {
-    req.log.warn({
-      event: "password_reset_failure",
-      portal: "owner",
-      endpoint: "/api/auth/reset-password",
-      ip,
-      reason: "password_too_short",
-    }, "Owner password reset failed — password too short");
+    req.log.warn(
+      {
+        event: "password_reset_failure",
+        portal: "owner",
+        endpoint: "/api/auth/reset-password",
+        ip,
+        reason: "password_too_short",
+      },
+      "Owner password reset failed — password too short",
+    );
     res.status(400).json({ error: "Password must be at least 8 characters." });
     return;
   }
@@ -491,24 +595,34 @@ const resetPassword: RequestHandler = async (req, res) => {
   const [resetRow] = await db
     .select()
     .from(ownerPasswordResetTokens)
-    .where(and(
-      eq(ownerPasswordResetTokens.token, token),
-      isNull(ownerPasswordResetTokens.usedAt),
-      gt(ownerPasswordResetTokens.expiresAt, new Date()),
-    ))
+    .where(
+      and(
+        eq(ownerPasswordResetTokens.token, token),
+        isNull(ownerPasswordResetTokens.usedAt),
+        gt(ownerPasswordResetTokens.expiresAt, new Date()),
+      ),
+    )
     .limit(1);
 
   if (!resetRow) {
     // Could be: invalid token, expired token, reused token, or malformed token.
     // Do not distinguish — all map to the same user-visible message.
-    req.log.warn({
-      event: "password_reset_failure",
-      portal: "owner",
-      endpoint: "/api/auth/reset-password",
-      ip,
-      reason: "invalid_or_expired_token",
-    }, "Owner password reset failed — token invalid, expired, or already used");
-    res.status(400).json({ error: "This reset link is invalid or has expired. Please request a new one." });
+    req.log.warn(
+      {
+        event: "password_reset_failure",
+        portal: "owner",
+        endpoint: "/api/auth/reset-password",
+        ip,
+        reason: "invalid_or_expired_token",
+      },
+      "Owner password reset failed — token invalid, expired, or already used",
+    );
+    res
+      .status(400)
+      .json({
+        error:
+          "This reset link is invalid or has expired. Please request a new one.",
+      });
     return;
   }
 
@@ -519,13 +633,16 @@ const resetPassword: RequestHandler = async (req, res) => {
     .limit(1);
 
   if (!user) {
-    req.log.warn({
-      event: "password_reset_failure",
-      portal: "owner",
-      endpoint: "/api/auth/reset-password",
-      ip,
-      reason: "user_not_owner",
-    }, "Owner password reset failed — token user is no longer owner");
+    req.log.warn(
+      {
+        event: "password_reset_failure",
+        portal: "owner",
+        endpoint: "/api/auth/reset-password",
+        ip,
+        reason: "user_not_owner",
+      },
+      "Owner password reset failed — token user is no longer owner",
+    );
     res.status(400).json({ error: "Invalid reset token." });
     return;
   }
@@ -540,12 +657,15 @@ const resetPassword: RequestHandler = async (req, res) => {
     .where(eq(ownerPasswordResetTokens.id, resetRow.id));
 
   // ── Audit: reset success ──────────────────────────────────────────────────
-  req.log.info({
-    event: "password_reset_success",
-    portal: "owner",
-    email: user.email,
-    ip,
-  }, "Owner password reset successful");
+  req.log.info(
+    {
+      event: "password_reset_success",
+      portal: "owner",
+      email: user.email,
+      ip,
+    },
+    "Owner password reset successful",
+  );
 
   res.json({ ok: true });
 };
