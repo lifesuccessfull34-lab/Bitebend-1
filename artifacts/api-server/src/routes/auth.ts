@@ -384,8 +384,8 @@ function buildOwnerResetLink(
   token: string,
 ): string {
   const base = process.env.SITE_URL?.trim()
-    ? `${process.env.SITE_URL.trim()}/portal`
-    : `${process.env.NODE_ENV === "production" ? "https" : req.protocol}://${req.get("host")}/portal`;
+    ? process.env.SITE_URL.trim().replace(/\/$/, "")
+    : `${process.env.NODE_ENV === "production" ? "https" : req.protocol}://${req.get("host")}`;
   return `${base}/restaurant/reset-password?token=${token}`;
 }
 
