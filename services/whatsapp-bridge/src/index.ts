@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import http from 'http';
-import express from 'express';
+import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
@@ -31,7 +31,7 @@ process.on('uncaughtException', (err: Error) => {
   });
 });
 
-const app = express();
+const app: Express = express();
 const httpServer = http.createServer(app);
 
 const io = new SocketIOServer(httpServer, {

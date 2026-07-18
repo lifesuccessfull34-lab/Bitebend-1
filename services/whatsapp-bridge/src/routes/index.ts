@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, IRouter } from 'express';
 import { requireApiSecret } from '../middlewares/auth';
 import {
   connectWhatsApp,
@@ -9,7 +9,7 @@ import {
 import { sendMessage } from '../controllers/sendMessageController';
 import { sendMedia } from '../controllers/sendMediaController';
 
-const router = Router();
+const router: IRouter = Router();
 
 router.use(requireApiSecret);
 
