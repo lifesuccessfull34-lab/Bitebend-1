@@ -12,6 +12,25 @@ import logger from './utils/logger';
 import routes from './routes';
 import { setSocketIO, CHROMIUM_PATH } from './services/whatsappClient';
 
+// ── Global process resilience ──────────────────────────────────────────────────
+// These handlers ensure that unhandled promise rejections and uncaught
+// exceptions (e.g. from Puppeteer CDP callbacks) are logged without
+// terminating the bridge process.
+
+process.on('unhandledRejection', (reason: unknown) => {
+  logger.error('[bridge] Unhandled promise rejection — bridge continues', {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+});
+
+process.on('uncaughtException', (err: Error) => {
+  logger.error('[bridge] Uncaught exception — bridge continues', {
+    error: err.message,
+    stack: err.stack,
+  });
+});
+
 const app = express();
 const httpServer = http.createServer(app);
 

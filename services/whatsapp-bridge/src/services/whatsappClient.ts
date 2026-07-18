@@ -54,6 +54,8 @@ if (CHROMIUM_PATH) {
   logger.warn('[chromium] Not found in PATH or common locations — puppeteer will use its bundled version (may fail in headless environments)');
 }
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 export type ClientStatus =
   | 'initialising'
   | 'qr_pending'
@@ -62,6 +64,18 @@ export type ClientStatus =
   | 'disconnected'
   | 'auth_failed';
 
+// Classification of Puppeteer/WA errors so callers can decide how to react.
+// browser_closed → full client rebuild required.
+// detached_frame / timeout / protocol → transient; check browser health first.
+// wa_disconnected → WA-level logout, not a Puppeteer crash.
+export type ErrorKind =
+  | 'timeout'
+  | 'detached_frame'
+  | 'browser_closed'
+  | 'protocol'
+  | 'wa_disconnected'
+  | 'unknown';
+
 interface ManagedClient {
   restaurantId: number;
   client: Client;
@@ -69,188 +83,111 @@ interface ManagedClient {
   retryCount: number;
 }
 
+// ── State ──────────────────────────────────────────────────────────────────────
+
 const clients = new Map<number, ManagedClient>();
+/** Prevents concurrent reconnect loops for the same restaurant. */
+const reconnectingIds = new Set<number>();
 let io: SocketIOServer | null = null;
 
-const MAX_AUTO_RECONNECT = 3;
+const MAX_AUTO_RECONNECT = 5;
 
-export function setSocketIO(socketServer: SocketIOServer): void {
-  io = socketServer;
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function errMsg(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
-export async function initClient(restaurantId: number): Promise<void> {
-  if (clients.has(restaurantId)) {
-    const existing = clients.get(restaurantId)!;
-    if (existing.status === 'connected' || existing.status === 'connecting') {
-      logger.info(`Client for restaurant ${restaurantId} already active (${existing.status})`);
-      return;
-    }
-    await destroyClient(restaurantId, false);
-  }
-
-  logger.info(`Initialising WhatsApp client for restaurant ${restaurantId}`);
-
-  const dataPath = getSessionDataPath(restaurantId);
-
-  const puppeteerArgs = [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--single-process',
-    '--disable-gpu',
-  ];
-
-  const client = new Client({
-    authStrategy: new LocalAuth({
-      clientId: `restaurant_${restaurantId}`,
-      dataPath,
-    }),
-    puppeteer: {
-      headless: true,
-      args: puppeteerArgs,
-      ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
-    },
-  });
-
-  const managed: ManagedClient = {
-    restaurantId,
-    client,
-    status: 'initialising',
-    retryCount: 0,
-  };
-
-  clients.set(restaurantId, managed);
-  attachEventHandlers(managed);
-
-  try {
-    await client.initialize();
-  } catch (err) {
-    logger.error(`client.initialize() threw for restaurant ${restaurantId}`, {
-      error: (err as Error).message,
-    });
-    managed.status = 'auth_failed';
-    emitStatus(restaurantId, 'auth_failed');
-    clients.delete(restaurantId);
-    throw err;
-  }
+/** Exponential backoff: 5 s → 10 s → 20 s → 40 s → 60 s (capped). */
+function backoffMs(attempt: number): number {
+  return Math.min(5_000 * Math.pow(2, attempt - 1), 60_000);
 }
 
-function attachEventHandlers(managed: ManagedClient): void {
-  const { client, restaurantId } = managed;
-
-  client.on('qr', (qr) => {
-    managed.status = 'qr_pending';
-    logger.info(`QR generated for restaurant ${restaurantId}`);
-    io?.to(`restaurant_${restaurantId}`).emit('whatsapp:qr', { restaurantId, qr });
-    emitStatus(restaurantId, 'qr_pending');
-  });
-
-  client.on('authenticated', () => {
-    managed.status = 'connecting';
-    logger.info(`Restaurant ${restaurantId} authenticated`);
-    emitStatus(restaurantId, 'connecting');
-  });
-
-  client.on('auth_failure', (msg) => {
-    managed.status = 'auth_failed';
-    logger.error(`Auth failure for restaurant ${restaurantId}: ${msg}`);
-    emitStatus(restaurantId, 'auth_failed');
-    deleteSessionFiles(restaurantId);
-    clients.delete(restaurantId);
-  });
-
-  client.on('ready', () => {
-    managed.status = 'connected';
-    managed.retryCount = 0;
-    logger.info(`WhatsApp ready for restaurant ${restaurantId}`);
-    emitStatus(restaurantId, 'connected');
-  });
-
-  client.on('disconnected', async (reason) => {
-    managed.status = 'disconnected';
-    logger.warn(`Restaurant ${restaurantId} disconnected: ${reason}`);
-    emitStatus(restaurantId, 'disconnected');
-    await scheduleReconnect(managed, reason);
-  });
-
-  client.on('message', async (msg: Message) => {
-    try {
-      await handleIncomingMessage(restaurantId, msg);
-    } catch (err) {
-      logger.error(`Error handling incoming message for restaurant ${restaurantId}`, {
-        error: (err as Error).message,
-      });
-    }
-  });
+/**
+ * Classify a Puppeteer/WA error so the reconnect logic can decide
+ * whether a full client rebuild is actually needed.
+ */
+export function classifyError(error: unknown): ErrorKind {
+  const msg = errMsg(error);
+  if (/timed?\s*out|timeout/i.test(msg))                                          return 'timeout';
+  if (/detached\s*frame|execution context was destroyed/i.test(msg))              return 'detached_frame';
+  if (/target\s*closed|TargetCloseError|browser.*clos|session\s*closed/i.test(msg)) return 'browser_closed';
+  if (/protocol\s*error/i.test(msg))                                              return 'protocol';
+  return 'unknown';
 }
 
-// ── Shared reconnect flow ──────────────────────────────────────────────────────
-// Used both by the library's own 'disconnected' event and by reportClientFailure()
-// below, so there is exactly one reconnect code path regardless of how the
-// unhealthy state was detected.
-async function scheduleReconnect(managed: ManagedClient, reason: string): Promise<void> {
-  const { restaurantId } = managed;
-
-  if (managed.retryCount < MAX_AUTO_RECONNECT && reason !== 'LOGOUT') {
-    managed.retryCount++;
-    const delay = managed.retryCount * 5_000;
-    logger.info(
-      `Auto-reconnect attempt ${managed.retryCount}/${MAX_AUTO_RECONNECT} for restaurant ${restaurantId} in ${delay}ms`
-    );
-    await new Promise((r) => setTimeout(r, delay));
-    if (clients.get(restaurantId) === managed) {
-      await initClient(restaurantId);
-    }
-  } else {
-    logger.warn(`Restaurant ${restaurantId} requires manual reconnect (QR scan)`);
-    clients.delete(restaurantId);
-  }
-}
-
-// ── Detached-Frame / dead-page failure detection ───────────────────────────────
-// whatsapp-web.js drives a real Puppeteer page. When that page silently reloads
-// or navigates internally (a known upstream behaviour, independent of the
-// auth/socket lifecycle), the cached Frame/execution context can die WITHOUT
-// the library ever emitting a 'disconnected' event. status stays 'connected',
-// so getReadyClient() keeps handing out a dead client. reportClientFailure()
-// lets callers (e.g. sendMessage/sendMedia error handlers) report exactly this
-// condition so it gets funnelled into the same reconnect flow as a normal
-// disconnect.
+// Patterns that indicate the failure might be recoverable without losing the WA session.
 const RECOVERABLE_ERROR_PATTERNS = [
   /Attempted to use detached Frame/i,
   /Execution context was destroyed/i,
   /Session closed/i,
   /Protocol error/i,
+  /Target closed/i,
+  /TargetCloseError/i,
+  /timed?\s*out/i,
 ];
 
 export function isRecoverableClientFailure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return RECOVERABLE_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+  const message = errMsg(error);
+  return RECOVERABLE_ERROR_PATTERNS.some((p) => p.test(message));
 }
 
-export async function reportClientFailure(restaurantId: number, error: unknown): Promise<boolean> {
-  if (!isRecoverableClientFailure(error)) return false;
+/**
+ * Check whether the underlying Puppeteer browser and page are still alive.
+ * Returns false on any access error (treats uncertainty as dead).
+ */
+async function isBrowserHealthy(client: Client): Promise<boolean> {
+  try {
+    // whatsapp-web.js exposes pupBrowser and pupPage as public properties.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const browser = (client as any).pupBrowser;
+    if (!browser || !browser.isConnected()) return false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = (client as any).pupPage;
+    if (!page || page.isClosed()) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
-  const managed = clients.get(restaurantId);
-  if (!managed) return false;
+/**
+ * Safely destroy a whatsapp-web.js client.
+ * TargetCloseError and ProtocolError are expected when the browser is already
+ * dead — log them and continue rather than letting them propagate.
+ */
+async function safeDestroy(client: Client, restaurantId: number): Promise<void> {
+  // First, attempt to close the page gracefully so destroy() doesn't trip over
+  // an already-closed target.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page = (client as any).pupPage;
+    if (page && !page.isClosed()) {
+      await page.close().catch(() => { /* ignore */ });
+    }
+  } catch { /* ignore page.close errors */ }
 
-  // Already being torn down / reconnected by another path — nothing to do.
-  if (managed.status === 'disconnected') return false;
+  try {
+    await client.destroy();
+  } catch (err) {
+    const msg = errMsg(err);
+    if (/TargetCloseError|Target closed|Protocol error|Session closed/i.test(msg)) {
+      // Expected when Chromium crashed/exited before destroy() was called.
+      logger.warn(`[wa] Expected error destroying client for restaurant ${restaurantId} (browser was already dead): ${msg}`);
+    } else {
+      logger.warn(`[wa] Unexpected error destroying client for restaurant ${restaurantId}: ${msg}`);
+    }
+  }
+}
 
-  const message = error instanceof Error ? error.message : String(error);
-  logger.error(
-    `Detected dead Puppeteer page/frame for restaurant ${restaurantId} — forcing reconnect`,
-    { error: message }
-  );
+function emitStatus(restaurantId: number, status: ClientStatus): void {
+  io?.to(`restaurant_${restaurantId}`).emit('whatsapp:status', { restaurantId, status });
+}
 
-  managed.status = 'disconnected';
-  emitStatus(restaurantId, 'disconnected');
+// ── Public API ─────────────────────────────────────────────────────────────────
 
-  await scheduleReconnect(managed, 'FRAME_DETACHED');
-  return true;
+export function setSocketIO(socketServer: SocketIOServer): void {
+  io = socketServer;
 }
 
 export function getClientStatus(restaurantId: number): ClientStatus | 'not_initialised' {
@@ -277,19 +214,374 @@ export async function destroyClient(restaurantId: number, wipeSession = true): P
   const managed = clients.get(restaurantId);
   if (!managed) return;
 
-  try {
-    await managed.client.destroy();
-  } catch (err) {
-    logger.warn(`Error destroying client for restaurant ${restaurantId}`, {
-      error: (err as Error).message,
-    });
-  }
+  await safeDestroy(managed.client, restaurantId);
 
-  if (wipeSession) deleteSessionFiles(restaurantId);
   clients.delete(restaurantId);
-  logger.info(`Client destroyed for restaurant ${restaurantId}`);
+  reconnectingIds.delete(restaurantId);
+
+  // Only wipe session files when explicitly requested (user-initiated disconnect).
+  // Internal teardown before a reconnect always passes wipeSession=false so that
+  // LocalAuth can reuse the existing session without requiring a new QR scan.
+  if (wipeSession) {
+    deleteSessionFiles(restaurantId);
+    logger.info(`[wa] Client destroyed and session wiped for restaurant ${restaurantId}`);
+  } else {
+    logger.info(`[wa] Client destroyed (session kept) for restaurant ${restaurantId}`);
+  }
 }
 
-function emitStatus(restaurantId: number, status: ClientStatus): void {
-  io?.to(`restaurant_${restaurantId}`).emit('whatsapp:status', { restaurantId, status });
+// ── Init ───────────────────────────────────────────────────────────────────────
+
+export async function initClient(restaurantId: number): Promise<void> {
+  if (clients.has(restaurantId)) {
+    const existing = clients.get(restaurantId)!;
+    if (existing.status === 'connected' || existing.status === 'connecting') {
+      logger.info(`[wa] Client for restaurant ${restaurantId} already active (${existing.status})`);
+      return;
+    }
+    // Tear down the dead client, keeping session files so LocalAuth can reuse them.
+    await destroyClient(restaurantId, false);
+  }
+
+  logger.info(`[wa] Initialising WhatsApp client for restaurant ${restaurantId}`);
+
+  const dataPath = getSessionDataPath(restaurantId);
+
+  const puppeteerArgs = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-accelerated-2d-canvas',
+    '--no-first-run',
+    '--no-zygote',
+    '--single-process',
+    '--disable-gpu',
+  ];
+
+  const client = new Client({
+    authStrategy: new LocalAuth({
+      clientId: `restaurant_${restaurantId}`,
+      dataPath,
+    }),
+    puppeteer: {
+      headless: true,
+      args: puppeteerArgs,
+      // Raise CDP protocol timeout from the default 30 s to 5 min.
+      // This prevents Runtime.callFunctionOn timeouts from destroying
+      // healthy clients during brief slowdowns.
+      protocolTimeout: 300_000,
+      ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
+    },
+  });
+
+  const managed: ManagedClient = {
+    restaurantId,
+    client,
+    status: 'initialising',
+    retryCount: 0,
+  };
+
+  clients.set(restaurantId, managed);
+  attachClientEventHandlers(managed);
+
+  try {
+    await client.initialize();
+  } catch (err) {
+    logger.error(`[wa] client.initialize() threw for restaurant ${restaurantId}`, {
+      error: errMsg(err),
+    });
+    managed.status = 'auth_failed';
+    emitStatus(restaurantId, 'auth_failed');
+    clients.delete(restaurantId);
+    throw err;
+  }
+}
+
+// ── Event handlers ─────────────────────────────────────────────────────────────
+
+function attachClientEventHandlers(managed: ManagedClient): void {
+  const { client, restaurantId } = managed;
+
+  client.on('qr', (qr) => {
+    managed.status = 'qr_pending';
+    logger.info(`[wa] QR generated for restaurant ${restaurantId}`);
+    io?.to(`restaurant_${restaurantId}`).emit('whatsapp:qr', { restaurantId, qr });
+    emitStatus(restaurantId, 'qr_pending');
+  });
+
+  client.on('authenticated', () => {
+    managed.status = 'connecting';
+    logger.info(`[wa] Restaurant ${restaurantId} authenticated`);
+    emitStatus(restaurantId, 'connecting');
+  });
+
+  client.on('auth_failure', (msg) => {
+    managed.status = 'auth_failed';
+    logger.error(`[wa] Auth failure for restaurant ${restaurantId}: ${msg}`);
+    emitStatus(restaurantId, 'auth_failed');
+    // WhatsApp explicitly rejected the stored session — the files are no longer
+    // valid, so delete them so the next initClient starts fresh with a new QR.
+    deleteSessionFiles(restaurantId);
+    clients.delete(restaurantId);
+    reconnectingIds.delete(restaurantId);
+  });
+
+  client.on('ready', () => {
+    managed.status = 'connected';
+    managed.retryCount = 0;
+    // Clear the in-progress guard so future reconnects are allowed.
+    reconnectingIds.delete(restaurantId);
+    logger.info(`[wa] WhatsApp ready for restaurant ${restaurantId}`);
+    emitStatus(restaurantId, 'connected');
+
+    // Attach Puppeteer-level resilience listeners now that pupBrowser/pupPage exist.
+    attachBrowserListeners(managed);
+  });
+
+  client.on('disconnected', async (reason) => {
+    try {
+      managed.status = 'disconnected';
+      logger.warn(`[wa] Restaurant ${restaurantId} disconnected: ${reason}`);
+      emitStatus(restaurantId, 'disconnected');
+
+      // LOGOUT means the user removed this device from WhatsApp on their phone.
+      // The stored session is gone — wipe files and stop; a fresh QR is needed.
+      if (reason === 'LOGOUT') {
+        logger.info(`[wa] Restaurant ${restaurantId} logged out — wiping session files`);
+        deleteSessionFiles(restaurantId);
+        clients.delete(restaurantId);
+        reconnectingIds.delete(restaurantId);
+        return;
+      }
+
+      // All other disconnect reasons (network blip, server restart, etc.) keep
+      // session files intact so LocalAuth can reconnect without a new QR.
+      await scheduleReconnect(managed, reason);
+    } catch (err) {
+      logger.error(`[wa] Error in disconnected handler for restaurant ${restaurantId}`, {
+        error: errMsg(err),
+      });
+    }
+  });
+
+  client.on('message', async (msg: Message) => {
+    try {
+      await handleIncomingMessage(restaurantId, msg);
+    } catch (err) {
+      logger.error(`[wa] Error handling incoming message for restaurant ${restaurantId}`, {
+        error: errMsg(err),
+      });
+    }
+  });
+}
+
+/**
+ * Attach Puppeteer browser- and page-level listeners.
+ * Called from the 'ready' handler, at which point pupBrowser and pupPage
+ * are guaranteed to be initialised.
+ *
+ * These listeners schedule reconnects when appropriate but never crash the
+ * process — every async callback is wrapped in try/catch.
+ */
+function attachBrowserListeners(managed: ManagedClient): void {
+  const { client, restaurantId } = managed;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const browser = (client as any).pupBrowser;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page   = (client as any).pupPage;
+
+    if (browser) {
+      // Fired by Puppeteer when the CDP connection to Chromium is lost.
+      browser.on('disconnected', () => {
+        try {
+          logger.warn(`[wa] Puppeteer browser disconnected for restaurant ${restaurantId}`);
+          if (managed.status === 'connected' || managed.status === 'connecting') {
+            managed.status = 'disconnected';
+            emitStatus(restaurantId, 'disconnected');
+            scheduleReconnect(managed, 'BROWSER_DISCONNECTED').catch((err) => {
+              logger.error(`[wa] Error scheduling reconnect after browser disconnect for restaurant ${restaurantId}`, {
+                error: errMsg(err),
+              });
+            });
+          }
+        } catch (err) {
+          logger.error(`[wa] Error in browser.disconnected handler for restaurant ${restaurantId}`, {
+            error: errMsg(err),
+          });
+        }
+      });
+
+      // Fired when a CDP target (page, worker, …) is destroyed.
+      // We log it for diagnostics but do not reconnect here — if the main
+      // browser itself is dying, browser.disconnected will fire next.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      browser.on('targetdestroyed', (target: any) => {
+        try {
+          logger.debug(`[wa] CDP target destroyed for restaurant ${restaurantId}: ${target.type?.() ?? 'unknown'}`);
+        } catch (err) {
+          logger.error(`[wa] Error in targetdestroyed handler for restaurant ${restaurantId}`, {
+            error: errMsg(err),
+          });
+        }
+      });
+    }
+
+    if (page) {
+      // Uncaught JS exception inside the WhatsApp Web page — usually harmless.
+      page.on('error', (err: Error) => {
+        try {
+          logger.warn(`[wa] WhatsApp page error for restaurant ${restaurantId}: ${err.message}`);
+          // Do not reconnect — page errors (uncaught exceptions in WA's JS)
+          // rarely indicate the Puppeteer session is dead.
+        } catch (e) {
+          logger.error(`[wa] Error in page.error handler for restaurant ${restaurantId}`, {
+            error: errMsg(e),
+          });
+        }
+      });
+
+      // The WhatsApp page itself was closed (distinct from the browser disconnecting).
+      page.on('close', () => {
+        try {
+          logger.warn(`[wa] WhatsApp page closed for restaurant ${restaurantId}`);
+          if (managed.status === 'connected' || managed.status === 'connecting') {
+            managed.status = 'disconnected';
+            emitStatus(restaurantId, 'disconnected');
+            scheduleReconnect(managed, 'PAGE_CLOSED').catch((err) => {
+              logger.error(`[wa] Error scheduling reconnect after page close for restaurant ${restaurantId}`, {
+                error: errMsg(err),
+              });
+            });
+          }
+        } catch (err) {
+          logger.error(`[wa] Error in page.close handler for restaurant ${restaurantId}`, {
+            error: errMsg(err),
+          });
+        }
+      });
+    }
+  } catch (err) {
+    logger.error(`[wa] Failed to attach browser/page listeners for restaurant ${restaurantId}`, {
+      error: errMsg(err),
+    });
+  }
+}
+
+// ── Reconnect ──────────────────────────────────────────────────────────────────
+
+/**
+ * Schedule a reconnect attempt with exponential backoff.
+ *
+ * Guards:
+ * - Only one reconnect loop per restaurant at a time (reconnectingIds).
+ * - Aborts if the client was replaced or removed during the backoff delay.
+ * - Never deletes session files (session wipe only happens on LOGOUT / explicit disconnect).
+ */
+async function scheduleReconnect(managed: ManagedClient, reason: string): Promise<void> {
+  const { restaurantId } = managed;
+
+  if (reconnectingIds.has(restaurantId)) {
+    logger.info(`[wa] Reconnect already in progress for restaurant ${restaurantId} — skipping duplicate (reason: ${reason})`);
+    return;
+  }
+
+  if (managed.retryCount >= MAX_AUTO_RECONNECT) {
+    logger.warn(
+      `[wa] Restaurant ${restaurantId} exceeded max reconnect attempts (${MAX_AUTO_RECONNECT}) — waiting for manual reconnect`
+    );
+    clients.delete(restaurantId);
+    reconnectingIds.delete(restaurantId);
+    return;
+  }
+
+  managed.retryCount++;
+  reconnectingIds.add(restaurantId);
+
+  const delay = backoffMs(managed.retryCount);
+  logger.info(
+    `[wa] Reconnect attempt ${managed.retryCount}/${MAX_AUTO_RECONNECT} for restaurant ${restaurantId} in ${delay}ms (reason: ${reason})`
+  );
+
+  await new Promise<void>((r) => setTimeout(r, delay));
+
+  // If another caller replaced or removed the client during the wait, abort.
+  const current = clients.get(restaurantId);
+  if (current !== managed && current !== undefined) {
+    logger.info(`[wa] Client for restaurant ${restaurantId} was replaced during backoff — aborting reconnect`);
+    reconnectingIds.delete(restaurantId);
+    return;
+  }
+
+  try {
+    // initClient tears down the dead client (wipeSession=false) then creates a
+    // fresh one.  Because session files are preserved, LocalAuth will restore
+    // the WA session automatically — no new QR scan required.
+    await initClient(restaurantId);
+  } catch (err) {
+    logger.error(`[wa] initClient failed during reconnect for restaurant ${restaurantId}`, {
+      error: errMsg(err),
+    });
+  } finally {
+    // Success path: cleared in the 'ready' handler.
+    // Failure path: clear here so future reconnects are not permanently blocked.
+    reconnectingIds.delete(restaurantId);
+  }
+}
+
+// ── Failure reporting (called by send controllers) ─────────────────────────────
+
+/**
+ * Called by sendMessage / sendMedia when a send attempt throws.
+ *
+ * Behaviour by error kind:
+ * - timeout / detached_frame: check browser health first.
+ *     - Browser still alive → transient CDP hiccup; log and return true so the
+ *       caller retries without triggering a full client rebuild.
+ *     - Browser dead → fall through to full reconnect.
+ * - browser_closed / protocol / unknown: schedule a full reconnect immediately.
+ *
+ * Returns false if the error is not recoverable (caller should surface it).
+ */
+export async function reportClientFailure(restaurantId: number, error: unknown): Promise<boolean> {
+  if (!isRecoverableClientFailure(error)) return false;
+
+  const managed = clients.get(restaurantId);
+  if (!managed) return false;
+  // Another code path is already handling this — nothing to do.
+  if (managed.status === 'disconnected') return false;
+
+  const kind = classifyError(error);
+  const msg  = errMsg(error);
+
+  // For transient errors, verify the browser is actually dead before rebuilding.
+  if (kind === 'timeout' || kind === 'detached_frame') {
+    const healthy = await isBrowserHealthy(managed.client);
+    if (healthy) {
+      logger.warn(
+        `[wa] Transient Puppeteer error for restaurant ${restaurantId} — browser is healthy, skipping reconnect`,
+        { kind, error: msg }
+      );
+      // Return true: the error was acknowledged; caller should just retry.
+      return true;
+    }
+  }
+
+  // Browser is dead (or health check itself failed) → full reconnect.
+  logger.error(
+    `[wa] Dead Puppeteer page/frame detected for restaurant ${restaurantId} — scheduling reconnect`,
+    { kind, error: msg }
+  );
+
+  managed.status = 'disconnected';
+  emitStatus(restaurantId, 'disconnected');
+
+  scheduleReconnect(managed, kind === 'browser_closed' ? 'BROWSER_CLOSED' : 'FRAME_DETACHED').catch((err) => {
+    logger.error(`[wa] Error in scheduleReconnect triggered by reportClientFailure for restaurant ${restaurantId}`, {
+      error: errMsg(err),
+    });
+  });
+
+  return true;
 }
