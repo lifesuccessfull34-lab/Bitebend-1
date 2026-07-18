@@ -6,7 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { useAuth } from "@/contexts/AuthContext";
 import { Wifi, WifiOff, Loader2, Smartphone, CheckCircle2, XCircle, RefreshCw, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { API_BASE } from "@/lib/api";
+import { API_BASE, API_ORIGIN } from "@/lib/api";
 
 type WhatsAppStatus =
   | "not_initialised"
@@ -84,7 +84,16 @@ export default function WhatsAppConnect() {
 
     fetchStatus();
 
-    const socket = io(window.location.origin, {
+    // In production the portal is a separate static service (no server-side proxy).
+    // Socket.IO must connect to the API server origin, which runs the
+    // /whatsapp-bridge → bridge proxy with WebSocket support.
+    // API_ORIGIN is VITE_API_URL (e.g. "https://api.bitebend.in") in production,
+    // and "" (empty string) in dev — falling back to window.location.origin where
+    // the Vite dev-server proxy handles /whatsapp-bridge locally.
+    const socketOrigin = API_ORIGIN || window.location.origin;
+    console.debug("[ws:debug] Connecting Socket.IO", { socketOrigin, restaurantId, path: "/whatsapp-bridge/socket.io" });
+
+    const socket = io(socketOrigin, {
       path: "/whatsapp-bridge/socket.io",
       query: { restaurantId: String(restaurantId) },
       transports: ["websocket", "polling"],
@@ -93,7 +102,12 @@ export default function WhatsAppConnect() {
 
     socketRef.current = socket;
 
+    socket.on("connect", () => {
+      console.debug("[ws:debug] Socket.IO connected", { id: socket.id, socketOrigin, restaurantId });
+    });
+
     socket.on("whatsapp:qr", ({ qr }: { qr: string }) => {
+      console.debug("[ws:debug] whatsapp:qr received", { restaurantId, qrLength: qr.length });
       setQrString(qr);
       setStatus("qr_pending");
       setBridgeReachable(true);
@@ -101,6 +115,7 @@ export default function WhatsAppConnect() {
     });
 
     socket.on("whatsapp:status", ({ status: s }: { status: WhatsAppStatus }) => {
+      console.debug("[ws:debug] whatsapp:status received", { restaurantId, status: s });
       setStatus(s);
       setBridgeReachable(true);
       setBridgeStarting(false);
@@ -114,8 +129,9 @@ export default function WhatsAppConnect() {
       }
     });
 
-    socket.on("connect_error", () => {
+    socket.on("connect_error", (err) => {
       // Bridge still starting — silently degrade; polling will pick up the transition
+      console.debug("[ws:debug] Socket.IO connect_error", { socketOrigin, restaurantId, error: err.message });
     });
 
     return () => {

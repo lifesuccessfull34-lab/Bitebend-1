@@ -75,14 +75,21 @@ const statusHandler: RequestHandler = async (req, res) => {
   }
   try {
     const data = await callBridge(`/api/whatsapp/status/${restaurantId}`, "GET");
+    // [debug:qr] Log what the bridge returned and what we're forwarding to the portal
+    logger.debug(
+      { restaurantId, bridgeResponse: { success: data.success, status: data.status }, bridgeReachable: true },
+      "[whatsapp:status] bridge responded"
+    );
     res.json({ ...data, bridgeReachable: true });
   } catch {
     const bridgeState = getBridgeState();
     const managed = isBridgeManaged();
 
     if (managed && (bridgeState === "starting" || bridgeState === "restarting")) {
+      logger.debug({ restaurantId, bridgeState }, "[whatsapp:status] bridge unreachable — returning initialising");
       res.json({ success: true, status: "initialising", bridgeReachable: true, bridgeStarting: true, restaurantId });
     } else {
+      logger.debug({ restaurantId, bridgeState, managed }, "[whatsapp:status] bridge unreachable — returning not_initialised");
       res.json({ success: true, status: "not_initialised", bridgeReachable: false, restaurantId });
     }
   }

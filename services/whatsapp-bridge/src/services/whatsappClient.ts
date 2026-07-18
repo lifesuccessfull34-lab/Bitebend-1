@@ -304,9 +304,14 @@ function attachClientEventHandlers(managed: ManagedClient): void {
 
   client.on('qr', (qr) => {
     managed.status = 'qr_pending';
-    logger.info(`[wa] QR generated for restaurant ${restaurantId}`);
-    io?.to(`restaurant_${restaurantId}`).emit('whatsapp:qr', { restaurantId, qr });
+    const room = `restaurant_${restaurantId}`;
+    const roomSize = io?.sockets.adapter.rooms.get(room)?.size ?? 0;
+    logger.info(`[wa:qr] QR generated for restaurant ${restaurantId} — length=${qr.length} room=${room} subscribers=${roomSize}`);
+    io?.to(room).emit('whatsapp:qr', { restaurantId, qr });
     emitStatus(restaurantId, 'qr_pending');
+    if (roomSize === 0) {
+      logger.warn(`[wa:qr] No Socket.IO subscribers in room ${room} — QR emitted but no client will receive it. Check that the portal is connecting Socket.IO to the API server origin (VITE_API_URL), not the portal static origin.`);
+    }
   });
 
   client.on('authenticated', () => {
