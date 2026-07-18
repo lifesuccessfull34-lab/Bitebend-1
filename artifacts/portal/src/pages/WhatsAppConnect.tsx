@@ -103,7 +103,21 @@ export default function WhatsAppConnect() {
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      console.debug("[ws:debug] Socket.IO connected", { id: socket.id, socketOrigin, restaurantId });
+      // Log the active transport (polling or websocket) so we know if WS upgrade succeeded
+      const transport = socket.io.engine.transport.name;
+      console.debug("[ws:debug] Socket.IO connected", {
+        id:           socket.id,
+        socketOrigin,
+        restaurantId,
+        API_ORIGIN,
+        transport,
+      });
+    });
+
+    // Log when Socket.IO upgrades from polling to websocket
+    socket.io.engine.on("upgrade", () => {
+      const transport = socket.io.engine.transport.name;
+      console.debug("[ws:debug] Transport upgraded to", transport, { id: socket.id });
     });
 
     socket.on("whatsapp:qr", ({ qr }: { qr: string }) => {
@@ -129,9 +143,25 @@ export default function WhatsAppConnect() {
       }
     });
 
+    socket.on("disconnect", (reason, details) => {
+      console.debug("[ws:debug] Socket.IO disconnected", {
+        id: socket.id,
+        reason,
+        details,
+        socketOrigin,
+        restaurantId,
+      });
+    });
+
     socket.on("connect_error", (err) => {
       // Bridge still starting — silently degrade; polling will pick up the transition
-      console.debug("[ws:debug] Socket.IO connect_error", { socketOrigin, restaurantId, error: err.message });
+      console.debug("[ws:debug] Socket.IO connect_error", {
+        socketOrigin,
+        restaurantId,
+        error:   err.message,
+        // Engine-level description when available (e.g. "xhr poll error", "websocket error")
+        type:    (err as { type?: string }).type,
+      });
     });
 
     return () => {

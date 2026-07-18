@@ -81,6 +81,8 @@ interface ManagedClient {
   client: Client;
   status: ClientStatus;
   retryCount: number;
+  /** Last QR string received, kept so late Socket.IO joiners can receive it immediately. */
+  lastQr?: string;
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -194,6 +196,17 @@ export function getClientStatus(restaurantId: number): ClientStatus | 'not_initi
   return clients.get(restaurantId)?.status ?? 'not_initialised';
 }
 
+/**
+ * Return the most recent QR string for a restaurant if the client is in
+ * qr_pending state, or undefined otherwise.  Used to re-deliver QR to
+ * Socket.IO sockets that join the room after the QR was originally emitted.
+ */
+export function getPendingQr(restaurantId: number): string | undefined {
+  const managed = clients.get(restaurantId);
+  if (managed?.status === 'qr_pending') return managed.lastQr;
+  return undefined;
+}
+
 export function getReadyClient(restaurantId: number): Client {
   const managed = clients.get(restaurantId);
   if (!managed) throw new Error(`No client found for restaurant ${restaurantId}`);
@@ -304,13 +317,14 @@ function attachClientEventHandlers(managed: ManagedClient): void {
 
   client.on('qr', (qr) => {
     managed.status = 'qr_pending';
+    managed.lastQr  = qr;   // cache so late Socket.IO joiners can receive it
     const room = `restaurant_${restaurantId}`;
     const roomSize = io?.sockets.adapter.rooms.get(room)?.size ?? 0;
     logger.info(`[wa:qr] QR generated for restaurant ${restaurantId} — length=${qr.length} room=${room} subscribers=${roomSize}`);
     io?.to(room).emit('whatsapp:qr', { restaurantId, qr });
     emitStatus(restaurantId, 'qr_pending');
     if (roomSize === 0) {
-      logger.warn(`[wa:qr] No Socket.IO subscribers in room ${room} — QR emitted but no client will receive it. Check that the portal is connecting Socket.IO to the API server origin (VITE_API_URL), not the portal static origin.`);
+      logger.warn(`[wa:qr] No Socket.IO subscribers in room ${room} — QR cached in memory; will be re-delivered when a socket joins the room.`);
     }
   });
 
@@ -322,6 +336,7 @@ function attachClientEventHandlers(managed: ManagedClient): void {
 
   client.on('auth_failure', (msg) => {
     managed.status = 'auth_failed';
+    managed.lastQr = undefined;   // QR is no longer valid
     logger.error(`[wa] Auth failure for restaurant ${restaurantId}: ${msg}`);
     emitStatus(restaurantId, 'auth_failed');
     // WhatsApp explicitly rejected the stored session — the files are no longer
@@ -334,6 +349,7 @@ function attachClientEventHandlers(managed: ManagedClient): void {
   client.on('ready', () => {
     managed.status = 'connected';
     managed.retryCount = 0;
+    managed.lastQr = undefined;   // QR consumed — connection established
     // Clear the in-progress guard so future reconnects are allowed.
     reconnectingIds.delete(restaurantId);
     logger.info(`[wa] WhatsApp ready for restaurant ${restaurantId}`);

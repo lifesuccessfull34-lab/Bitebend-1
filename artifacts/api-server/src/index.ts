@@ -188,7 +188,7 @@ setInterval(() => { purgeExpiredScreenshots().catch(() => void 0); }, 24 * 60 * 
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
-app.listen(port, (err) => {
+const httpServer = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -201,5 +201,24 @@ app.listen(port, (err) => {
       env: process.env["NODE_ENV"] ?? "unknown",
     },
     "Server listening",
+  );
+});
+
+// ── WebSocket upgrade tracing ─────────────────────────────────────────────────
+// Log every WebSocket upgrade that arrives at the API server's HTTP server.
+// This tells us whether the browser's Socket.IO WebSocket upgrade reaches
+// this process, or whether it's handled upstream (Vite dev proxy / Railway).
+httpServer.on("upgrade", (req) => {
+  logger.debug(
+    {
+      url:      req.url,
+      headers:  {
+        host:       req.headers.host,
+        upgrade:    req.headers.upgrade,
+        connection: req.headers.connection,
+        origin:     req.headers.origin,
+      },
+    },
+    "[ws:trace] HTTP upgrade request received at API server",
   );
 });

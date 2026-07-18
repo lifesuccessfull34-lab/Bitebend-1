@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config';
 import logger from './utils/logger';
 import routes from './routes';
-import { setSocketIO, CHROMIUM_PATH } from './services/whatsappClient';
+import { setSocketIO, getPendingQr, CHROMIUM_PATH } from './services/whatsappClient';
 
 // ── Global process resilience ──────────────────────────────────────────────────
 // These handlers ensure that unhandled promise rejections and uncaught
@@ -45,16 +45,48 @@ setSocketIO(io);
 
 io.on('connection', (socket) => {
   const restaurantId = socket.handshake.query.restaurantId as string;
+  const transport   = socket.conn.transport.name;
+  const url         = socket.handshake.url;
+
+  // [trace:socket] Full handshake details — use this to diagnose room-join failures
+  logger.info(
+    `[ws:trace] Socket.IO connection received — id=${socket.id} transport=${transport} restaurantId=${restaurantId ?? '(missing)'} url=${url} query=${JSON.stringify(socket.handshake.query)}`,
+  );
+
   if (restaurantId) {
     const room = `restaurant_${restaurantId}`;
     socket.join(room);
-    logger.info(`Socket connected – restaurant ${restaurantId} joined room ${room}`);
+
+    // Count subscribers synchronously after join
+    const size = io.sockets.adapter.rooms.get(room)?.size ?? 0;
+    logger.info(
+      `[ws:trace] Joined room ${room} — subscribers now ${size} (socketId=${socket.id})`,
+    );
+
+    // Re-deliver any cached QR to this socket if the client is already in
+    // qr_pending state (common race: QR fired before socket joined the room).
+    const pendingQr = getPendingQr(Number(restaurantId));
+    if (pendingQr) {
+      logger.info(
+        `[ws:trace] Re-delivering cached QR to late-joining socket id=${socket.id} room=${room} qrLength=${pendingQr.length}`,
+      );
+      socket.emit('whatsapp:qr', { restaurantId: Number(restaurantId), qr: pendingQr });
+      socket.emit('whatsapp:status', { restaurantId: Number(restaurantId), status: 'qr_pending' });
+    }
   } else {
-    logger.warn(`Socket connected without restaurantId: ${socket.id}`);
+    logger.warn(
+      `[ws:trace] Socket connected WITHOUT restaurantId — will NOT receive QR events (socketId=${socket.id} query=${JSON.stringify(socket.handshake.query)})`,
+    );
   }
 
-  socket.on('disconnect', () => {
-    logger.debug(`Socket disconnected: ${socket.id}`);
+  socket.conn.on('upgrade', (newTransport) => {
+    logger.info(
+      `[ws:trace] Transport upgraded ${transport} → ${newTransport.name} (socketId=${socket.id})`,
+    );
+  });
+
+  socket.on('disconnect', (reason) => {
+    logger.info(`[ws:trace] Socket disconnected id=${socket.id} reason=${reason}`);
   });
 });
 
