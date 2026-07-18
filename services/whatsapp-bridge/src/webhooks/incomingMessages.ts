@@ -1,3 +1,4 @@
+import util from 'util';
 import { Message, MessageTypes } from 'whatsapp-web.js';
 import logger from '../utils/logger';
 import { sendWebhook, sendPaymentScreenshotWebhook } from './webhookSender';
@@ -65,17 +66,28 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
   if (msg.type === MessageTypes.IMAGE) {
     let imageUrl: string;
     try {
+      logger.info("[media] before downloadMedia");
       const media = await msg.downloadMedia();
+      logger.info("[media] after downloadMedia");
       if (!media) {
         logger.warn(`Failed to download image from ${customerPhone}`);
         return;
       }
+      logger.info("[media] media mime=%s size=%d",
+        media.mimetype,
+        media.data?.length ?? 0);
+      logger.info("[media] before storeMedia");
       imageUrl = await storeMedia(restaurantId, media, timestamp);
+      logger.info("[media] after storeMedia");
     } catch (err) {
-      logger.error(`Image download/store failed`, {
+      logger.error("Image download/store failed", {
         restaurantId,
         phone: customerPhone,
-        error: (err as Error).message,
+        isError: err instanceof Error,
+        name: err instanceof Error ? err.name : undefined,
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        inspected: util.inspect(err, { depth: 10 }),
       });
       return;
     }
