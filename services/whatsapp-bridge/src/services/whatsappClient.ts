@@ -625,6 +625,52 @@ async function scheduleReconnect(managed: ManagedClient, reason: string): Promis
  *
  * Returns false if the error is not recoverable (caller should surface it).
  */
+// ── Browser diagnostics (used by media download instrumentation) ───────────────
+
+export interface BrowserDiagnostics {
+  clientStatus: string;
+  browserConnected: boolean;
+  pageClosed: boolean;
+  pageUrl: string | null;
+}
+
+/**
+ * Snapshot browser/page health for a given restaurant at the moment of a
+ * media-download failure.  All property accesses are guarded — never throws.
+ */
+export async function getBrowserDiagnostics(restaurantId: number): Promise<BrowserDiagnostics> {
+  const managed = clients.get(restaurantId);
+  const fallback: BrowserDiagnostics = {
+    clientStatus: 'not_initialised',
+    browserConnected: false,
+    pageClosed: true,
+    pageUrl: null,
+  };
+
+  if (!managed) return fallback;
+
+  fallback.clientStatus = managed.status;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const browser = (managed.client as any).pupBrowser;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page   = (managed.client as any).pupPage;
+
+    const browserConnected = !!browser && !!browser.isConnected?.();
+    const pageClosed       = !page || !!page.isClosed?.();
+    let pageUrl: string | null = null;
+
+    if (page && !pageClosed) {
+      try { pageUrl = page.url?.() ?? null; } catch { /* ignore */ }
+    }
+
+    return { clientStatus: managed.status, browserConnected, pageClosed, pageUrl };
+  } catch {
+    return { ...fallback, clientStatus: managed.status };
+  }
+}
+
 export async function reportClientFailure(restaurantId: number, error: unknown): Promise<boolean> {
   if (!isRecoverableClientFailure(error)) return false;
 
