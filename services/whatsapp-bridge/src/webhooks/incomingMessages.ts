@@ -23,7 +23,6 @@ import util from 'util';
 import { Message, MessageMedia, MessageTypes } from 'whatsapp-web.js';
 import logger from '../utils/logger';
 import { sendWebhook, sendPaymentScreenshotWebhook } from './webhookSender';
-import { storeMedia } from '../services/imageStorage';
 import {
   downloadMediaDirect,
   getClientSyncInfo,
@@ -234,13 +233,16 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
       return;
     }
 
-    logger.info('[media] before storeMedia');
-    const imageUrl = await storeMedia(restaurantId, media, timestamp);
-    logger.info('[media] after storeMedia');
+    // Send base64 data URL directly in the webhook payload.
+    // The API server's /whatsapp/payment-screenshot handler already accepts
+    // "data:" URIs natively (no extra fetch needed).  This eliminates the
+    // fragile HTTP round-trip from the API server back to the bridge just
+    // to retrieve a file that is already in memory.
+    const dataUrl = `data:${media.mimetype};base64,${media.data}`;
 
     // Webhook delivery is never retried — only the download is resilient.
-    await sendWebhook({ restaurantId, customerPhone, messageType: 'image', imageUrl, timestamp });
-    await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl, timestamp });
+    await sendWebhook({ restaurantId, customerPhone, messageType: 'image', imageUrl: dataUrl, timestamp });
+    await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl: dataUrl, timestamp });
     return;
   }
 

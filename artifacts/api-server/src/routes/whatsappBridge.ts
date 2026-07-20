@@ -3,7 +3,7 @@ import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import { sessionBills, tableSessions } from "@workspace/db";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, or, desc, gte } from "drizzle-orm";
 import { emitSessionScreenshotEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import type { RequestHandler } from "express";
@@ -283,14 +283,31 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   const now = new Date();
 
   // ── Priority 1: Session bill match (deterministic phone-based) ─────────────
-  // Match incoming phone === session_bill.customer_phone AND status = 'sent'
+  // ROOT CAUSE OF MISSING SCREENSHOTS:
+  //   WhatsApp always delivers msg.from with the full country-code prefix
+  //   (e.g. "917086670033").  But customers typically type their 10-digit
+  //   number on the menu ("7086670033"), which is what gets stored in
+  //   session_bills.customer_phone.  An exact-string match always failed.
+  //
+  // FIX: derive the 10-digit sibling of the normalised 12-digit phone and
+  //   match either form.  sendSessionBill now also canonicalises before
+  //   storing, so future bills will match on the 12-digit form; the 10-digit
+  //   OR arm handles existing/legacy bills.
+  const phone10 =
+    normalizedPhone?.length === 12 && normalizedPhone.startsWith("91")
+      ? normalizedPhone.slice(2)   // "917086670033" → "7086670033"
+      : null;
+
   const [sessionBill] = await db
     .select()
     .from(sessionBills)
     .where(
       and(
         eq(sessionBills.restaurantId, restaurantId),
-        eq(sessionBills.customerPhone, normalizedPhone ?? ""),
+        or(
+          eq(sessionBills.customerPhone, normalizedPhone ?? ""),
+          ...(phone10 ? [eq(sessionBills.customerPhone, phone10)] : []),
+        ),
         eq(sessionBills.status, "sent"),
       )
     )

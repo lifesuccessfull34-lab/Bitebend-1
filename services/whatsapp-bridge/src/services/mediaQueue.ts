@@ -13,7 +13,6 @@
 import util from 'util';
 import { Message, MessageMedia } from 'whatsapp-web.js';
 import logger from '../utils/logger';
-import { storeMedia } from './imageStorage';
 import { sendWebhook, sendPaymentScreenshotWebhook } from '../webhooks/webhookSender';
 import type { MediaDownloadResult } from './whatsappClient';
 
@@ -134,19 +133,20 @@ async function runWorkerTick(downloadMedia: DownloadFn): Promise<void> {
       }
 
       // ── Success ────────────────────────────────────────────────────────────
-      const imageUrl = await storeMedia(item.restaurantId, result, item.timestamp);
+      // Send base64 data URL directly — same as the hot path in incomingMessages.ts.
+      const dataUrl = `data:${result.mimetype};base64,${result.data}`;
 
       await sendWebhook({
         restaurantId:  item.restaurantId,
         customerPhone: item.customerPhone,
         messageType:   'image',
-        imageUrl,
+        imageUrl:      dataUrl,
         timestamp:     item.timestamp,
       });
       await sendPaymentScreenshotWebhook({
         restaurantId:  item.restaurantId,
         customerPhone: item.customerPhone,
-        imageUrl,
+        imageUrl:      dataUrl,
         timestamp:     item.timestamp,
       });
 
@@ -155,7 +155,7 @@ async function runWorkerTick(downloadMedia: DownloadFn): Promise<void> {
         restaurantId: item.restaurantId,
         phone:        item.customerPhone,
         attempts:     item.attempts,
-        imageUrl,
+        imageUrl:     dataUrl.slice(0, 80) + '…',  // log prefix only — full base64 floods logs
       });
 
       queue.splice(i, 1);

@@ -1742,8 +1742,17 @@ const sendSessionBill: RequestHandler = async (req, res) => {
     return;
   }
 
-  // Use most recent order's phone as the customer phone (deterministic matching)
-  const customerPhone = payableOrders[0]!.customerPhone;
+  // Use most recent order's phone as the customer phone (deterministic matching).
+  // Normalise to 12-digit canonical form so it matches the WhatsApp sender
+  // phone (which always arrives with the country-code prefix "91…").
+  // Customers often type just 10 digits on the menu; without normalisation
+  // the payment-screenshot phone match would always fail.
+  const rawCustomerPhone = payableOrders[0]!.customerPhone;
+  const rawDigits = rawCustomerPhone.replace(/\D/g, "").replace(/^0+/, "");
+  const customerPhone =
+    rawDigits.length === 10                                    ? `91${rawDigits}`
+    : rawDigits.length === 12 && rawDigits.startsWith("91")   ? rawDigits
+    : rawCustomerPhone; // unrecognised format — store as-is
   const customerName = payableOrders[0]!.customerName;
 
   // Build bill message
