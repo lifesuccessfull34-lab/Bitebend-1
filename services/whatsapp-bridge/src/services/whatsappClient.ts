@@ -638,6 +638,63 @@ export interface BrowserDiagnostics {
  * Snapshot browser/page health for a given restaurant at the moment of a
  * media-download failure.  All property accesses are guarded — never throws.
  */
+// ── Client sync diagnostics ────────────────────────────────────────────────────
+
+export interface ClientSyncInfo {
+  clientStatus:    string;
+  waState:         string | null;
+  clientInfo:      unknown;
+  browserConnected: boolean;
+  pageClosed:      boolean;
+  pageUrl:         string | null;
+}
+
+/**
+ * Collect WhatsApp client-level synchronisation state.
+ * Used to detect whether the client is fully synced when media metadata is absent.
+ * All accesses are guarded — never throws.
+ */
+export async function getClientSyncInfo(restaurantId: number): Promise<ClientSyncInfo> {
+  const managed = clients.get(restaurantId);
+  const fallback: ClientSyncInfo = {
+    clientStatus:    'not_initialised',
+    waState:         null,
+    clientInfo:      null,
+    browserConnected: false,
+    pageClosed:      true,
+    pageUrl:         null,
+  };
+
+  if (!managed) return fallback;
+
+  fallback.clientStatus = managed.status;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const browser = (managed.client as any).pupBrowser;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const page    = (managed.client as any).pupPage;
+
+    const browserConnected = !!browser && !!browser.isConnected?.();
+    const pageClosed       = !page || !!page.isClosed?.();
+    let pageUrl: string | null = null;
+
+    if (page && !pageClosed) {
+      try { pageUrl = page.url?.() ?? null; } catch { /* ignore */ }
+    }
+
+    let waState:    string | null = null;
+    let clientInfo: unknown       = null;
+
+    try { waState    = await managed.client.getState(); }  catch { /* not yet ready */ }
+    try { clientInfo = managed.client.info;             }  catch { /* not yet ready */ }
+
+    return { clientStatus: managed.status, waState, clientInfo, browserConnected, pageClosed, pageUrl };
+  } catch {
+    return { ...fallback, clientStatus: managed.status };
+  }
+}
+
 export async function getBrowserDiagnostics(restaurantId: number): Promise<BrowserDiagnostics> {
   const managed = clients.get(restaurantId);
   const fallback: BrowserDiagnostics = {

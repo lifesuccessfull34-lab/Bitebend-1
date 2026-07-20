@@ -1,35 +1,31 @@
 /**
  * Incoming WhatsApp message handler.
  *
+ * WHY MEDIA METADATA IS NULL AT message-event TIME
+ * ──────────────────────────────────────────────────
+ * whatsapp-web.js fires the `message` event as soon as the basic message
+ * object arrives from WA's internal Msg store.  At that point the Message
+ * constructor sets:
+ *
+ *   this.hasMedia = Boolean(data.directPath)   // line 49, Message.js
+ *
+ * So hasMedia=true means directPath was truthy when the object was built.
+ * However, WA then hydrates the media metadata (directPath, mimetype, filesize,
+ * mediaData) asynchronously into the same _data object after the event fires.
+ * By the time our handler reads those fields they can still be null.
+ *
+ * Fix: poll msg._data every 250 ms (up to 5 s) until directPath and mimetype
+ * are non-null before calling downloadMedia().
+ *
  * Media-download resilience strategy
  * ────────────────────────────────────
- * 1. Inline handler retries downloadMedia() up to 5 times with exponential
- *    backoff (500 ms → 1 s → 2 s → 4 s → 8 s between retries).
- *
- * 2. If a retry throws an ExecutionContext / evaluate error the Puppeteer page
- *    is likely stale.  reportClientFailure() is called, which checks browser
- *    health and triggers a per-restaurant client restart if needed — without
- *    touching any other restaurant's session.
- *
- * 3. If all inline retries are exhausted the message is enqueued in the
- *    in-memory retry queue (mediaQueue.ts).  A background worker retries every
- *    30 seconds for up to 10 minutes.  After a client restart the worker swaps
- *    the stale client reference on the queued Message object so downloads
- *    succeed automatically.
- *
- * Root-cause note — the "r: r" error
- * ────────────────────────────────────
- * downloadMedia() calls pupPage.evaluate() which executes inside Chromium.
- * WhatsApp's internal downloadAndMaybeDecrypt() can throw a plain JS object
- * { r: 'r' } (WA's internal retry/error code) instead of a real Error.
- * Puppeteer serialises non-Error thrown values as "Error: <key>: <value>",
- * producing the misleading "Error: r: r" in logs.
- *
- * The browser and WA session are ALIVE when this happens; the failure is
- * entirely inside WA's JS sandbox.  Known triggers:
- *   1. Media expired on WA's CDN (mediaStage = REUPLOADING / FETCHING).
- *   2. @lid multi-device accounts with mismatched directPath / mediaKey.
- *   3. Transient network hiccup inside Chromium's fetch context.
+ * 1. Wait for media metadata to be hydrated (waitForMediaMetadata).
+ * 2. Inline: retry downloadMedia() up to 6 attempts with exponential backoff
+ *    (500 ms → 1 s → 2 s → 4 s → 8 s between retries).
+ * 3. On ExecutionContext / detached-frame errors: trigger a per-restaurant
+ *    client restart via reportClientFailure().
+ * 4. On total inline failure: enqueue in mediaQueue for background retry
+ *    every 30 s for up to 10 minutes.  Never discard a customer message.
  */
 
 import util from 'util';
@@ -37,45 +33,43 @@ import { Message, MessageTypes } from 'whatsapp-web.js';
 import logger from '../utils/logger';
 import { sendWebhook, sendPaymentScreenshotWebhook } from './webhookSender';
 import { storeMedia } from '../services/imageStorage';
-import { getBrowserDiagnostics, reportClientFailure } from '../services/whatsappClient';
+import {
+  getBrowserDiagnostics,
+  getClientSyncInfo,
+  reportClientFailure,
+} from '../services/whatsappClient';
 import { enqueueMedia } from '../services/mediaQueue';
 
 const IMAGE_URL_REGEX = /https?:\/\/[^\s]+\.(jpe?g|png)/i;
 
-// ── Retry configuration ────────────────────────────────────────────────────────
+// ── Retry / poll configuration ─────────────────────────────────────────────────
 
-/**
- * Delays (ms) to wait BEFORE each successive retry attempt.
- * Index 0 → wait before attempt 2, index 4 → wait before attempt 6.
- * Total attempts = 1 (initial) + RETRY_DELAYS_MS.length = 6.
- */
+/** Delays (ms) before each successive retry attempt after the initial try. */
 const RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000];
 
-/** Puppeteer execution-context error patterns that indicate a stale page. */
+/** Poll interval (ms) while waiting for media metadata to be hydrated. */
+const METADATA_POLL_INTERVAL_MS = 250;
+
+/** Maximum time (ms) to wait for directPath / mimetype to become non-null. */
+const METADATA_TIMEOUT_MS = 5_000;
+
+/** Puppeteer stale execution-context patterns that indicate a dead page. */
 const STALE_CONTEXT_RE =
   /execution context was destroyed|detached\s*frame|executioncontext|target\s*closed|TargetCloseError|session\s*closed|protocol\s*error/i;
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Phone resolution ───────────────────────────────────────────────────────────
 
 /**
  * Resolve the sender's real phone number from a WhatsApp message.
  *
- * WhatsApp-web.js exposes two JID formats for msg.from:
- *
- *   @c.us  — classic format: "917086670033@c.us"
- *            Strip the suffix → "917086670033"
- *
- *   @lid   — Linked Device ID, used by newer WhatsApp accounts that have
- *            enabled the new multi-device architecture: "268641748652129@lid"
- *            This is an internal WA identifier, NOT a phone number.
- *            Must be resolved via msg.getContact() to get the real number.
+ *   @c.us  — "917086670033@c.us"  → strip suffix → "917086670033"
+ *   @lid   — Linked Device ID (multi-device): must resolve via getContact()
+ *            because the raw LID value is NOT a phone number.
  */
 async function resolvePhone(msg: Message): Promise<string> {
   const raw = msg.from;
 
-  if (raw.endsWith('@c.us')) {
-    return raw.replace('@c.us', '');
-  }
+  if (raw.endsWith('@c.us')) return raw.replace('@c.us', '');
 
   if (raw.endsWith('@lid')) {
     try {
@@ -94,46 +88,150 @@ async function resolvePhone(msg: Message): Promise<string> {
   return raw.split('@')[0];
 }
 
+// ── Diagnostic helpers ─────────────────────────────────────────────────────────
+
 /**
- * Log all diagnostic properties of the message before attempting any download.
+ * Log raw message internals immediately after the message event fires.
  *
- * Captures hasMedia, JID type (@lid vs @c.us), mediaKey/directPath presence,
- * and mediaStage — the primary fields needed to diagnose the @lid media-key
- * bug and CDN-expiry issues from logs alone.
+ * Captures rawData / _data (same object via getter), mediaData sub-key, and
+ * all top-level keys so we can see exactly which fields WA has populated at
+ * event-fire time versus after hydration.
  */
-function logPreDownloadDiagnostics(msg: Message): void {
+function logRawMessageData(msg: Message): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = msg as any;
-  logger.info('[media:diag] Pre-download message properties', {
+
+  // rawData is a getter that returns this._data — same reference.
+  // Log both so the reader can confirm they alias each other.
+  const _data    = raw._data    ?? null;
+  const rawData  = raw.rawData  ?? null;    // === _data
+  const mediaData = _data?.mediaData ?? null;
+
+  let dataKeys: string[] = [];
+  try { dataKeys = _data ? Object.keys(_data) : []; } catch { /* ignore */ }
+
+  logger.info('[media:raw] Message internal data at event-fire time', {
+    // Summarised fields we care most about
     hasMedia:          msg.hasMedia,
     type:              msg.type,
-    id:                msg.id?._serialized ?? msg.id,
+    id:                msg.id?._serialized,
     from:              msg.from,
     fromSuffix:        msg.from?.includes('@lid')  ? '@lid'
                      : msg.from?.includes('@c.us') ? '@c.us'
                      : 'other',
-    timestamp:         msg.timestamp,
-    isForwarded:       msg.isForwarded,
-    hasQuotedMsg:      msg.hasQuotedMsg,
-    mediaKey:          raw.mediaKey            ?? null,
-    mediaKeyTimestamp: raw.mediaKeyTimestamp   ?? null,
-    directPath:        raw.directPath          ?? null,
-    mediaStage:        raw.mediaData?.mediaStage ?? null,
-    mimetype:          raw.mimetype             ?? null,
-    filesize:          raw.filesize             ?? null,
+    // Media metadata — these are the fields that may be null at event time
+    directPath:        _data?.directPath          ?? null,
+    mimetype:          _data?.mimetype            ?? null,
+    filesize:          _data?.size                ?? null,
+    mediaKey:          _data?.mediaKey            ?? null,
+    mediaKeyTimestamp: _data?.mediaKeyTimestamp   ?? null,
+    mediaStage:        mediaData?.mediaStage      ?? null,
+    // Raw dump of mediaData sub-object
+    mediaData:         util.inspect(mediaData, { depth: 3 }),
+    // All keys present in _data so we know what WA has populated
+    _dataKeys:         dataKeys,
+    // Full _data dump (depth-limited to avoid flooding logs)
+    _data:             util.inspect(_data,   { depth: 4 }),
+    // rawData for cross-check — should match _data
+    rawDataSameRef:    rawData === _data,
   });
 }
 
 /**
+ * Log the complete _data object only when metadata never became available.
+ * Deeper inspection than logRawMessageData because this is the final
+ * failure-mode log the developer will read to understand the root cause.
+ */
+function logMissingMetadataDump(msg: Message): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = msg as any;
+  logger.error('[media] metadata never became available — complete _data dump', {
+    id:       msg.id?._serialized,
+    from:     msg.from,
+    _data:    util.inspect(raw._data,   { depth: 10 }),
+    rawData:  util.inspect(raw.rawData, { depth: 10 }),
+  });
+}
+
+/**
+ * Log WhatsApp client synchronisation state.
+ * Helps determine whether the client was fully synced when the message arrived —
+ * a not-yet-synced client can deliver messages whose media CDN URLs are absent.
+ */
+async function logClientSyncDiagnostics(restaurantId: number): Promise<void> {
+  const info = await getClientSyncInfo(restaurantId);
+  logger.info('[media:sync] WhatsApp client synchronisation state', {
+    clientStatus:    info.clientStatus,
+    waState:         info.waState,
+    clientInfo:      util.inspect(info.clientInfo, { depth: 4 }),
+    browserConnected: info.browserConnected,
+    pageClosed:      info.pageClosed,
+    pageUrl:         info.pageUrl,
+  });
+}
+
+// ── Media metadata polling ─────────────────────────────────────────────────────
+
+/**
+ * Wait until the Message's _data has both directPath and mimetype populated.
+ *
+ * whatsapp-web.js fires `message` before WA finishes hydrating media metadata
+ * into the same _data object.  Polling _data directly detects the moment
+ * hydration completes so downloadMedia() has the fields it needs.
+ *
+ * @returns true if metadata became available within the timeout, false if not.
+ */
+async function waitForMediaMetadata(msg: Message): Promise<boolean> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = msg as any;
+
+  // Fast path — already hydrated at event time (ideal case).
+  if (raw._data?.directPath && raw._data?.mimetype) return true;
+
+  logger.info('[media] directPath/mimetype not yet present — polling for hydration', {
+    id:   msg.id?._serialized,
+    from: msg.from,
+    pollIntervalMs: METADATA_POLL_INTERVAL_MS,
+    timeoutMs:      METADATA_TIMEOUT_MS,
+  });
+
+  const deadline = Date.now() + METADATA_TIMEOUT_MS;
+  let elapsed = 0;
+
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => setTimeout(resolve, METADATA_POLL_INTERVAL_MS));
+    elapsed += METADATA_POLL_INTERVAL_MS;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const d = (msg as any)._data;
+    if (d?.directPath && d?.mimetype) {
+      logger.info('[media] metadata hydrated — proceeding to download', {
+        id:         msg.id?._serialized,
+        elapsed:    `${elapsed}ms`,
+        directPath: d.directPath,
+        mimetype:   d.mimetype,
+        filesize:   d.size ?? null,
+        mediaStage: d.mediaData?.mediaStage ?? null,
+      });
+      return true;
+    }
+  }
+
+  return false;
+}
+
+// ── Download with retry ────────────────────────────────────────────────────────
+
+/**
  * Attempt msg.downloadMedia() with exponential-backoff retries.
  *
- * - Logs "[media] download attempt N" before each attempt.
- * - Logs error.name / error.message / stack / util.inspect after each failure.
- * - Detects stale Puppeteer execution context and triggers a per-restaurant
- *   client restart via reportClientFailure() (does not restart the bridge).
+ * Logs "[media] download attempt N" before each attempt and full error detail
+ * (name, message, stack, util.inspect) after each failure.
  *
- * Returns the downloaded MessageMedia on success, or null on total failure.
- * The caller is responsible for enqueueing on null.
+ * Detects stale Puppeteer execution context and calls reportClientFailure()
+ * to trigger a per-restaurant restart (never restarts the whole bridge).
+ *
+ * Returns the downloaded media on success, or null when all attempts fail.
  */
 async function downloadMediaWithRetry(
   msg: Message,
@@ -153,13 +251,11 @@ async function downloadMediaWithRetry(
       const media = await msg.downloadMedia();
 
       if (!media) {
-        // WA returned null — media unavailable (expired / REUPLOADING stage).
         lastErr = new Error(
           `downloadMedia() returned ${media === null ? 'null' : 'undefined'} — media unavailable`,
         );
-        logger.warn(`[media] download attempt ${attempt} — null result (media unavailable)`, {
-          id:   msg.id?._serialized,
-          from: msg.from,
+        logger.warn(`[media] download attempt ${attempt} — null result (media unavailable/expired)`, {
+          id: msg.id?._serialized,
         });
       } else {
         logger.info(`[media] download attempt ${attempt} — success`, {
@@ -184,22 +280,14 @@ async function downloadMediaWithRetry(
         inspected: util.inspect(err, { depth: 10 }),
       });
 
-      // Detect stale Puppeteer execution context.
-      // Call reportClientFailure() at most once per download sequence — it
-      // checks browser health internally and only schedules a restart when
-      // the browser/page is confirmed dead.  Each restaurant's client is
-      // restarted independently; this never affects other restaurants.
+      // Detect stale Puppeteer page — trigger per-restaurant restart at most once.
       if (!staleContextReported && STALE_CONTEXT_RE.test(errMsg)) {
         staleContextReported = true;
         logger.warn('[media] restarting client after repeated download failures', {
           restaurantId,
-          id:      msg.id?._serialized,
+          id:   msg.id?._serialized,
           attempt,
-          errName,
-          errMsg,
         });
-        // Fire-and-forget: reconnect happens asynchronously; we continue
-        // retrying in case the page recovers without a full restart.
         reportClientFailure(restaurantId, err).catch((e: unknown) => {
           logger.error('[media] reportClientFailure threw', {
             error: e instanceof Error ? e.message : String(e),
@@ -208,7 +296,6 @@ async function downloadMediaWithRetry(
       }
     }
 
-    // Wait before the next retry (no wait after the final attempt).
     if (attempt < totalAttempts) {
       const delay = RETRY_DELAYS_MS[attempt - 1];
       logger.info(`[media] waiting ${delay}ms before next attempt`, {
@@ -218,17 +305,15 @@ async function downloadMediaWithRetry(
     }
   }
 
-  // ── All attempts exhausted — capture full diagnostic snapshot ────────────
+  // All attempts exhausted — final diagnostic snapshot.
   const diag = await getBrowserDiagnostics(restaurantId);
-
-  logger.error('[media] all download attempts failed — full diagnostic snapshot', {
+  logger.error('[media] all download attempts failed — final diagnostic snapshot', {
     id:         msg.id?._serialized,
     from:       msg.from,
     fromSuffix: msg.from?.includes('@lid')  ? '@lid'
               : msg.from?.includes('@c.us') ? '@c.us'
               : 'other',
-    attempts: totalAttempts,
-
+    attempts:   totalAttempts,
     finalError: {
       isError:   lastErr instanceof Error,
       name:      lastErr instanceof Error ? lastErr.name    : typeof lastErr,
@@ -236,7 +321,6 @@ async function downloadMediaWithRetry(
       stack:     lastErr instanceof Error ? lastErr.stack   : undefined,
       inspected: util.inspect(lastErr, { depth: 10 }),
     },
-
     browser: {
       connected:     diag.browserConnected,
       pageClosed:    diag.pageClosed,
@@ -244,15 +328,6 @@ async function downloadMediaWithRetry(
       clientStatus:  diag.clientStatus,
       clientIsReady: diag.clientStatus === 'connected',
     },
-
-    // Root-cause guide:
-    //   "r: r" + browser.connected=true + clientIsReady=true
-    //     → WA CDN/media-key failure inside downloadAndMaybeDecrypt (not a crash).
-    //       Check fromSuffix: @lid accounts are more likely to hit the media-key bug.
-    //   TargetCloseError / "Execution context was destroyed"
-    //     → Puppeteer page died mid-evaluate; restart was triggered above.
-    //   browser.connected=false
-    //     → Chromium crashed; reconnect triggered by the browser-disconnect listener.
   });
 
   return null;
@@ -268,18 +343,40 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
 
   logger.info(`Incoming message from ${customerPhone} → restaurant ${restaurantId}`, {
     rawFrom: msg.from,
-    type: msg.type,
+    type:    msg.type,
   });
 
   if (msg.type === MessageTypes.IMAGE) {
-    // Log all message fields before touching downloadMedia() so failures can
-    // be root-caused purely from logs.
-    logPreDownloadDiagnostics(msg);
+    // ── Step 1: log raw _data immediately at event-fire time ────────────────
+    // This captures what WA has populated before any async hydration occurs,
+    // letting us see exactly which fields are missing and confirm the timing.
+    logRawMessageData(msg);
 
+    // ── Step 2: log client sync state ───────────────────────────────────────
+    // A not-yet-synced client can deliver messages whose media CDN URLs (directPath)
+    // are absent from the WA internal Msg store at event-fire time.
+    await logClientSyncDiagnostics(restaurantId);
+
+    // ── Step 3: wait for media metadata to be hydrated ──────────────────────
+    // WA fires `message` before populating directPath / mimetype into _data.
+    // downloadMedia() needs both — we poll until they appear or we time out.
+    const metadataReady = await waitForMediaMetadata(msg);
+
+    if (!metadataReady) {
+      // Dump the complete _data so the developer can see exactly what WA sent.
+      logMissingMetadataDump(msg);
+      // Still attempt the download in case WA resolves partially — some
+      // implementations can succeed even without directPath in _data.
+      logger.warn('[media] proceeding to download despite missing metadata', {
+        id: msg.id?._serialized,
+      });
+    }
+
+    // ── Step 4: attempt download with retries ───────────────────────────────
     const media = await downloadMediaWithRetry(msg, restaurantId);
 
     if (!media) {
-      // All inline retries failed.  Enqueue for background retry (never discard).
+      // All inline retries failed — enqueue for background retry (never discard).
       enqueueMedia(restaurantId, msg, customerPhone, timestamp);
       return;
     }
@@ -288,14 +385,9 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
     const imageUrl = await storeMedia(restaurantId, media, timestamp);
     logger.info('[media] after storeMedia');
 
-    // Webhook delivery is never retried — only the download is resilient.
-    logger.info('[media] before sendWebhook (image)');
+    // Webhook delivery is not retried — only the download path is resilient.
     await sendWebhook({ restaurantId, customerPhone, messageType: 'image', imageUrl, timestamp });
-    logger.info('[media] after sendWebhook (image)');
-
-    logger.info('[media] before sendPaymentScreenshotWebhook');
     await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl, timestamp });
-    logger.info('[media] after sendPaymentScreenshotWebhook');
     return;
   }
 
@@ -308,7 +400,6 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
       await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl, timestamp });
       return;
     }
-
     await sendWebhook({ restaurantId, customerPhone, messageType: 'text', text: msg.body, timestamp });
     return;
   }
