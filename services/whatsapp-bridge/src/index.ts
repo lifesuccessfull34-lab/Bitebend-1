@@ -10,7 +10,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config';
 import logger from './utils/logger';
 import routes from './routes';
-import { setSocketIO, getPendingQr, CHROMIUM_PATH } from './services/whatsappClient';
+import { setSocketIO, getPendingQr, CHROMIUM_PATH, getReadyClient } from './services/whatsappClient';
+import { startRetryWorker } from './services/mediaQueue';
 
 // ── Global process resilience ──────────────────────────────────────────────────
 // These handlers ensure that unhandled promise rejections and uncaught
@@ -129,6 +130,17 @@ httpServer.listen(config.port, () => {
   logger.info(`  Chromium      : ${CHROMIUM_PATH ?? '(auto — puppeteer bundled)'}`);
   logger.info(`  API secret    : ${config.bridgeApiSecret ? 'set' : 'NOT SET (unprotected)'}`);
   logger.info('='.repeat(60));
+
+  // Start the media download retry worker.
+  // Uses dependency injection so mediaQueue.ts does not import whatsappClient.ts
+  // (which would create a circular dependency via incomingMessages.ts).
+  startRetryWorker((restaurantId) => {
+    try {
+      return getReadyClient(restaurantId);
+    } catch {
+      return null;
+    }
+  });
 });
 
 export { app, httpServer, io };
