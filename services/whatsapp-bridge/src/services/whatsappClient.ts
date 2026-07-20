@@ -64,6 +64,22 @@ export type ClientStatus =
   | 'disconnected'
   | 'auth_failed';
 
+/** WhatsApp QR codes are valid for ~60 seconds. */
+const QR_TTL_MS = 60_000;
+
+interface QrCache {
+  qr: string;
+  generatedAt: Date;
+  expiresAt: Date;
+}
+
+export interface QrStatus {
+  status: ClientStatus | 'not_initialised';
+  qr: string | null;
+  generatedAt: string | null;
+  expiresAt: string | null;
+}
+
 // Classification of Puppeteer/WA errors so callers can decide how to react.
 // browser_closed → full client rebuild required.
 // detached_frame / timeout / protocol → transient; check browser health first.
@@ -81,8 +97,8 @@ interface ManagedClient {
   client: Client;
   status: ClientStatus;
   retryCount: number;
-  /** Last QR string received, kept so late Socket.IO joiners can receive it immediately. */
-  lastQr?: string;
+  /** Cached QR with expiry — kept so late Socket.IO joiners and REST polls receive it. */
+  qrCache?: QrCache;
 }
 
 // ── State ──────────────────────────────────────────────────────────────────────
@@ -197,13 +213,44 @@ export function getClientStatus(restaurantId: number): ClientStatus | 'not_initi
 }
 
 /**
- * Return the most recent QR string for a restaurant if the client is in
- * qr_pending state, or undefined otherwise.  Used to re-deliver QR to
- * Socket.IO sockets that join the room after the QR was originally emitted.
+ * Return the full QR status for a restaurant — used by the REST endpoint.
+ * Evicts expired cache entries lazily and logs the expiry.
+ */
+export function getQrStatus(restaurantId: number): QrStatus {
+  const managed = clients.get(restaurantId);
+  if (!managed) {
+    return { status: 'not_initialised', qr: null, generatedAt: null, expiresAt: null };
+  }
+
+  // Lazy expiry check
+  if (managed.qrCache && managed.qrCache.expiresAt < new Date()) {
+    logger.info(`[qr:cache] QR expired for restaurant ${restaurantId} — clearing cache`);
+    managed.qrCache = undefined;
+    if (managed.status === 'qr_pending') managed.status = 'initialising';
+  }
+
+  const cache = managed.qrCache;
+  return {
+    status:      managed.status,
+    qr:          cache?.qr          ?? null,
+    generatedAt: cache?.generatedAt.toISOString() ?? null,
+    expiresAt:   cache?.expiresAt.toISOString()   ?? null,
+  };
+}
+
+/**
+ * Return the cached QR string if the client is qr_pending and the QR has not
+ * expired.  Used to re-deliver the QR to late-joining Socket.IO sockets.
  */
 export function getPendingQr(restaurantId: number): string | undefined {
   const managed = clients.get(restaurantId);
-  if (managed?.status === 'qr_pending') return managed.lastQr;
+  if (!managed?.qrCache) return undefined;
+  if (managed.qrCache.expiresAt < new Date()) {
+    logger.info(`[qr:cache] QR expired (getPendingQr) for restaurant ${restaurantId} — clearing cache`);
+    managed.qrCache = undefined;
+    return undefined;
+  }
+  if (managed.status === 'qr_pending') return managed.qrCache.qr;
   return undefined;
 }
 
@@ -317,27 +364,39 @@ function attachClientEventHandlers(managed: ManagedClient): void {
 
   client.on('qr', (qr) => {
     managed.status = 'qr_pending';
-    managed.lastQr  = qr;   // cache so late Socket.IO joiners can receive it
+    const now = new Date();
+    managed.qrCache = { qr, generatedAt: now, expiresAt: new Date(now.getTime() + QR_TTL_MS) };
     const room = `restaurant_${restaurantId}`;
     const roomSize = io?.sockets.adapter.rooms.get(room)?.size ?? 0;
-    logger.info(`[wa:qr] QR generated for restaurant ${restaurantId} — length=${qr.length} room=${room} subscribers=${roomSize}`);
+    logger.info(
+      `[qr:cache] QR cached for restaurant ${restaurantId} — length=${qr.length} expiresAt=${managed.qrCache.expiresAt.toISOString()}`,
+    );
+    logger.info(
+      `[wa:qr] QR generated for restaurant ${restaurantId} — length=${qr.length} room=${room} subscribers=${roomSize}`,
+    );
     io?.to(room).emit('whatsapp:qr', { restaurantId, qr });
+    logger.info(`[qr:socket] QR served via Socket.IO to ${roomSize} subscriber(s) in room ${room}`);
     emitStatus(restaurantId, 'qr_pending');
     if (roomSize === 0) {
-      logger.warn(`[wa:qr] No Socket.IO subscribers in room ${room} — QR cached in memory; will be re-delivered when a socket joins the room.`);
+      logger.warn(
+        `[wa:qr] No Socket.IO subscribers in room ${room} — QR cached; will be served via REST poll or re-delivered on socket join.`,
+      );
     }
   });
 
   client.on('authenticated', () => {
     managed.status = 'connecting';
+    managed.qrCache = undefined;
     logger.info(`[wa] Restaurant ${restaurantId} authenticated`);
+    logger.info(`[qr:cache] QR cache cleared (authenticated) for restaurant ${restaurantId}`);
     emitStatus(restaurantId, 'connecting');
   });
 
   client.on('auth_failure', (msg) => {
     managed.status = 'auth_failed';
-    managed.lastQr = undefined;   // QR is no longer valid
+    managed.qrCache = undefined;
     logger.error(`[wa] Auth failure for restaurant ${restaurantId}: ${msg}`);
+    logger.info(`[qr:cache] QR cache cleared (auth_failure) for restaurant ${restaurantId}`);
     emitStatus(restaurantId, 'auth_failed');
     // WhatsApp explicitly rejected the stored session — the files are no longer
     // valid, so delete them so the next initClient starts fresh with a new QR.
@@ -349,10 +408,11 @@ function attachClientEventHandlers(managed: ManagedClient): void {
   client.on('ready', () => {
     managed.status = 'connected';
     managed.retryCount = 0;
-    managed.lastQr = undefined;   // QR consumed — connection established
+    managed.qrCache = undefined;
     // Clear the in-progress guard so future reconnects are allowed.
     reconnectingIds.delete(restaurantId);
     logger.info(`[wa] WhatsApp ready for restaurant ${restaurantId}`);
+    logger.info(`[qr:cache] QR cache cleared (ready) for restaurant ${restaurantId}`);
     emitStatus(restaurantId, 'connected');
 
     // Attach Puppeteer-level resilience listeners now that pupBrowser/pupPage exist.

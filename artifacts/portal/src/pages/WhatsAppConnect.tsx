@@ -37,6 +37,14 @@ const STATUS_COLOR: Record<WhatsAppStatus, string> = {
   auth_failed:     "text-red-500",
 };
 
+/** Statuses where the QR poll should stop. */
+const TERMINAL_STATUSES: WhatsAppStatus[] = [
+  "connected",
+  "connecting",
+  "auth_failed",
+  "disconnected",
+];
+
 export default function WhatsAppConnect() {
   const { user, loading: authLoading } = useAuth();
   const restaurantId = user?.restaurantId;
@@ -47,8 +55,75 @@ export default function WhatsAppConnect() {
   const [qrString, setQrString]                 = useState<string | null>(null);
   const [loading, setLoading]                   = useState(false);
   const [error, setError]                       = useState<string | null>(null);
-  const socketRef                               = useRef<Socket | null>(null);
-  const retryTimerRef                           = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * True once the Socket.IO socket has connected and joined the restaurant room.
+   * The room join happens server-side synchronously in io.on('connection'), so
+   * the 'connect' event is sufficient to know the room has been joined.
+   * Becomes true also on first connect_error so we don't lock the user out if
+   * the bridge is temporarily unreachable.
+   */
+  const [socketReady, setSocketReady]           = useState(false);
+
+  const socketRef        = useRef<Socket | null>(null);
+  const retryTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollIntervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── QR REST poll ──────────────────────────────────────────────────────────────
+
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+      console.debug("[ws:debug] QR REST poll stopped");
+    }
+  }, []);
+
+  const startPolling = useCallback(() => {
+    stopPolling();
+    console.debug("[ws:debug] QR REST poll started (2 s interval)");
+
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`${API_BASE}/owner/whatsapp/qr-status`, { credentials: "include" });
+        if (!r.ok) return;
+        const data = await r.json() as {
+          success: boolean;
+          status: WhatsAppStatus;
+          qr: string | null;
+          generatedAt: string | null;
+          expiresAt: string | null;
+        };
+
+        if (data.qr) {
+          console.debug("[ws:debug] QR received via REST poll", {
+            qrLength: data.qr.length,
+            expiresAt: data.expiresAt,
+          });
+          setQrString(data.qr);
+          setStatus("qr_pending");
+          setBridgeReachable(true);
+          setBridgeStarting(false);
+        }
+
+        if (TERMINAL_STATUSES.includes(data.status)) {
+          console.debug("[ws:debug] REST poll reached terminal status — stopping poll", { status: data.status });
+          stopPolling();
+          setStatus(data.status);
+          if (data.status === "connected") {
+            setQrString(null);
+            setLoading(false);
+          } else if (data.status === "auth_failed" || data.status === "disconnected") {
+            setQrString(null);
+            setLoading(false);
+          }
+        }
+      } catch {
+        // Ignore transient poll errors; keep polling
+      }
+    }, 2_000);
+  }, [stopPolling]);
+
+  // ── Initial status fetch ──────────────────────────────────────────────────────
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -79,6 +154,8 @@ export default function WhatsAppConnect() {
     }
   }, []);
 
+  // ── Socket.IO lifecycle ───────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!restaurantId) return;
 
@@ -91,7 +168,11 @@ export default function WhatsAppConnect() {
     // and "" (empty string) in dev — falling back to window.location.origin where
     // the Vite dev-server proxy handles /whatsapp-bridge locally.
     const socketOrigin = API_ORIGIN || window.location.origin;
-    console.debug("[ws:debug] Connecting Socket.IO", { socketOrigin, restaurantId, path: "/whatsapp-bridge/socket.io" });
+    console.debug("[ws:debug] Connecting Socket.IO", {
+      socketOrigin,
+      restaurantId,
+      path: "/whatsapp-bridge/socket.io",
+    });
 
     const socket = io(socketOrigin, {
       path: "/whatsapp-bridge/socket.io",
@@ -102,10 +183,18 @@ export default function WhatsAppConnect() {
 
     socketRef.current = socket;
 
+    // Fallback: if the socket never connects (bridge down), unlock the button
+    // after 5 s so the user isn't permanently locked out.
+    const socketReadyFallback = setTimeout(() => {
+      console.debug("[ws:debug] Socket.IO connect timeout — enabling Connect button via fallback");
+      setSocketReady(true);
+    }, 5_000);
+
     socket.on("connect", () => {
-      // Log the active transport (polling or websocket) so we know if WS upgrade succeeded
+      clearTimeout(socketReadyFallback);
+      setSocketReady(true);
       const transport = socket.io.engine.transport.name;
-      console.debug("[ws:debug] Socket.IO connected", {
+      console.debug("[ws:debug] Socket.IO connected — room joined", {
         id:           socket.id,
         socketOrigin,
         restaurantId,
@@ -121,11 +210,16 @@ export default function WhatsAppConnect() {
     });
 
     socket.on("whatsapp:qr", ({ qr }: { qr: string }) => {
-      console.debug("[ws:debug] whatsapp:qr received", { restaurantId, qrLength: qr.length });
+      console.debug("[ws:debug] whatsapp:qr received via Socket.IO", {
+        restaurantId,
+        qrLength: qr.length,
+      });
       setQrString(qr);
       setStatus("qr_pending");
       setBridgeReachable(true);
       setBridgeStarting(false);
+      // QR arrived via Socket.IO — no need to keep polling for it
+      // (keep polling running so we can detect when it moves to "connected")
     });
 
     socket.on("whatsapp:status", ({ status: s }: { status: WhatsAppStatus }) => {
@@ -136,10 +230,16 @@ export default function WhatsAppConnect() {
       if (s === "connected") {
         setQrString(null);
         setLoading(false);
+        stopPolling();
+      }
+      if (s === "connecting") {
+        // Authenticated — QR no longer needed; stop polling
+        stopPolling();
       }
       if (s === "auth_failed" || s === "disconnected") {
         setQrString(null);
         setLoading(false);
+        stopPolling();
       }
     });
 
@@ -154,25 +254,30 @@ export default function WhatsAppConnect() {
     });
 
     socket.on("connect_error", (err) => {
-      // Bridge still starting — silently degrade; polling will pick up the transition
+      // First connect_error: unlock the button so the user is not permanently blocked
+      clearTimeout(socketReadyFallback);
+      setSocketReady(true);
       console.debug("[ws:debug] Socket.IO connect_error", {
         socketOrigin,
         restaurantId,
         error:   err.message,
-        // Engine-level description when available (e.g. "xhr poll error", "websocket error")
         type:    (err as { type?: string }).type,
       });
     });
 
     return () => {
+      clearTimeout(socketReadyFallback);
       socket.disconnect();
       socketRef.current = null;
+      stopPolling();
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
         retryTimerRef.current = null;
       }
     };
-  }, [restaurantId, fetchStatus]);
+  }, [restaurantId, fetchStatus, stopPolling]);
+
+  // ── Actions ───────────────────────────────────────────────────────────────────
 
   const handleConnect = async () => {
     setError(null);
@@ -210,8 +315,10 @@ export default function WhatsAppConnect() {
         setLoading(false);
       } else {
         setBridgeReachable(true);
+        // Start REST polling as a fallback so the QR appears even if the
+        // Socket.IO event fires before the room join completes.
+        startPolling();
       }
-      // QR + status will arrive via Socket.IO
     } catch {
       setError("Could not reach the WhatsApp service. It may still be starting — please try again in a moment.");
       setStatus("not_initialised");
@@ -221,6 +328,7 @@ export default function WhatsAppConnect() {
 
   const handleDisconnect = async () => {
     setError(null);
+    stopPolling();
     try {
       await fetch(`${API_BASE}/owner/whatsapp/disconnect`, {
         method: "POST",
@@ -234,7 +342,7 @@ export default function WhatsAppConnect() {
     setLoading(false);
   };
 
-  // Auth guard — all hooks above, redirect is safe here
+  // ── Auth guard — all hooks above, redirect is safe here ──────────────────────
   if (!authLoading && !user) {
     return <Redirect to="/restaurant/auth" />;
   }
@@ -370,12 +478,15 @@ export default function WhatsAppConnect() {
           {showConnect && (
             <Button
               onClick={handleConnect}
-              disabled={loading}
+              disabled={loading || !socketReady}
+              title={!socketReady ? "Connecting to WhatsApp service…" : undefined}
               className="bg-green-600 hover:bg-green-700 text-white"
             >
               {loading
                 ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Connecting…</>
-                : <><Wifi className="w-4 h-4 mr-2" />Connect WhatsApp</>
+                : !socketReady
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Preparing…</>
+                  : <><Wifi className="w-4 h-4 mr-2" />Connect WhatsApp</>
               }
             </Button>
           )}

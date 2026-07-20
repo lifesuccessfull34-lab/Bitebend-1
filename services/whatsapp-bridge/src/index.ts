@@ -68,7 +68,7 @@ io.on('connection', (socket) => {
     const pendingQr = getPendingQr(Number(restaurantId));
     if (pendingQr) {
       logger.info(
-        `[ws:trace] Re-delivering cached QR to late-joining socket id=${socket.id} room=${room} qrLength=${pendingQr.length}`,
+        `[qr:socket] QR served via Socket.IO (re-delivery) to late-joining socket id=${socket.id} room=${room} qrLength=${pendingQr.length}`,
       );
       socket.emit('whatsapp:qr', { restaurantId: Number(restaurantId), qr: pendingQr });
       socket.emit('whatsapp:status', { restaurantId: Number(restaurantId), status: 'qr_pending' });
