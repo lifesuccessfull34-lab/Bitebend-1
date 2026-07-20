@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import config from './config';
 import logger from './utils/logger';
 import routes from './routes';
-import { setSocketIO, getPendingQr, CHROMIUM_PATH, getReadyClient } from './services/whatsappClient';
+import { setSocketIO, getPendingQr, CHROMIUM_PATH, downloadMediaDirect } from './services/whatsappClient';
 import { startRetryWorker } from './services/mediaQueue';
 
 // ── Global process resilience ──────────────────────────────────────────────────
@@ -134,13 +134,9 @@ httpServer.listen(config.port, () => {
   // Start the media download retry worker.
   // Uses dependency injection so mediaQueue.ts does not import whatsappClient.ts
   // (which would create a circular dependency via incomingMessages.ts).
-  startRetryWorker((restaurantId) => {
-    try {
-      return getReadyClient(restaurantId);
-    } catch {
-      return null;
-    }
-  });
+  // downloadMediaDirect already looks up the live client internally,
+  // so no getReadyClient wrapper is needed here.
+  startRetryWorker(downloadMediaDirect);
 });
 
 export { app, httpServer, io };

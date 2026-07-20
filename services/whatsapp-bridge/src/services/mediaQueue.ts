@@ -5,17 +5,17 @@
  * A background worker retries every 30 seconds until either the download
  * succeeds or the item exceeds its maximum lifetime (10 minutes).
  *
- * After a WhatsApp client restart the queued Message objects hold stale
- * references to the old pupPage.  The worker detects this and swaps in the
- * current active Client so downloadMedia() runs against the live browser
- * context.
+ * Uses dependency injection for the download function so this module does not
+ * import from whatsappClient.ts — avoiding the circular import chain:
+ *   whatsappClient → incomingMessages → mediaQueue → whatsappClient
  */
 
 import util from 'util';
-import { Client, Message } from 'whatsapp-web.js';
+import { Message, MessageMedia } from 'whatsapp-web.js';
 import logger from '../utils/logger';
 import { storeMedia } from './imageStorage';
 import { sendWebhook, sendPaymentScreenshotWebhook } from '../webhooks/webhookSender';
+import type { MediaDownloadResult } from './whatsappClient';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +33,9 @@ interface QueueItem {
   attempts:      number;
 }
 
+/** Injected download function — same signature as downloadMediaDirect. */
+type DownloadFn = (restaurantId: number, msgId: string) => Promise<MessageMedia | MediaDownloadResult>;
+
 // ── State ──────────────────────────────────────────────────────────────────────
 
 const queue: QueueItem[] = [];
@@ -40,27 +43,14 @@ let workerTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-/**
- * Add a failed media message to the retry queue.
- *
- * Called by the inline download handler after all immediate retry attempts
- * have been exhausted.
- */
+/** Add a failed media message to the retry queue. */
 export function enqueueMedia(
   restaurantId:  number,
   msg:           Message,
   customerPhone: string,
   timestamp:     string,
 ): void {
-  queue.push({
-    restaurantId,
-    msg,
-    customerPhone,
-    timestamp,
-    enqueuedAt: Date.now(),
-    attempts: 0,
-  });
-
+  queue.push({ restaurantId, msg, customerPhone, timestamp, enqueuedAt: Date.now(), attempts: 0 });
   logger.info('[media] queued for retry', {
     id:          msg.id?._serialized,
     restaurantId,
@@ -72,23 +62,17 @@ export function enqueueMedia(
 /**
  * Start the background retry worker.
  *
- * @param getClient - dependency-injected getter that returns the live Client
- *   for a given restaurant, or null if the client is not yet ready.
- *   Using DI here avoids a circular import:
- *   whatsappClient → incomingMessages → mediaQueue → whatsappClient
+ * @param downloadMedia - injected download function (downloadMediaDirect from
+ *   whatsappClient).  DI avoids a circular import; the caller (index.ts) wires it.
  */
-export function startRetryWorker(
-  getClient: (restaurantId: number) => Client | null,
-): void {
-  if (workerTimer !== null) return; // idempotent
-
+export function startRetryWorker(downloadMedia: DownloadFn): void {
+  if (workerTimer !== null) return;
   logger.info('[media] retry worker started');
-
   workerTimer = setInterval(() => {
-    runWorkerTick(getClient).catch((err: unknown) => {
+    runWorkerTick(downloadMedia).catch((err: unknown) => {
       logger.error('[media] retry worker tick threw unexpectedly', {
         error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack  : undefined,
+        stack: err instanceof Error ? err.stack   : undefined,
       });
     });
   }, WORKER_INTERVAL_MS);
@@ -96,13 +80,12 @@ export function startRetryWorker(
 
 // ── Internal ───────────────────────────────────────────────────────────────────
 
-async function runWorkerTick(
-  getClient: (restaurantId: number) => Client | null,
-): Promise<void> {
+async function runWorkerTick(downloadMedia: DownloadFn): Promise<void> {
   if (queue.length === 0) return;
 
-  // ── Step 1: expire old items ────────────────────────────────────────────────
   const now = Date.now();
+
+  // Expire items that have exceeded their maximum lifetime.
   for (let i = queue.length - 1; i >= 0; i--) {
     const item = queue[i];
     if (now - item.enqueuedAt > QUEUE_MAX_AGE_MS) {
@@ -118,38 +101,12 @@ async function runWorkerTick(
   }
 
   if (queue.length === 0) return;
+  logger.info(`[media] retry worker tick — ${queue.length} queued item(s)`);
 
-  logger.info(`[media] retry worker tick — processing ${queue.length} queued item(s)`);
-
-  // ── Step 2: attempt each queued item (iterate backwards so splice is safe) ──
+  // Iterate backwards so splice() by index is safe.
   for (let i = queue.length - 1; i >= 0; i--) {
     const item = queue[i];
     item.attempts++;
-
-    // Get the currently-active client for this restaurant.
-    const activeClient = getClient(item.restaurantId);
-    if (!activeClient) {
-      logger.info('[media] client not ready — skipping item this tick', {
-        id:           item.msg.id?._serialized,
-        restaurantId: item.restaurantId,
-        attempt:      item.attempts,
-      });
-      continue;
-    }
-
-    // If a client restart has occurred since the message was received, the
-    // Message object's internal `client` property still points to the old
-    // (dead) Client and its dead pupPage.  Swap it to the live Client so
-    // downloadMedia() runs against the current browser context.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const msgInternal = item.msg as any;
-    if (msgInternal.client !== activeClient) {
-      logger.info('[media] swapping stale client reference on queued message', {
-        id:           item.msg.id?._serialized,
-        restaurantId: item.restaurantId,
-      });
-      msgInternal.client = activeClient;
-    }
 
     logger.info('[media] retry worker attempting download', {
       id:           item.msg.id?._serialized,
@@ -159,19 +116,25 @@ async function runWorkerTick(
     });
 
     try {
-      const media = await item.msg.downloadMedia();
+      const result = await downloadMedia(item.restaurantId, item.msg.id._serialized);
 
-      if (!media) {
-        logger.warn('[media] retry failed — downloadMedia() returned null/undefined', {
+      if (!(result instanceof MessageMedia)) {
+        // Structured failure from downloadMediaDirect.
+        logger.warn('[media] retry failed', {
           id:      item.msg.id?._serialized,
           attempt: item.attempts,
+          reason:  (result as MediaDownloadResult).ok === false
+                   ? (result as MediaDownloadResult & { ok: false }).reason
+                   : 'unknown',
+          detail:  (result as MediaDownloadResult).ok === false
+                   ? (result as MediaDownloadResult & { ok: false }).detail
+                   : undefined,
         });
-        // Leave in queue to retry next tick (unless it ages out).
-        continue;
+        continue; // leave in queue for next tick
       }
 
       // ── Success ────────────────────────────────────────────────────────────
-      const imageUrl = await storeMedia(item.restaurantId, media, item.timestamp);
+      const imageUrl = await storeMedia(item.restaurantId, result, item.timestamp);
 
       await sendWebhook({
         restaurantId:  item.restaurantId,
@@ -180,7 +143,6 @@ async function runWorkerTick(
         imageUrl,
         timestamp:     item.timestamp,
       });
-
       await sendPaymentScreenshotWebhook({
         restaurantId:  item.restaurantId,
         customerPhone: item.customerPhone,
@@ -193,22 +155,18 @@ async function runWorkerTick(
         restaurantId: item.restaurantId,
         phone:        item.customerPhone,
         attempts:     item.attempts,
+        imageUrl,
       });
 
       queue.splice(i, 1);
 
     } catch (err) {
-      logger.warn('[media] retry failed', {
-        id:           item.msg.id?._serialized,
-        restaurantId: item.restaurantId,
-        attempt:      item.attempts,
-        isError:      err instanceof Error,
-        errName:      err instanceof Error ? err.name    : typeof err,
-        errMsg:       err instanceof Error ? err.message : String(err),
-        stack:        err instanceof Error ? err.stack   : undefined,
-        inspected:    util.inspect(err, { depth: 10 }),
+      logger.warn('[media] retry failed — unexpected exception', {
+        id:        item.msg.id?._serialized,
+        attempt:   item.attempts,
+        error:     err instanceof Error ? err.message : String(err),
+        inspected: util.inspect(err, { depth: 5 }),
       });
-      // Leave in queue to retry next tick.
     }
   }
 }

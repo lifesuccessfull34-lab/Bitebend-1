@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import { Client, LocalAuth, Message, MessageMedia } from 'whatsapp-web.js';
 import { Server as SocketIOServer } from 'socket.io';
 import config from '../config';
 import logger from '../utils/logger';
@@ -693,6 +693,166 @@ export async function getClientSyncInfo(restaurantId: number): Promise<ClientSyn
   } catch {
     return { ...fallback, clientStatus: managed.status };
   }
+}
+
+// ── Fixed media download ───────────────────────────────────────────────────────
+
+/**
+ * Structured result from downloadMediaDirect — always returned, never thrown.
+ * Puppeteer serialises return values cleanly as JSON; thrown plain objects
+ * (e.g. WA's {r:'r'}) become the misleading "Error: r: r" in logs.
+ */
+export type MediaDownloadResult =
+  | { ok: true;  data: string; mimetype: string; filename: string | null; filesize: number | null }
+  | { ok: false; reason: 'no_msg' | 'no_media_data' | 'reuploading' | 'no_directpath'
+                        | 'media_error' | 'cdn_error' | 'browser_unavailable';
+      detail?: string };
+
+/**
+ * Fixed replacement for whatsapp-web.js Message.downloadMedia().
+ *
+ * ROOT CAUSE OF THE "r: r" BUG (whatsapp-web.js 1.34.7, latest stable):
+ *   downloadMedia() calls WA's internal msg.downloadMedia() to resolve the
+ *   media, then immediately checks mediaStage — but NEVER verifies that
+ *   directPath was actually written.  WA sets mediaStage = 'RESOLVED'
+ *   optimistically BEFORE populating directPath.  As a result,
+ *   downloadAndMaybeDecrypt({directPath: null, …}) is called → WA's CDN
+ *   rejects the null-path request → throws plain object {r: 'r'} → Puppeteer
+ *   serialises the non-Error thrown value as "Error: r: r".
+ *
+ * THE FIX:
+ *   Our own pupPage.evaluate mirrors the library's logic but adds the missing
+ *   step: after calling WA's internal resolution, poll until directPath is
+ *   genuinely non-null before calling downloadAndMaybeDecrypt.
+ *   We return structured values instead of throwing so Puppeteer never has
+ *   to serialise a plain WA error object.
+ */
+export async function downloadMediaDirect(
+  restaurantId: number,
+  msgId: string,
+): Promise<MessageMedia | MediaDownloadResult> {
+  const managed = clients.get(restaurantId);
+  if (!managed) {
+    return { ok: false, reason: 'browser_unavailable', detail: 'no managed client' };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = (managed.client as any).pupPage;
+  if (!page || page.isClosed()) {
+    return { ok: false, reason: 'browser_unavailable', detail: 'pupPage closed or missing' };
+  }
+
+  // Run the entire download inside the browser context.
+  // IMPORTANT: return structured values — never throw from inside evaluate —
+  // so that Puppeteer can serialise the result cleanly as JSON.
+  const raw: MediaDownloadResult = await page.evaluate(
+    async (msgId: string) => {
+      try {
+        // Inside pupPage.evaluate the code runs in browser context where
+        // globalThis === window.  Using (globalThis as any) satisfies
+        // TypeScript without adding "dom" lib to tsconfig.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const g = globalThis as any;
+        const WAWebCollections = g.require('WAWebCollections');
+
+        // 1. Locate the message in WA's internal Msg store.
+        let msg: any =
+          WAWebCollections.Msg.get(msgId) ||
+          (await WAWebCollections.Msg.getMessagesById([msgId]))?.messages?.[0];
+
+        if (!msg)              return { ok: false, reason: 'no_msg' };
+        if (!msg.mediaData)    return { ok: false, reason: 'no_media_data' };
+        if (msg.mediaData.mediaStage === 'REUPLOADING')
+                               return { ok: false, reason: 'reuploading' };
+
+        // 2. Trigger WA's internal media resolution if not already done.
+        if (msg.mediaData.mediaStage !== 'RESOLVED') {
+          try {
+            await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+          } catch (_) { /* ignore — we check state below */ }
+        }
+
+        // 3. THE MISSING CHECK in whatsapp-web.js 1.34.7:
+        //    Poll until directPath is genuinely populated.
+        //    WA sets mediaStage = 'RESOLVED' optimistically before writing
+        //    directPath, so we must wait for the field itself to appear.
+        const POLL_INTERVAL_MS = 300;
+        const POLL_MAX         = 26; // up to ~8 seconds
+        let   polls            = 0;
+
+        while (!msg.directPath && polls < POLL_MAX) {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          // Refresh from the store — WA may update the same object in-place
+          // or replace the reference; handle both.
+          const fresh = WAWebCollections.Msg.get(msgId);
+          if (fresh) msg = fresh;
+          polls++;
+        }
+
+        if (!msg.directPath) {
+          return {
+            ok: false, reason: 'no_directpath',
+            detail: `mediaStage=${msg.mediaData?.mediaStage} polls=${polls}`,
+          };
+        }
+
+        // 4. Bail out on known-bad media stages.
+        const stage: string = msg.mediaData.mediaStage ?? '';
+        if (stage.includes('ERROR') || stage === 'FETCHING') {
+          return { ok: false, reason: 'media_error', detail: `mediaStage=${stage}` };
+        }
+
+        // 5. Download and decrypt.
+        try {
+          const mockQpl = {
+            addAnnotations() { return this; },
+            addPoint()       { return this; },
+          };
+          const decrypted = await g.require('WAWebDownloadManager')
+            .downloadManager.downloadAndMaybeDecrypt({
+              directPath:        msg.directPath,
+              encFilehash:       msg.encFilehash,
+              filehash:          msg.filehash,
+              mediaKey:          msg.mediaKey,
+              mediaKeyTimestamp: msg.mediaKeyTimestamp,
+              type:              msg.type,
+              signal:            new AbortController().signal,
+              downloadQpl:       mockQpl,
+            });
+
+          const data = await g.WWebJS.arrayBufferToBase64Async(decrypted);
+
+          return {
+            ok:       true,
+            data,
+            mimetype: msg.mimetype   ?? 'image/jpeg',
+            filename: msg.filename   ?? null,
+            filesize: msg.size       ?? null,
+          };
+        } catch (e: any) {
+          // Capture the CDN error as structured data instead of rethrowing —
+          // this prevents the {r:'r'} serialisation problem entirely.
+          return {
+            ok:     false,
+            reason: 'cdn_error',
+            detail: `r=${e?.r} status=${e?.status} str=${String(e)}`,
+          };
+        }
+      } catch (outer: any) {
+        return {
+          ok:     false,
+          reason: 'cdn_error',
+          detail: `outer: ${String(outer)}`,
+        };
+      }
+    },
+    msgId,
+  );
+
+  if (!raw || !raw.ok) return raw ?? { ok: false, reason: 'cdn_error', detail: 'null from evaluate' };
+
+  // MessageMedia constructor: (mimetype, data, filename?, filesize?)
+  return new MessageMedia(raw.mimetype, raw.data, raw.filename ?? undefined, raw.filesize ?? undefined);
 }
 
 export async function getBrowserDiagnostics(restaurantId: number): Promise<BrowserDiagnostics> {
