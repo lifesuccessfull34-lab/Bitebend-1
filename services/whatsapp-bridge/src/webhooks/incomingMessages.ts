@@ -27,6 +27,7 @@ import {
   downloadMediaDirect,
   getClientSyncInfo,
   reportClientFailure,
+  probeMsgIdb,
 } from '../services/whatsappClient';
 import { enqueueMedia } from '../services/mediaQueue';
 
@@ -238,6 +239,71 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
 
     // Log client sync state — confirms whether WA was fully ready.
     await logClientSyncDiagnostics(restaurantId);
+
+    // ── TEST 1 / TEST 2 / TEST 4: Pre-download IDB probe ──────────────────
+    // Runs automatically on EVERY incoming IMAGE message — both @c.us and
+    // @lid senders — so the two result sets can be compared directly.
+    //
+    // Captures:
+    //   mem  — WAWebCollections.Msg.get(msgId)          (sync, in-memory)
+    //   idb  — WAWebCollections.Msg.getMessagesById()   (async, IndexedDB)
+    //   interceptor.callsDuringGetById — the EXACT IDB key(s) constructed
+    //     by WA Web for the getMessagesById() call.  If an @lid JID produces
+    //     an undefined key component the entry will have isInvalid: true and
+    //     the queryPreview will show "[undefined,\"<HEXID>\"]".
+    //
+    // Compare the probe log lines for a @c.us sender (should succeed) versus
+    // an @lid sender (expected DataError source) to prove root cause.
+    const fromSuffix = msg.from?.includes('@lid')  ? '@lid'
+                     : msg.from?.includes('@c.us') ? '@c.us' : 'other';
+    logger.info('[test:pre-probe] Running IDB probe before download', {
+      id:         msg.id?._serialized,
+      from:       msg.from,
+      fromSuffix,
+    });
+    const probeResult = await probeMsgIdb(restaurantId, msg.id._serialized);
+    if ('error' in probeResult) {
+      logger.warn('[test:pre-probe] probeMsgIdb failed', {
+        id:    msg.id?._serialized,
+        error: probeResult.error,
+      });
+    } else {
+      logger.info('[test:pre-probe] IDB probe complete', {
+        id:         msg.id?._serialized,
+        fromSuffix,
+        // ── TEST 1 & 2: key comparison fields ──────────────────────────────
+        mem_found:                probeResult.mem.found,
+        mem_error:                probeResult.mem.error,
+        mem_msgId_serialized:     probeResult.mem.msgId_serialized,
+        mem_msgId_remote:         probeResult.mem.msgId_remote,
+        mem_msgId_id:             probeResult.mem.msgId_id,
+        mem_msgId_fromMe:         probeResult.mem.msgId_fromMe,
+        mem_directPath:           probeResult.mem.directPath,
+        mem_mediaKey:             probeResult.mem.mediaKey,
+        mem_mediaKeyTimestamp:    probeResult.mem.mediaKeyTimestamp,
+        mem_mimetype:             probeResult.mem.mimetype,
+        mem_mediaStage:           probeResult.mem.mediaStage,
+        idb_found:                probeResult.idb.found,
+        idb_error:                probeResult.idb.error,
+        idb_msgId_serialized:     probeResult.idb.msgId_serialized,
+        idb_msgId_remote:         probeResult.idb.msgId_remote,
+        idb_msgId_id:             probeResult.idb.msgId_id,
+        idb_msgId_fromMe:         probeResult.idb.msgId_fromMe,
+        idb_directPath:           probeResult.idb.directPath,
+        idb_mediaKey:             probeResult.idb.mediaKey,
+        idb_mediaStage:           probeResult.idb.mediaStage,
+        // ── TEST 4: exact IDB key passed to objectStore.get() ──────────────
+        interceptor_patched:       probeResult.interceptor.patched,
+        interceptor_totalCalls:    probeResult.interceptor.totalCallsEver,
+        callsDuringGetById:        probeResult.interceptor.callsDuringGetById,
+        allInvalidKeyCalls:        probeResult.interceptor.allInvalidKeyCalls,
+        // ── Full snapshots for diff ─────────────────────────────────────────
+        mem_allKeys:   probeResult.mem.allKeys,
+        idb_allKeys:   probeResult.idb.allKeys,
+        mem_rawProps:  probeResult.mem.rawProps,
+        idb_rawProps:  probeResult.idb.rawProps,
+      });
+    }
 
     // Attempt download using the fixed implementation that polls for directPath.
     const media = await downloadMediaWithRetry(msg, restaurantId);

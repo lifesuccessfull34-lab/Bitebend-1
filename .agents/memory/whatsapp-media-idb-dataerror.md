@@ -56,6 +56,25 @@ Or for step 2 variant:
   mediaDump.mediaKey: null      ← confirms null mediaKey → IDB get(null)
 ```
 
+## Live test infrastructure built
+
+### Auto-fires on every IMAGE message (TEST 1 & 2)
+`incomingMessages.ts` calls `probeMsgIdb()` before every download attempt.
+Log label: `[test:pre-probe] IDB probe complete`
+Fields logged: `fromSuffix`, `mem_found`, `mem_msgId_remote`, `idb_found`, `idb_error`,
+`callsDuringGetById`, `allInvalidKeyCalls`, full `mem_rawProps` / `idb_rawProps`.
+
+### On-demand REST endpoints
+- `POST /api/diag/idb-probe` body `{restaurantId, msgId}` — TEST 4
+- `GET  /api/diag/screenshot/:restaurantId` — TEST 3 (HTML page with PNG)
+- `GET  /api/diag/idb-interceptor/:restaurantId` — read all IDB calls since 'ready'
+
+### IDB interceptor
+Injected via `page.evaluate()` in the 'ready' handler.
+Patches `g.IDBObjectStore.prototype.get` to record every IDB key.
+Stored in `window.__idbProbe = { calls[], errors[], patched }`.
+`errors[]` entries have `storeName`, `queryPreview` (JSON of key), `stack`.
+
 ## Next steps (pending log evidence)
 
 - If `step = '1b_getMessagesById'` and `msgFoundVia = 'error'`: fix is to skip the IDB fallback for @lid IDs (detect `@lid` in msgId before calling getMessagesById, return `no_msg` instead).

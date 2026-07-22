@@ -417,6 +417,17 @@ function attachClientEventHandlers(managed: ManagedClient): void {
 
     // Attach Puppeteer-level resilience listeners now that pupBrowser/pupPage exist.
     attachBrowserListeners(managed);
+
+    // Inject the IDB interceptor into the live WhatsApp Web page.
+    // This patches IDBObjectStore.prototype.get to record every IDB key that
+    // passes through the page, including invalid undefined/null keys that produce
+    // DataError.  Results accumulate in window.__idbProbe and are read by
+    // probeMsgIdb() during the pre-download probe (TEST 4 / TEST 1 / TEST 2).
+    injectIdbInterceptor(managed).catch((err: unknown) => {
+      logger.warn(`[idb-probe] injectIdbInterceptor threw for restaurant ${restaurantId}`, {
+        error: errMsg(err),
+      });
+    });
   });
 
   client.on('disconnected', async (reason) => {
@@ -1048,6 +1059,354 @@ export async function getBrowserDiagnostics(restaurantId: number): Promise<Brows
     return { clientStatus: managed.status, browserConnected, pageClosed, pageUrl };
   } catch {
     return { ...fallback, clientStatus: managed.status };
+  }
+}
+
+// ── IDB interceptor ────────────────────────────────────────────────────────────
+
+/**
+ * Inject a monkey-patch of IDBObjectStore.prototype.get into the live
+ * WhatsApp Web page.  Every IDB get() call — valid or invalid — is recorded
+ * in window.__idbProbe so that follow-up evaluate() calls can read exactly
+ * what key was passed to IndexedDB at the moment of failure.
+ *
+ * Called once from the 'ready' handler; safe to call again (guards against
+ * double-patching with the __idbProbe.patched flag).
+ */
+async function injectIdbInterceptor(managed: ManagedClient): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = (managed.client as any).pupPage;
+  if (!page || page.isClosed()) {
+    logger.warn(`[idb-probe] Cannot inject IDB interceptor for restaurant ${managed.restaurantId} — page not available`);
+    return;
+  }
+  try {
+    await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = globalThis as any;
+      if (g.__idbProbe?.patched) {
+        console.log('[idb-probe] already patched — skipping');
+        return;
+      }
+      g.__idbProbe = { calls: [], errors: [], patched: false };
+
+      // Access IDBObjectStore through globalThis to avoid TypeScript DOM-lib errors.
+      // This code runs inside pupPage.evaluate() — it executes in the browser, not Node.js.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const IDBObjectStoreProto = (g.IDBObjectStore as any).prototype;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const origGet = IDBObjectStoreProto.get;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      IDBObjectStoreProto.get = function(query: any) {
+        const isInvalid =
+          query === undefined ||
+          query === null ||
+          (Array.isArray(query) && query.some((k: unknown) => k === undefined || k === null));
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const entry: any = {
+          ts:           Date.now(),
+          storeName:    this.name,
+          queryType:    typeof query,
+          isArray:      Array.isArray(query),
+          isInvalid,
+          queryPreview: (() => {
+            try { return JSON.stringify(query); } catch(_) { return String(query); }
+          })(),
+        };
+
+        if (isInvalid) {
+          try { entry.stack = new Error('idb-probe: invalid key').stack; } catch(_) { /**/ }
+          g.__idbProbe.errors.push(entry);
+        }
+
+        g.__idbProbe.calls.push(entry);
+        // Rolling window — keep the last 1 000 calls
+        if (g.__idbProbe.calls.length > 1000) {
+          g.__idbProbe.calls.splice(0, g.__idbProbe.calls.length - 1000);
+        }
+
+        return origGet.call(this, query);
+      };
+
+      g.__idbProbe.patched = true;
+      console.log('[idb-probe] IDBObjectStore.prototype.get patched — monitoring all IDB gets');
+    });
+    logger.info(`[idb-probe] IDB interceptor injected for restaurant ${managed.restaurantId}`);
+  } catch (err) {
+    logger.warn(`[idb-probe] Failed to inject IDB interceptor for restaurant ${managed.restaurantId}`, {
+      error: errMsg(err),
+    });
+  }
+}
+
+// ── Message IDB probe ──────────────────────────────────────────────────────────
+
+/** Shape of a serialised WA internal Msg object returned by the probe. */
+export interface WaMsgSnapshot {
+  found:             boolean;
+  error:             string | null;
+  msgId_serialized:  string | null;
+  msgId_remote:      string | null;
+  msgId_id:          string | null;
+  msgId_fromMe:      boolean | null;
+  directPath:        string | null;
+  mediaKey:          string | null;
+  mediaKeyTimestamp: number | null;
+  mimetype:          string | null;
+  mediaStage:        string | null;
+  allKeys:           string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rawProps:          Record<string, any> | null;
+}
+
+export interface MsgIdbProbeResult {
+  msgId:       string;
+  /** Result of WAWebCollections.Msg.get(msgId) — synchronous, in-memory only. */
+  mem:         WaMsgSnapshot;
+  /** Result of WAWebCollections.Msg.getMessagesById([msgId]) — async, hits IndexedDB. */
+  idb:         WaMsgSnapshot;
+  /** IDB key(s) passed to objectStore.get() during the getMessagesById() call. */
+  interceptor: {
+    patched:             boolean;
+    totalCallsEver:      number;
+    /** Every IDB get() call that fired while getMessagesById([msgId]) was running. */
+    callsDuringGetById:  Array<{
+      storeName:    string;
+      queryPreview: string;
+      queryType:    string;
+      isArray:      boolean;
+      isInvalid:    boolean;
+    }>;
+    /** Every invalid-key call recorded since the interceptor was injected. */
+    allInvalidKeyCalls: Array<{
+      storeName:    string;
+      queryPreview: string;
+      stack?:       string;
+    }>;
+  };
+}
+
+/**
+ * TEST 4 core: run in the live page to probe the WA internal Msg store.
+ *
+ * Called automatically before every IMAGE download (incomingMessages.ts) and
+ * on-demand via POST /api/diag/idb-probe.
+ *
+ * Returns:
+ *   mem  — what WAWebCollections.Msg.get(msgId) found (in-memory, no IDB)
+ *   idb  — what getMessagesById([msgId]) found or threw (IndexedDB)
+ *   interceptor — the exact IDB key(s) that were passed to objectStore.get()
+ *                 during the getMessagesById() call
+ */
+export async function probeMsgIdb(
+  restaurantId: number,
+  msgId:        string,
+): Promise<MsgIdbProbeResult | { error: string }> {
+  const managed = clients.get(restaurantId);
+  if (!managed) return { error: 'no managed client' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = (managed.client as any).pupPage;
+  if (!page || page.isClosed()) return { error: 'pupPage closed or missing' };
+
+  try {
+    const result: MsgIdbProbeResult = await page.evaluate(async (msgId: string) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g   = globalThis as any;
+      const WAC = g.require('WAWebCollections');
+
+      /** Safely serialise a WA internal Msg object to a plain object. */
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      function snap(msg: any, error: string | null): any {
+        if (!msg) {
+          return {
+            found: false, error,
+            msgId_serialized: null, msgId_remote: null, msgId_id: null,
+            msgId_fromMe: null, directPath: null, mediaKey: null,
+            mediaKeyTimestamp: null, mimetype: null, mediaStage: null,
+            allKeys: [], rawProps: null,
+          };
+        }
+        const allKeys: string[] = [];
+        try { allKeys.push(...Object.keys(msg)); } catch(_) { /**/ }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rawProps: Record<string, any> = {};
+        for (const k of allKeys) {
+          try {
+            const v = msg[k];
+            if (typeof v !== 'function') rawProps[k] = v;
+          } catch(_) { /**/ }
+        }
+
+        return {
+          found: true,
+          error: null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          msgId_serialized:  (() => { try { return (msg as any).id?._serialized ?? null; }  catch(_) { return null; } })(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          msgId_remote:      (() => { try { const r = (msg as any).id?.remote; return r?._serialized ?? r ?? null; } catch(_) { return null; } })(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          msgId_id:          (() => { try { return (msg as any).id?.id      ?? null; }  catch(_) { return null; } })(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          msgId_fromMe:      (() => { try { return (msg as any).id?.fromMe  ?? null; }  catch(_) { return null; } })(),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          directPath:        (msg as any).directPath          ?? null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          mediaKey:          (msg as any).mediaKey            ?? null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          mediaKeyTimestamp: (msg as any).mediaKeyTimestamp   ?? null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          mimetype:          (msg as any).mimetype            ?? null,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          mediaStage:        (msg as any).mediaData?.mediaStage ?? null,
+          allKeys,
+          rawProps,
+        };
+      }
+
+      // ── Step 1: in-memory synchronous lookup (NO IndexedDB) ────────────────
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let memMsg: any  = null;
+      let memErr: string | null = null;
+      try   { memMsg = WAC.Msg.get(msgId) || null; }
+      catch (e: any) { memErr = String(e); }
+      const memSnap = snap(memMsg, memErr);
+
+      // ── Capture IDB call count before IDB lookup ────────────────────────────
+      const callsBefore: number = g.__idbProbe?.calls?.length ?? 0;
+
+      // ── Step 2: IndexedDB async lookup ─────────────────────────────────────
+      // THIS IS THE SUSPECTED DataError SOURCE:
+      // For @lid IDs (false_<LID>@lid_<HEXID>), WA Web builds a composite IDB
+      // key [remoteJid, localId].  If remoteJid normalisation returns undefined,
+      // IDBObjectStore.get([undefined, localId]) throws:
+      //   DataError: Failed to execute 'get' on 'IDBObjectStore':
+      //              No key or key range specified.
+      // The IDB interceptor records exactly what key was constructed.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let idbMsg: any  = null;
+      let idbErr: string | null = null;
+      try {
+        const r = await WAC.Msg.getMessagesById([msgId]);
+        idbMsg = r?.messages?.[0] || null;
+      } catch (e: any) { idbErr = String(e); }
+      const idbSnap = snap(idbMsg, idbErr);
+
+      // ── Read IDB interceptor state ─────────────────────────────────────────
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allCalls: any[]   = g.__idbProbe?.calls   ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allErrors: any[]  = g.__idbProbe?.errors  ?? [];
+      const callsDuringGetById = allCalls.slice(callsBefore).map((c: any) => ({
+        storeName:    c.storeName    as string,
+        queryPreview: c.queryPreview as string,
+        queryType:    c.queryType    as string,
+        isArray:      c.isArray      as boolean,
+        isInvalid:    c.isInvalid    as boolean,
+      }));
+
+      return {
+        msgId,
+        mem:  memSnap,
+        idb:  idbSnap,
+        interceptor: {
+          patched:            g.__idbProbe?.patched     ?? false,
+          totalCallsEver:     allCalls.length,
+          callsDuringGetById,
+          allInvalidKeyCalls: allErrors.map((e: any) => ({
+            storeName:    e.storeName    as string,
+            queryPreview: e.queryPreview as string,
+            stack:        e.stack        as string | undefined,
+          })),
+        },
+      };
+    }, msgId);
+
+    return result;
+  } catch (err) {
+    return { error: `evaluate threw: ${errMsg(err)}` };
+  }
+}
+
+// ── Read accumulated IDB interceptor state ────────────────────────────────────
+
+export interface IdbInterceptorState {
+  patched:            boolean;
+  totalCallsEver:     number;
+  recentCalls:        Array<{ storeName: string; queryPreview: string; isArray: boolean; isInvalid: boolean }>;
+  allInvalidKeyCalls: Array<{ storeName: string; queryPreview: string; stack?: string }>;
+}
+
+/**
+ * Read window.__idbProbe from the live page.
+ * Returns null if no client / page is available.
+ */
+export async function readIdbInterceptorState(
+  restaurantId: number,
+): Promise<IdbInterceptorState | null> {
+  const managed = clients.get(restaurantId);
+  if (!managed) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = (managed.client as any).pupPage;
+  if (!page || page.isClosed()) return null;
+
+  try {
+    return await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = globalThis as any;
+      const probe = g.__idbProbe;
+      if (!probe) return { patched: false, totalCallsEver: 0, recentCalls: [], allInvalidKeyCalls: [] };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const recentCalls = (probe.calls as any[]).slice(-50).map((c: any) => ({
+        storeName:    c.storeName    as string,
+        queryPreview: c.queryPreview as string,
+        isArray:      c.isArray      as boolean,
+        isInvalid:    c.isInvalid    as boolean,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allInvalidKeyCalls = (probe.errors as any[]).map((e: any) => ({
+        storeName:    e.storeName    as string,
+        queryPreview: e.queryPreview as string,
+        stack:        e.stack        as string | undefined,
+      }));
+      return {
+        patched:         probe.patched as boolean,
+        totalCallsEver:  (probe.calls  as unknown[]).length,
+        recentCalls,
+        allInvalidKeyCalls,
+      };
+    });
+  } catch (err) {
+    logger.warn(`[idb-probe] readIdbInterceptorState failed for restaurant ${restaurantId}`, {
+      error: errMsg(err),
+    });
+    return null;
+  }
+}
+
+// ── Page screenshot ────────────────────────────────────────────────────────────
+
+/**
+ * TEST 3: capture a PNG screenshot of the live WhatsApp Web page.
+ * Returns base64-encoded PNG, or null if the page is unavailable.
+ */
+export async function capturePageScreenshot(restaurantId: number): Promise<string | null> {
+  const managed = clients.get(restaurantId);
+  if (!managed) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page = (managed.client as any).pupPage;
+  if (!page || page.isClosed()) return null;
+
+  try {
+    const buf = await page.screenshot({ type: 'png', fullPage: false }) as Buffer;
+    return buf.toString('base64');
+  } catch (err) {
+    logger.warn(`[diag] screenshot failed for restaurant ${restaurantId}`, { error: errMsg(err) });
+    return null;
   }
 }
 
