@@ -151,13 +151,28 @@ async function downloadMediaWithRetry(
         return result;
       }
 
-      // Structured failure from downloadMediaDirect — fully diagnosed already.
-      logger.warn(`[media] download attempt ${attempt} — ${result.ok === false ? result.reason : 'unknown'}`, {
-        id:     msg.id?._serialized,
-        from:   msg.from,
-        reason: result.ok === false ? result.reason  : undefined,
-        detail: result.ok === false ? result.detail  : undefined,
+      // Structured failure from downloadMediaDirect.
+      // `step`      — which evaluate step threw (key for root-cause attribution)
+      // `msgFoundVia` — whether msg was in memory, IDB, or absent
+      // `mediaDump` — all media fields from the WA internal object (logged
+      //               separately at INFO so it appears even when warn-level
+      //               filtering is active, without flooding the warn stream)
+      const failResult = result.ok === false ? result : null;
+      logger.warn(`[media] download attempt ${attempt} — ${failResult?.reason ?? 'unknown'}`, {
+        id:          msg.id?._serialized,
+        from:        msg.from,
+        reason:      failResult?.reason      ?? undefined,
+        detail:      failResult?.detail      ?? undefined,
+        step:        failResult?.step        ?? undefined,
+        msgFoundVia: failResult?.msgFoundVia ?? undefined,
       });
+      if (failResult?.mediaDump) {
+        logger.info('[media:dump] Node-side view of WA internal message properties', {
+          id:        msg.id?._serialized,
+          attempt,
+          mediaDump: failResult.mediaDump,
+        });
+      }
 
     } catch (err) {
       // downloadMediaDirect should not throw, but guard anyway.

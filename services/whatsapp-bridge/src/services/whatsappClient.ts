@@ -701,12 +701,28 @@ export async function getClientSyncInfo(restaurantId: number): Promise<ClientSyn
  * Structured result from downloadMediaDirect — always returned, never thrown.
  * Puppeteer serialises return values cleanly as JSON; thrown plain objects
  * (e.g. WA's {r:'r'}) become the misleading "Error: r: r" in logs.
+ *
+ * Failure variants carry two diagnostic fields:
+ *   step        — which step in the evaluate threw (e.g. '1b_getMessagesById')
+ *   msgFoundVia — whether the WA Msg object came from in-memory store, IDB, or was absent
+ *   mediaDump   — all media-related fields from the WA internal message object
+ *
+ * These are used by downstream callers to log root-cause evidence.
  */
 export type MediaDownloadResult =
   | { ok: true;  data: string; mimetype: string; filename: string | null; filesize: number | null }
-  | { ok: false; reason: 'no_msg' | 'no_media_data' | 'reuploading' | 'no_directpath'
-                        | 'media_error' | 'cdn_error' | 'browser_unavailable';
-      detail?: string };
+  | { ok: false;
+      reason: 'no_msg' | 'no_media_data' | 'reuploading' | 'no_directpath'
+             | 'media_error' | 'cdn_error' | 'browser_unavailable' | 'idb_error';
+      detail?: string;
+      /** Which step in the evaluate produced this failure — for root-cause attribution. */
+      step?: string;
+      /** How the WA internal Msg object was located (or not). */
+      msgFoundVia?: 'memory' | 'idb' | 'not_found' | 'error';
+      /** Full dump of every media-related property on the WA internal message object. */
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      mediaDump?: Record<string, any> | null;
+    };
 
 /**
  * Fixed replacement for whatsapp-web.js Message.downloadMedia().
@@ -743,113 +759,260 @@ export async function downloadMediaDirect(
   }
 
   // Run the entire download inside the browser context.
-  // IMPORTANT: return structured values — never throw from inside evaluate —
-  // so that Puppeteer can serialise the result cleanly as JSON.
-  const raw: MediaDownloadResult = await page.evaluate(
+  // IMPORTANT: every code path returns a structured value — nothing throws from
+  // inside evaluate — so Puppeteer always serialises a clean JSON result.
+  //
+  // DIAGNOSTIC INSTRUMENTATION
+  // ───────────────────────────
+  // Each step has its own try/catch and sets a `step` label on its failure
+  // return.  This lets the Node.js logs pinpoint exactly which browser-side
+  // operation produced the DataError (or any other failure).
+  //
+  // The `mediaDump` block captures every media-related property from the WA
+  // internal Msg object immediately after it is located.  These values are
+  // returned alongside any failure so that failing @lid messages can be
+  // directly compared against normal messages in the log.
+  //
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw: any = await page.evaluate(
     async (msgId: string) => {
+      // Inside pupPage.evaluate the code runs in the browser context where
+      // globalThis === window.  (globalThis as any) satisfies TypeScript
+      // without requiring the "dom" lib in tsconfig.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = globalThis as any;
+
+      // ── Step 0: require WAWebCollections ──────────────────────────────────
+      let WAWebCollections: any;
       try {
-        // Inside pupPage.evaluate the code runs in browser context where
-        // globalThis === window.  Using (globalThis as any) satisfies
-        // TypeScript without adding "dom" lib to tsconfig.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const g = globalThis as any;
-        const WAWebCollections = g.require('WAWebCollections');
+        WAWebCollections = g.require('WAWebCollections');
+      } catch (e: any) {
+        return { ok: false, reason: 'cdn_error', step: '0_require_collections', detail: String(e) };
+      }
 
-        // 1. Locate the message in WA's internal Msg store.
-        let msg: any =
-          WAWebCollections.Msg.get(msgId) ||
-          (await WAWebCollections.Msg.getMessagesById([msgId]))?.messages?.[0];
+      // ── Step 1a: in-memory Msg store lookup ───────────────────────────────
+      // WAWebCollections.Msg is a Backbone collection.  .get() is synchronous
+      // and does NOT touch IndexedDB.  If it returns falsy, the message is not
+      // yet indexed in the in-memory store — probably a timing race between the
+      // 'message' event firing and the store being updated.
+      let msg: any = null;
+      let msgFoundVia: 'memory' | 'idb' | 'not_found' | 'error' = 'not_found';
 
-        if (!msg)              return { ok: false, reason: 'no_msg' };
-        if (!msg.mediaData)    return { ok: false, reason: 'no_media_data' };
-        if (msg.mediaData.mediaStage === 'REUPLOADING')
-                               return { ok: false, reason: 'reuploading' };
-
-        // 2. Trigger WA's internal media resolution if not already done.
-        if (msg.mediaData.mediaStage !== 'RESOLVED') {
-          try {
-            await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
-          } catch (_) { /* ignore — we check state below */ }
-        }
-
-        // 3. THE MISSING CHECK in whatsapp-web.js 1.34.7:
-        //    Poll until directPath is genuinely populated.
-        //    WA sets mediaStage = 'RESOLVED' optimistically before writing
-        //    directPath, so we must wait for the field itself to appear.
-        const POLL_INTERVAL_MS = 300;
-        const POLL_MAX         = 26; // up to ~8 seconds
-        let   polls            = 0;
-
-        while (!msg.directPath && polls < POLL_MAX) {
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-          // Refresh from the store — WA may update the same object in-place
-          // or replace the reference; handle both.
-          const fresh = WAWebCollections.Msg.get(msgId);
-          if (fresh) msg = fresh;
-          polls++;
-        }
-
-        if (!msg.directPath) {
-          return {
-            ok: false, reason: 'no_directpath',
-            detail: `mediaStage=${msg.mediaData?.mediaStage} polls=${polls}`,
-          };
-        }
-
-        // 4. Bail out on known-bad media stages.
-        const stage: string = msg.mediaData.mediaStage ?? '';
-        if (stage.includes('ERROR') || stage === 'FETCHING') {
-          return { ok: false, reason: 'media_error', detail: `mediaStage=${stage}` };
-        }
-
-        // 5. Download and decrypt.
-        try {
-          const mockQpl = {
-            addAnnotations() { return this; },
-            addPoint()       { return this; },
-          };
-          const decrypted = await g.require('WAWebDownloadManager')
-            .downloadManager.downloadAndMaybeDecrypt({
-              directPath:        msg.directPath,
-              encFilehash:       msg.encFilehash,
-              filehash:          msg.filehash,
-              mediaKey:          msg.mediaKey,
-              mediaKeyTimestamp: msg.mediaKeyTimestamp,
-              type:              msg.type,
-              signal:            new AbortController().signal,
-              downloadQpl:       mockQpl,
-            });
-
-          const data = await g.WWebJS.arrayBufferToBase64Async(decrypted);
-
-          return {
-            ok:       true,
-            data,
-            mimetype: msg.mimetype   ?? 'image/jpeg',
-            filename: msg.filename   ?? null,
-            filesize: msg.size       ?? null,
-          };
-        } catch (e: any) {
-          // Capture the CDN error as structured data instead of rethrowing —
-          // this prevents the {r:'r'} serialisation problem entirely.
-          return {
-            ok:     false,
-            reason: 'cdn_error',
-            detail: `r=${e?.r} status=${e?.status} str=${String(e)}`,
-          };
-        }
-      } catch (outer: any) {
+      try {
+        const inMemory = WAWebCollections.Msg.get(msgId);
+        if (inMemory) { msg = inMemory; msgFoundVia = 'memory'; }
+      } catch (e: any) {
         return {
-          ok:     false,
-          reason: 'cdn_error',
-          detail: `outer: ${String(outer)}`,
+          ok: false, reason: 'idb_error', step: '1a_Msg_get',
+          detail: String(e), msgFoundVia: 'error',
         };
       }
+
+      // ── Step 1b: IndexedDB fallback ───────────────────────────────────────
+      // ONLY reached when the message is absent from the in-memory store.
+      //
+      // ROOT-CAUSE HYPOTHESIS:
+      //   For @lid messages (from WhatsApp linked devices) the serialised
+      //   message ID has the form:  false_<LID>@lid_<HEXID>
+      //   WA Web's getMessagesById() parses this to derive a compound IDB key
+      //   [remoteJid, localId].  If the @lid JID normalisation returns undefined
+      //   for remoteJid, the IDB lookup becomes:
+      //     IDBObjectStore.get([undefined, '<HEXID>'])
+      //   which throws:
+      //     DataError: Failed to execute 'get' on 'IDBObjectStore':
+      //                No key or key range specified.
+      //
+      // The `step` label on the failure return lets us confirm this hypothesis
+      // from production logs without any further code changes.
+      if (!msg) {
+        try {
+          const idbResult = await WAWebCollections.Msg.getMessagesById([msgId]);
+          const found = idbResult?.messages?.[0];
+          if (found) { msg = found; msgFoundVia = 'idb'; }
+        } catch (e: any) {
+          // *** THIS IS THE EXPECTED FAILURE PATH FOR THE DataError ***
+          // If `step` in the log reads '1b_getMessagesById' the hypothesis is
+          // confirmed: the IDB lookup fails because of an @lid key derivation
+          // returning undefined.
+          return {
+            ok: false, reason: 'idb_error', step: '1b_getMessagesById',
+            detail: String(e), msgFoundVia: 'error',
+          };
+        }
+      }
+
+      if (!msg) return { ok: false, reason: 'no_msg', step: 'post_1b', msgFoundVia };
+
+      // ── Media property dump ───────────────────────────────────────────────
+      // Capture EVERY media-related property from the WA internal object.
+      // Returned on every failure so that @lid messages can be compared with
+      // normal messages that download successfully.
+      //
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mediaDump: Record<string, any> = {};
+      try {
+        mediaDump['directPath']              = msg.directPath          ?? null;
+        mediaDump['mediaKey']                = msg.mediaKey            ?? null;
+        mediaDump['mediaKeyTimestamp']       = msg.mediaKeyTimestamp   ?? null;
+        mediaDump['mimetype']                = msg.mimetype            ?? null;
+        mediaDump['filesize']                = msg.size                ?? null;
+        mediaDump['encFilehash']             = msg.encFilehash         ?? null;
+        mediaDump['filehash']                = msg.filehash            ?? null;
+        mediaDump['type']                    = msg.type                ?? null;
+        mediaDump['mediaStage']              = msg.mediaData?.mediaStage ?? null;
+        mediaDump['mediaType']               = msg.mediaType           ?? null;
+        mediaDump['isViewOnce']              = msg.isViewOnce          ?? null;
+        mediaDump['hasMedia_via_directPath'] = Boolean(msg.directPath);
+        mediaDump['msgFoundVia']             = msgFoundVia;
+
+        try { mediaDump['msgId_serialized'] = msg.id?._serialized ?? (typeof msg.id === 'string' ? msg.id : null); } catch { /**/ }
+        try { mediaDump['msgId_remote']     = msg.id?.remote?._serialized ?? msg.id?.remote ?? null; } catch { /**/ }
+        try { mediaDump['msgId_id']         = msg.id?.id         ?? null; } catch { /**/ }
+        try { mediaDump['msgId_fromMe']     = msg.id?.fromMe     ?? null; } catch { /**/ }
+
+        // Full key listing so we see every property on the WA internal object
+        try { mediaDump['allMsgKeys']       = Object.keys(msg);                               } catch { /**/ }
+        try { mediaDump['allMediaDataKeys'] = msg.mediaData ? Object.keys(msg.mediaData) : []; } catch { /**/ }
+
+        // Serialise every non-function property for the complete picture
+        const raw: Record<string, unknown> = {};
+        try {
+          for (const k of (mediaDump['allMsgKeys'] as string[] ?? [])) {
+            try {
+              const v = (msg as any)[k];
+              if (typeof v !== 'function') raw[k] = v;
+            } catch { /**/ }
+          }
+        } catch { /**/ }
+        mediaDump['rawMsgProps'] = raw;
+      } catch { /**/ }
+
+      if (!msg.mediaData) {
+        return { ok: false, reason: 'no_media_data', step: 'post_1b', msgFoundVia, mediaDump };
+      }
+      if (msg.mediaData.mediaStage === 'REUPLOADING') {
+        return { ok: false, reason: 'reuploading', step: 'post_1b', msgFoundVia, mediaDump };
+      }
+
+      // ── Step 2: trigger WA's internal media resolution ────────────────────
+      // If this throws a DataError (mediaKey === null → IDB lookup with null key),
+      // the error is RECORDED in mediaDump['step2_error'] instead of silently
+      // discarded.  Execution continues so the directPath poll can still succeed
+      // if WA resolves the path asynchronously despite the error.
+      if (msg.mediaData.mediaStage !== 'RESOLVED') {
+        try {
+          await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+        } catch (e: any) {
+          // Do NOT rethrow — record and continue to the poll below.
+          mediaDump['step2_error'] = String(e);
+        }
+      }
+
+      // ── Step 3: poll until directPath is genuinely populated ──────────────
+      // THE FIX FOR THE "r: r" BUG (whatsapp-web.js 1.34.7):
+      //   WA sets mediaStage = 'RESOLVED' optimistically BEFORE writing
+      //   directPath.  The library's downloadMedia() calls
+      //   downloadAndMaybeDecrypt({directPath: null, …}) immediately → CDN
+      //   rejects the null path → throws {r:'r'} → Puppeteer serialises it as
+      //   "Error: r: r".  Our poll waits until directPath is genuinely set.
+      const POLL_INTERVAL_MS = 300;
+      const POLL_MAX         = 26; // up to ~8 seconds total
+      let   polls            = 0;
+
+      while (!msg.directPath && polls < POLL_MAX) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        // Refresh from the store — WA may update the same object in-place
+        // or replace the reference entirely; handle both.
+        const fresh = WAWebCollections.Msg.get(msgId);
+        if (fresh) msg = fresh;
+        polls++;
+      }
+
+      if (!msg.directPath) {
+        mediaDump['directPath_after_poll'] = msg.directPath    ?? null;
+        mediaDump['mediaStage_after_poll'] = msg.mediaData?.mediaStage ?? null;
+        mediaDump['polls']                 = polls;
+        return {
+          ok: false, reason: 'no_directpath', step: 'post_3',
+          detail: `mediaStage=${msg.mediaData?.mediaStage} polls=${polls}`,
+          msgFoundVia, mediaDump,
+        };
+      }
+
+      // ── Step 4: bail on known-bad media stages ────────────────────────────
+      const stage: string = msg.mediaData.mediaStage ?? '';
+      if (stage.includes('ERROR') || stage === 'FETCHING') {
+        return {
+          ok: false, reason: 'media_error', step: 'step_4',
+          detail: `mediaStage=${stage}`, msgFoundVia, mediaDump,
+        };
+      }
+
+      // ── Step 5: download and decrypt from CDN ─────────────────────────────
+      try {
+        const mockQpl = {
+          addAnnotations() { return this; },
+          addPoint()       { return this; },
+        };
+        const decrypted = await g.require('WAWebDownloadManager')
+          .downloadManager.downloadAndMaybeDecrypt({
+            directPath:        msg.directPath,
+            encFilehash:       msg.encFilehash,
+            filehash:          msg.filehash,
+            mediaKey:          msg.mediaKey,
+            mediaKeyTimestamp: msg.mediaKeyTimestamp,
+            type:              msg.type,
+            signal:            new AbortController().signal,
+            downloadQpl:       mockQpl,
+          });
+
+        const data = await g.WWebJS.arrayBufferToBase64Async(decrypted);
+
+        return {
+          ok:       true,
+          data,
+          mimetype: msg.mimetype ?? 'image/jpeg',
+          filename: msg.filename ?? null,
+          filesize: msg.size     ?? null,
+        };
+      } catch (e: any) {
+        // Capture the CDN error as structured data — prevents the {r:'r'}
+        // serialisation problem where Puppeteer turns a thrown plain object
+        // into the misleading "Error: r: r" string.
+        return {
+          ok: false, reason: 'cdn_error', step: 'step_5',
+          detail: `r=${e?.r} status=${e?.status} str=${String(e)}`,
+          msgFoundVia, mediaDump,
+        };
+      }
+
+      // NOTE: There is intentionally no outer catch.  Every code path above has
+      // its own guard.  If a genuinely unexpected error escapes (e.g. a new WA
+      // Web internal API change), Puppeteer surfaces it as a real exception in
+      // the Node.js logs — far more useful than the previous "outer: <error>"
+      // bucket that hid the step and all context.
     },
     msgId,
   );
 
-  if (!raw || !raw.ok) return raw ?? { ok: false, reason: 'cdn_error', detail: 'null from evaluate' };
+  // ── Post-evaluate diagnostics ─────────────────────────────────────────────
+  // Log the mediaDump and step label returned by the evaluate so that every
+  // failed download produces a complete picture in the logs without requiring
+  // a second repro.
+  if (raw && !raw.ok) {
+    logger.info('[media:dump] Download failed — browser-side diagnostics', {
+      msgId,
+      step:        raw.step        ?? null,
+      reason:      raw.reason      ?? null,
+      detail:      raw.detail      ?? null,
+      msgFoundVia: raw.msgFoundVia ?? null,
+      mediaDump:   raw.mediaDump   ?? null,
+    });
+  }
+
+  if (!raw || !raw.ok) {
+    return (raw as MediaDownloadResult) ?? { ok: false, reason: 'cdn_error', detail: 'null from evaluate' };
+  }
 
   // MessageMedia constructor: (mimetype, data, filename?, filesize?)
   return new MessageMedia(raw.mimetype, raw.data, raw.filename ?? undefined, raw.filesize ?? undefined);
