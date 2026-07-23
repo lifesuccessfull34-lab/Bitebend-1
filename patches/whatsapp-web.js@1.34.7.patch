@@ -1,0 +1,87 @@
+diff --git a/src/structures/Message.js b/src/structures/Message.js
+index dd977e85b0c0c40d2625cd337264fc9ae3bed17b..7141145c07c3764eec85e8d51de6d71690ade1f4 100644
+--- a/src/structures/Message.js
++++ b/src/structures/Message.js
+@@ -516,13 +516,52 @@ class Message extends Base {
+         }
+ 
+         const result = await this.client.pupPage.evaluate(async (msgId) => {
+-            const msg =
+-                window.require('WAWebCollections').Msg.get(msgId) ||
+-                (
+-                    await window
+-                        .require('WAWebCollections')
+-                        .Msg.getMessagesById([msgId])
+-                )?.messages?.[0];
++            const WAC = window.require('WAWebCollections');
++
++            // Step 1 — in-memory Backbone lookup (fast, no IDB).
++            let msg = WAC.Msg.get(msgId);
++
++            // Step 1-lid — WhatsApp's multi-device protocol uses Linked Device IDs
++            // (@lid JIDs) for messages from secondary devices.  The Backbone
++            // collection may index the message under its phone-number (@c.us) form
++            // rather than the raw @lid form we received.  Resolve the LID to a
++            // phone WID via enforceLidAndPnRetrieval and retry the in-memory
++            // lookup before ever touching IndexedDB.
++            let phoneId = null;
++            if (!msg && msgId.includes('@lid')) {
++                try {
++                    const parts = msgId.split('_'); // ['false','<LID>@lid','<HEXID>']
++                    if (parts.length === 3) {
++                        const { phone } =
++                            await window.WWebJS.enforceLidAndPnRetrieval(parts[1]);
++                        if (phone?._serialized) {
++                            phoneId = `${parts[0]}_${phone._serialized}_${parts[2]}`;
++                            msg = WAC.Msg.get(phoneId);
++                        }
++                    }
++                } catch (_) {
++                    // LID resolution unavailable — fall through to IDB
++                }
++            }
++
++            // Step 2 — IDB fallback.
++            // When a phone-translated ID is available we use it here: calling
++            // getMessagesById() with a raw @lid ID causes WA Web's internal IDB
++            // key builder to produce an undefined compound-key component, which
++            // throws DataError per the W3C IDB spec.  The try-catch ensures the
++            // error is handled gracefully regardless of the key form used.
++            if (!msg) {
++                try {
++                    msg = (
++                        await WAC.Msg.getMessagesById([phoneId ?? msgId])
++                    )?.messages?.[0] ?? null;
++                } catch (_) {
++                    // DataError (invalid IDB key) or other IDB error.
++                    // msg stays null; the null-check below returns null to the
++                    // caller, which must treat this as a retriable failure.
++                    msg = null;
++                }
++            }
+ 
+             // REUPLOADING mediaStage means the media is expired and the download button is spinning, cannot be downloaded now
+             if (
+@@ -548,6 +587,22 @@ class Message extends Base {
+                 return undefined;
+             }
+ 
++            // Bug B fix — WA Web sets mediaStage='RESOLVED' before it writes
++            // directPath onto the Backbone model (the field is populated
++            // asynchronously after the downloadMedia() promise resolves).
++            // Passing a null directPath to downloadAndMaybeDecrypt causes the
++            // CDN to respond with {r:'r'}, serialised by Puppeteer as
++            // "Error: r: r".  Poll the live Backbone model until directPath
++            // appears or the 3-second window expires.
++            if (!msg.directPath) {
++                for (let i = 0; i < 20; i++) {
++                    await new Promise((r) => setTimeout(r, 150));
++                    const fresh = WAC.Msg.get(msg.id._serialized);
++                    if (fresh?.directPath) { msg = fresh; break; }
++                    if (msg.directPath) break; // in-place Backbone attribute write
++                }
++            }
++
+             try {
+                 const mockQpl = {
+                     addAnnotations: function () {

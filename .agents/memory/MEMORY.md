@@ -4,3 +4,4 @@
 - [WhatsApp Bridge integration](whatsapp-bridge.md) — bridge at services/whatsapp-bridge (port 3001); migration 0013 added whatsapp_status+whatsapp_phone to restaurants; Drizzle journal needed manual 0013 entry after direct psql apply.
 - [WhatsApp media IDB DataError](whatsapp-media-idb-dataerror.md) — DataError in payment screenshot pipeline traced to IDB fallback in step 1b (getMessagesById); instrumentation added with per-step isolation and mediaDump.
 - [Rupee migration (paise → rupees)](rupee-migration.md) — migration 0022 converts subscription tables from paise; menu/order was already rupees; Razorpay boundary always needs *100; all monetary columns now doublePrecision.
+- [wwebjs patch (downloadMedia)](wwebjs-patch.md) — pnpm patch at patches/whatsapp-web.js@1.34.7.patch fixes Bug B (proven) and partially Bug A (@lid); hard limit: @lid IDB key builder is inside WA's unmodifiable bundle.
