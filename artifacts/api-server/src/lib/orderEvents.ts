@@ -1,4 +1,5 @@
 import type { Response } from "express";
+import { logger } from "./logger";
 
 interface OrderEventPayload {
   id: number;
@@ -68,6 +69,11 @@ interface SessionScreenshotEventPayload {
 
 export function emitSessionScreenshotEvent(restaurantId: number, payload: SessionScreenshotEventPayload) {
   const clients = connections.get(restaurantId);
+  const clientCount = clients?.size ?? 0;
+  logger.info(
+    { restaurantId, clientCount, sessionId: payload.sessionId, billId: payload.billId, tableNumber: payload.tableNumber },
+    "[sse:emit] session-screenshot-received event fired"
+  );
   if (!clients || clients.size === 0) return;
   const data = JSON.stringify(payload);
   for (const res of clients) {
