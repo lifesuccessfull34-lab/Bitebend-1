@@ -753,10 +753,43 @@ export type MediaDownloadResult =
  *   genuinely non-null before calling downloadAndMaybeDecrypt.
  *   We return structured values instead of throwing so Puppeteer never has
  *   to serialise a plain WA error object.
+ *
+ * @lid FIX (Step 0.5):
+ *   For messages from @lid senders (WhatsApp multi-device linked-device JIDs)
+ *   the WA internal Backbone store indexes messages by their resolved @c.us JID,
+ *   not the raw @lid JID.  Both Msg.get() and getMessagesById() therefore fail
+ *   for @lid messages — .get() returns null and getMessagesById() throws a
+ *   DataError during IDB compound-key construction.
+ *
+ *   However, wwebjs populates msg._data BEFORE the 'message' event fires, so
+ *   directPath, mediaKey, mediaKeyTimestamp, mimetype, encFilehash, filehash
+ *   and type are all already present on the Node.js side at event time.
+ *
+ *   When these fields are passed in as mediaHints, step 0.5 constructs the
+ *   download arguments directly and calls downloadAndMaybeDecrypt without
+ *   touching the Backbone store or IndexedDB at all.
  */
+
+/**
+ * Pre-populated media fields extracted from msg._data at event-fire time.
+ * Available for every message type; eliminates the need for IDB lookups for
+ * @lid senders where the Backbone/IDB path always throws DataError.
+ */
+export interface MediaHints {
+  directPath:        string;
+  mediaKey:          string;
+  mediaKeyTimestamp: number | null;
+  mimetype:          string;
+  encFilehash:       string | null;
+  filehash:          string | null;
+  type:              string;
+  filesize:          number | null;
+}
+
 export async function downloadMediaDirect(
   restaurantId: number,
   msgId: string,
+  mediaHints?: MediaHints | null,
 ): Promise<MessageMedia | MediaDownloadResult> {
   const managed = clients.get(restaurantId);
   if (!managed) {
@@ -786,12 +819,61 @@ export async function downloadMediaDirect(
   //
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw: any = await page.evaluate(
-    async (msgId: string) => {
+    async (msgId: string, hints: MediaHints | null) => {
       // Inside pupPage.evaluate the code runs in the browser context where
       // globalThis === window.  (globalThis as any) satisfies TypeScript
       // without requiring the "dom" lib in tsconfig.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const g = globalThis as any;
+
+      // ── Step 0.5: hints fast-path (bypass IDB for @lid senders) ──────────
+      // When msg._data was already populated at event-fire time (which is
+      // always the case for both @c.us and @lid senders), Node.js passes the
+      // pre-fetched media fields in as `hints`.  If directPath + mediaKey are
+      // present we can go directly to downloadAndMaybeDecrypt without touching
+      // the Backbone store or IndexedDB at all.
+      //
+      // This is the ONLY reliable path for @lid messages because:
+      //   - Msg.get(msgId)            → always null  (@lid not indexed by its
+      //                                  raw JID in the Backbone store)
+      //   - getMessagesById([msgId])  → always DataError (@lid JID can't be
+      //                                  used to build the IDB compound key)
+      if (hints && hints.directPath && hints.mediaKey) {
+        try {
+          const mockQpl = {
+            addAnnotations() { return this; },
+            addPoint()       { return this; },
+          };
+          const decrypted = await g.require('WAWebDownloadManager')
+            .downloadManager.downloadAndMaybeDecrypt({
+              directPath:        hints.directPath,
+              encFilehash:       hints.encFilehash  ?? undefined,
+              filehash:          hints.filehash      ?? undefined,
+              mediaKey:          hints.mediaKey,
+              mediaKeyTimestamp: hints.mediaKeyTimestamp ?? undefined,
+              type:              hints.type          ?? 'image',
+              signal:            new AbortController().signal,
+              downloadQpl:       mockQpl,
+            });
+          const data = await g.WWebJS.arrayBufferToBase64Async(decrypted);
+          return {
+            ok:       true,
+            data,
+            mimetype: hints.mimetype ?? 'image/jpeg',
+            filename: null,
+            filesize: hints.filesize ?? null,
+          };
+        } catch (e: any) {
+          // Hints-based CDN download failed.  Return a structured error —
+          // IDB fallback would also fail for @lid so there is no point
+          // continuing to steps 1a/1b.
+          return {
+            ok: false, reason: 'cdn_error', step: '0.5_hints_cdn',
+            detail: `r=${(e as any)?.r} status=${(e as any)?.status} str=${String(e)}`,
+            msgFoundVia: 'hints' as const,
+          };
+        }
+      }
 
       // ── Step 0: require WAWebCollections ──────────────────────────────────
       let WAWebCollections: any;
@@ -820,31 +902,14 @@ export async function downloadMediaDirect(
       }
 
       // ── Step 1b: IndexedDB fallback ───────────────────────────────────────
-      // ONLY reached when the message is absent from the in-memory store.
-      //
-      // ROOT-CAUSE HYPOTHESIS:
-      //   For @lid messages (from WhatsApp linked devices) the serialised
-      //   message ID has the form:  false_<LID>@lid_<HEXID>
-      //   WA Web's getMessagesById() parses this to derive a compound IDB key
-      //   [remoteJid, localId].  If the @lid JID normalisation returns undefined
-      //   for remoteJid, the IDB lookup becomes:
-      //     IDBObjectStore.get([undefined, '<HEXID>'])
-      //   which throws:
-      //     DataError: Failed to execute 'get' on 'IDBObjectStore':
-      //                No key or key range specified.
-      //
-      // The `step` label on the failure return lets us confirm this hypothesis
-      // from production logs without any further code changes.
+      // ONLY reached when the message is absent from the in-memory store AND
+      // no hints were supplied (i.e. @c.us senders where IDB works correctly).
       if (!msg) {
         try {
           const idbResult = await WAWebCollections.Msg.getMessagesById([msgId]);
           const found = idbResult?.messages?.[0];
           if (found) { msg = found; msgFoundVia = 'idb'; }
         } catch (e: any) {
-          // *** THIS IS THE EXPECTED FAILURE PATH FOR THE DataError ***
-          // If `step` in the log reads '1b_getMessagesById' the hypothesis is
-          // confirmed: the IDB lookup fails because of an @lid key derivation
-          // returning undefined.
           return {
             ok: false, reason: 'idb_error', step: '1b_getMessagesById',
             detail: String(e), msgFoundVia: 'error',
@@ -1004,6 +1069,7 @@ export async function downloadMediaDirect(
       // bucket that hid the step and all context.
     },
     msgId,
+    mediaHints ?? null,
   );
 
   // ── Post-evaluate diagnostics ─────────────────────────────────────────────

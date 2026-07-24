@@ -14,7 +14,7 @@ import util from 'util';
 import { Message, MessageMedia } from 'whatsapp-web.js';
 import logger from '../utils/logger';
 import { sendWebhook, sendPaymentScreenshotWebhook } from '../webhooks/webhookSender';
-import type { MediaDownloadResult } from './whatsappClient';
+import type { MediaDownloadResult, MediaHints } from './whatsappClient';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -30,10 +30,12 @@ interface QueueItem {
   timestamp:     string;
   enqueuedAt:    number;
   attempts:      number;
+  /** Pre-fetched _data fields; enables step-0.5 bypass for @lid senders. */
+  mediaHints:    MediaHints | null;
 }
 
 /** Injected download function — same signature as downloadMediaDirect. */
-type DownloadFn = (restaurantId: number, msgId: string) => Promise<MessageMedia | MediaDownloadResult>;
+type DownloadFn = (restaurantId: number, msgId: string, hints: MediaHints | null) => Promise<MessageMedia | MediaDownloadResult>;
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -48,8 +50,9 @@ export function enqueueMedia(
   msg:           Message,
   customerPhone: string,
   timestamp:     string,
+  mediaHints:    MediaHints | null = null,
 ): void {
-  queue.push({ restaurantId, msg, customerPhone, timestamp, enqueuedAt: Date.now(), attempts: 0 });
+  queue.push({ restaurantId, msg, customerPhone, timestamp, enqueuedAt: Date.now(), attempts: 0, mediaHints });
   logger.info('[media] queued for retry', {
     id:          msg.id?._serialized,
     restaurantId,
@@ -115,7 +118,7 @@ async function runWorkerTick(downloadMedia: DownloadFn): Promise<void> {
     });
 
     try {
-      const result = await downloadMedia(item.restaurantId, item.msg.id._serialized);
+      const result = await downloadMedia(item.restaurantId, item.msg.id._serialized, item.mediaHints);
 
       if (!(result instanceof MessageMedia)) {
         // Structured failure from downloadMediaDirect.

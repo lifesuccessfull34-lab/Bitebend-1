@@ -81,10 +81,20 @@ Stored in `window.__idbProbe = { calls[], errors[], patched }`.
 - If `step2_error` contains DataError and `mediaDump.mediaKey = null`: fix is to guard `msg.downloadMedia()` behind a `mediaKey !== null` check; messages with null mediaKey cannot be decrypted anyway.
 - If `msgFoundVia = 'not_found'` (no error, just missing): pure timing race; solution is a short delay before the first evaluate attempt.
 
-## Confirmed Production Bug (resolved)
+## Confirmed Production Root Cause (both bugs resolved)
 
-The DataError in the payment screenshot pipeline was triggered entirely by **WhatsApp Status/Stories updates** (`from: status@broadcast`), not by real customer messages. These fire the standard `message` event in whatsapp-web.js but their IDB key format is incompatible with `getMessagesById()`.
+### Bug 1 — status@broadcast noise (fixed)
+WhatsApp Status/Stories fire the `message` event with `from: status@broadcast`. No guard existed; bridge looped forever on DataError.
+Fix: `if (msg.from?.endsWith('@broadcast')) return;` early in `handleIncomingMessage`.
 
-**Fix applied in `incomingMessages.ts`**: added an early-exit guard after the `fromMe` check — `if (msg.from?.endsWith('@broadcast')) return;` — so all Status broadcasts are dropped before any download attempt.
+### Bug 2 — @lid senders: real customer screenshots also fail (fixed)
+Confirmed by second production log (`from: 268641748652129@lid`, `callsDuringGetById: []`):
+- `Msg.get(msgId)` returns null — Backbone store indexes by @c.us JID, not @lid
+- `getMessagesById` throws DataError during key construction — no IDB call is ever made
+- All 6 attempts + retry worker fail identically
 
-**Why:** `@broadcast` JID suffix is WhatsApp's internal designation for Status/Stories. These are never customer payment screenshots. The bug caused infinite retry loops for every Status update the restaurant's WhatsApp received.
+Fix: **Step 0.5** in `downloadMediaDirect`. `msg._data` is fully populated at event-fire time (directPath, mediaKey, mediaKeyTimestamp, mimetype, encFilehash, filehash, type all present). `extractMediaHints()` in `incomingMessages.ts` extracts these and passes them as `MediaHints` to `downloadMediaDirect(restaurantId, msgId, mediaHints)`. Step 0.5 calls `downloadAndMaybeDecrypt` directly, bypassing Backbone/IDB entirely.
+
+`mediaKey` format: base64 string in both `_data` and the Backbone model — no conversion needed.
+
+Files changed: `whatsappClient.ts` (MediaHints export + step 0.5), `incomingMessages.ts` (extractMediaHints + threading through retry + enqueue), `mediaQueue.ts` (hints stored in QueueItem, forwarded in retry worker).

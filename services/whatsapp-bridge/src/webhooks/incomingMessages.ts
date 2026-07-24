@@ -28,10 +28,40 @@ import {
   getClientSyncInfo,
   reportClientFailure,
   probeMsgIdb,
+  type MediaHints,
 } from '../services/whatsappClient';
 import { enqueueMedia } from '../services/mediaQueue';
 
 const IMAGE_URL_REGEX = /https?:\/\/[^\s]+\.(jpe?g|png)/i;
+
+// ── Media hints extraction ─────────────────────────────────────────────────────
+
+/**
+ * Extract the pre-populated media fields from msg._data.
+ *
+ * wwebjs populates _data BEFORE the 'message' event fires, so directPath,
+ * mediaKey, mediaKeyTimestamp, mimetype, encFilehash, filehash and type are
+ * all already present at event time — including for @lid senders where the
+ * Backbone store and IDB lookups both fail.
+ *
+ * Returning non-null hints enables the step-0.5 fast-path in
+ * downloadMediaDirect, bypassing the broken IDB path entirely.
+ */
+function extractMediaHints(msg: Message): MediaHints | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = (msg as any)._data;
+  if (!d || !d.directPath || !d.mediaKey) return null;
+  return {
+    directPath:        String(d.directPath),
+    mediaKey:          String(d.mediaKey),
+    mediaKeyTimestamp: d.mediaKeyTimestamp != null ? Number(d.mediaKeyTimestamp) : null,
+    mimetype:          d.mimetype ? String(d.mimetype) : 'image/jpeg',
+    encFilehash:       d.encFilehash  ? String(d.encFilehash)  : null,
+    filehash:          d.filehash     ? String(d.filehash)      : null,
+    type:              d.type         ? String(d.type)          : 'image',
+    filesize:          d.size         != null ? Number(d.size)  : null,
+  };
+}
 
 // ── Retry configuration ────────────────────────────────────────────────────────
 
@@ -130,18 +160,20 @@ async function logClientSyncDiagnostics(restaurantId: number): Promise<void> {
 async function downloadMediaWithRetry(
   msg: Message,
   restaurantId: number,
+  mediaHints?: MediaHints | null,
 ): Promise<MessageMedia | null> {
   const totalAttempts = 1 + RETRY_DELAYS_MS.length; // 6
   let staleContextReported = false;
 
   for (let attempt = 1; attempt <= totalAttempts; attempt++) {
     logger.info(`[media] download attempt ${attempt}`, {
-      id:   msg.id?._serialized,
-      from: msg.from,
+      id:       msg.id?._serialized,
+      from:     msg.from,
+      hasHints: Boolean(mediaHints),
     });
 
     try {
-      const result = await downloadMediaDirect(restaurantId, msg.id._serialized);
+      const result = await downloadMediaDirect(restaurantId, msg.id._serialized, mediaHints);
 
       if (result instanceof MessageMedia) {
         logger.info(`[media] download attempt ${attempt} — success`, {
@@ -314,12 +346,30 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
       });
     }
 
-    // Attempt download using the fixed implementation that polls for directPath.
-    const media = await downloadMediaWithRetry(msg, restaurantId);
+    // Extract media hints from msg._data (populated at event-fire time).
+    // These bypass the broken IDB lookup for @lid senders in downloadMediaDirect.
+    const mediaHints = extractMediaHints(msg);
+    if (mediaHints) {
+      logger.info('[media] hints extracted from _data — will use step-0.5 fast-path', {
+        id:         msg.id?._serialized,
+        fromSuffix: msg.from?.includes('@lid') ? '@lid' : '@c.us',
+        directPath: mediaHints.directPath.slice(0, 60) + '…',
+        hasMediaKey: true,
+      });
+    } else {
+      logger.warn('[media] no hints available from _data — falling back to IDB path', {
+        id:   msg.id?._serialized,
+        from: msg.from,
+      });
+    }
+
+    // Attempt download using the fixed implementation.
+    // For @lid senders, mediaHints short-circuits the broken IDB lookup (step 0.5).
+    const media = await downloadMediaWithRetry(msg, restaurantId, mediaHints);
 
     if (!media) {
       // All inline retries exhausted — enqueue for background retry (never discard).
-      enqueueMedia(restaurantId, msg, customerPhone, timestamp);
+      enqueueMedia(restaurantId, msg, customerPhone, timestamp, mediaHints);
       return;
     }
 
