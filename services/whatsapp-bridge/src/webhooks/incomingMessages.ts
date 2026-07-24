@@ -225,6 +225,15 @@ async function downloadMediaWithRetry(
 export async function handleIncomingMessage(restaurantId: number, msg: Message): Promise<void> {
   if (msg.fromMe) return;
 
+  // Skip WhatsApp Status/Stories updates (from: "status@broadcast" or any
+  // other @broadcast JID).  These fire the standard 'message' event but are
+  // not customer messages — their media is stored under a different IDB key
+  // scheme that causes DataError on every getMessagesById() call.
+  if (msg.from?.endsWith('@broadcast')) {
+    logger.debug(`[incoming] Skipping broadcast message (${msg.from}), type=${msg.type}`);
+    return;
+  }
+
   const customerPhone = await resolvePhone(msg);
   const timestamp = new Date(msg.timestamp * 1000).toISOString();
 

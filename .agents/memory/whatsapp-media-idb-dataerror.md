@@ -80,3 +80,11 @@ Stored in `window.__idbProbe = { calls[], errors[], patched }`.
 - If `step = '1b_getMessagesById'` and `msgFoundVia = 'error'`: fix is to skip the IDB fallback for @lid IDs (detect `@lid` in msgId before calling getMessagesById, return `no_msg` instead).
 - If `step2_error` contains DataError and `mediaDump.mediaKey = null`: fix is to guard `msg.downloadMedia()` behind a `mediaKey !== null` check; messages with null mediaKey cannot be decrypted anyway.
 - If `msgFoundVia = 'not_found'` (no error, just missing): pure timing race; solution is a short delay before the first evaluate attempt.
+
+## Confirmed Production Bug (resolved)
+
+The DataError in the payment screenshot pipeline was triggered entirely by **WhatsApp Status/Stories updates** (`from: status@broadcast`), not by real customer messages. These fire the standard `message` event in whatsapp-web.js but their IDB key format is incompatible with `getMessagesById()`.
+
+**Fix applied in `incomingMessages.ts`**: added an early-exit guard after the `fromMe` check — `if (msg.from?.endsWith('@broadcast')) return;` — so all Status broadcasts are dropped before any download attempt.
+
+**Why:** `@broadcast` JID suffix is WhatsApp's internal designation for Status/Stories. These are never customer payment screenshots. The bug caused infinite retry loops for every Status update the restaurant's WhatsApp received.
