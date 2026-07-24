@@ -17,11 +17,11 @@ const config = {
 
   bitebendWebhookUrl: optional(
     'BITEBEND_WEBHOOK_URL',
-    'http://localhost:5000/api/whatsapp/incoming'
+    'http://localhost:8080/api/whatsapp/incoming'
   ),
   bitebendPaymentScreenshotUrl: optional(
     'BITEBEND_PAYMENT_SCREENSHOT_URL',
-    'http://localhost:5000/api/whatsapp/payment-screenshot'
+    'http://localhost:8080/api/whatsapp/payment-screenshot'
   ),
   bitebendWebhookSecret: optional('BITEBEND_WEBHOOK_SECRET', ''),
 
