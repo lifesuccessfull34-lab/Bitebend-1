@@ -1830,6 +1830,7 @@ const sendSessionBill: RequestHandler = async (req, res) => {
 
   // ── Send via bridge ────────────────────────────────────────────────────────
   let sentViaBridge = false;
+  let sendData: { success?: boolean; chatJid?: string | null } = {};
   try {
     const sendRes = await fetch(`${bridgeUrl}/api/send-message`, {
       method: "POST",
@@ -1837,7 +1838,7 @@ const sendSessionBill: RequestHandler = async (req, res) => {
       body: JSON.stringify({ restaurantId: user.restaurantId, phone: customerPhone, message }),
       signal: AbortSignal.timeout(10000),
     });
-    const sendData = (await sendRes.json()) as { success?: boolean };
+    sendData = (await sendRes.json()) as { success?: boolean; chatJid?: string | null };
     sentViaBridge = sendData.success === true;
   } catch (err) {
     logger.error({ error: (err as Error).message }, "[sendSessionBill] bridge send failed");
@@ -1854,6 +1855,12 @@ const sendSessionBill: RequestHandler = async (req, res) => {
 
   // ── Mark bill as sent ─────────────────────────────────────────────────────
   const now = new Date();
+  // chatJid is sentMsg.id.remote._serialized from the bridge — the WhatsApp-
+  // server-assigned JID for this conversation.  It equals msg.from on every
+  // subsequent inbound message, enabling Priority 0 (deterministic) screenshot
+  // matching regardless of @c.us vs @lid.  May be null for older bridge
+  // versions that don't return it yet; falls back gracefully in the webhook.
+  const chatJid = sendData.chatJid ?? null;
   await db
     .update(sessionBills)
     .set({
@@ -1861,6 +1868,7 @@ const sendSessionBill: RequestHandler = async (req, res) => {
       customerPhone,
       sentAt: now,
       updatedAt: now,
+      chatJid,
     })
     .where(eq(sessionBills.id, bill.id));
 
@@ -1870,6 +1878,10 @@ const sendSessionBill: RequestHandler = async (req, res) => {
       billId: bill.id,
       billNumber: bill.billNumber,
       customerPhone,
+      chatJid,
+      chatJidSuffix: chatJid?.includes('@lid')  ? '@lid'
+                   : chatJid?.includes('@c.us') ? '@c.us'
+                   : chatJid ? 'other' : null,
     },
     "[sendSessionBill] bill sent via bridge"
   );

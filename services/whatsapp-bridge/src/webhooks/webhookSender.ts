@@ -16,6 +16,19 @@ interface PaymentScreenshotPayload {
   customerPhone: string;
   imageUrl: string;
   timestamp: string;
+  /**
+   * Raw msg.from JID from whatsapp-web.js at the moment the inbound image
+   * arrived — e.g. "917086670033@c.us" or "268641748652129@lid".
+   *
+   * This is the same value that was stored in session_bills.chat_jid when
+   * the bill was sent (captured from sentMsg.id.remote._serialized), so the
+   * API server can do a deterministic Priority 0 lookup without relying on
+   * phone normalisation or the number of concurrent pending bills.
+   *
+   * Optional: bridge versions that pre-date this field omit it and the API
+   * server falls through to the existing phone-match / LID-fallback chain.
+   */
+  senderJid?: string;
 }
 
 export async function sendWebhook(payload: WebhookPayload): Promise<void> {

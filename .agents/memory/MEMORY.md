@@ -5,3 +5,4 @@
 - [WhatsApp media IDB DataError](whatsapp-media-idb-dataerror.md) — DataError in payment screenshot pipeline traced to IDB fallback in step 1b (getMessagesById); instrumentation added with per-step isolation and mediaDump.
 - [Rupee migration (paise → rupees)](rupee-migration.md) — migration 0022 converts subscription tables from paise; menu/order was already rupees; Razorpay boundary always needs *100; all monetary columns now doublePrecision.
 - [wwebjs patch (downloadMedia)](wwebjs-patch.md) — pnpm patch at patches/whatsapp-web.js@1.34.7.patch fixes Bug B (proven) and partially Bug A (@lid); hard limit: @lid IDB key builder is inside WA's unmodifiable bundle.
+- [Screenshot matching P0 (chatJid)](screenshot-matching-p0.md) — Priority 0 chatJid matching added (migration 0027); sendData scoping fix in owner.ts; jid-audit logs in all 3 match paths; do NOT remove phone/fallback strategies until production logs prove 100% chatJid coverage.

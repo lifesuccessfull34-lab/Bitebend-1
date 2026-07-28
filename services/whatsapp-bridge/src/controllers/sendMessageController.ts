@@ -68,9 +68,61 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
     }
 
     try {
-      await client.sendMessage(chatId, message.trim());
-      logger.info(`Message sent`, { restaurantId, to: normalised, attempt });
-      res.json({ success: true, message: 'Message sent', restaurantId, to: normalised });
+      // Capture the return value — wwebjs returns a Message object whose
+      // id.remote._serialized is the WhatsApp-server-assigned JID for this
+      // conversation.  This JID matches msg.from on all subsequent inbound
+      // messages from the same contact, whether they use @c.us or @lid
+      // (multi-device linked identity).  We surface it as chatJid so the
+      // caller can store it alongside the bill for deterministic screenshot
+      // matching later.
+      //
+      // NOTE: id.remote._serialized is verified stable by the wwebjs Message
+      // model (Client.js:1558).  Log it on every send so production can
+      // confirm the @c.us vs @lid form before relying on it for matching.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sentMsg = await client.sendMessage(chatId, message.trim()) as any;
+      const chatJid: string | null = sentMsg?.id?.remote?._serialized ?? null;
+
+      // ── [JID-AUDIT] Temporary production-validation log ────────────────────
+      // Purpose: confirm that sentMsg.id.remote._serialized is identical to
+      //   msg.from on the inbound screenshot webhook (Priority 0 matching
+      //   relies on this being true).
+      //
+      // chatId           — what we sent to; always built as "<digits>@c.us"
+      // chatJid          — what WA assigned as the conversation JID
+      //   If they are identical → @c.us contacts stay @c.us (expected for
+      //     normal contacts).
+      //   If chatJid has @lid suffix → WA normalised this contact to its
+      //     linked-device identity at send time.  The inbound msg.from for
+      //     screenshots will also be @lid, so Priority 0 still matches —
+      //     this log confirms both sides use the same JID.
+      //
+      // Remove once production logs confirm 100% match rate for both
+      // @c.us and @lid conversations.
+      logger.info(`[jid-audit:send] sentMsg.id.remote._serialized vs sent-to chatId`, {
+        event:            'jid_audit_send',
+        sentTo:           chatId,
+        sentMsgIdRemote:  chatJid,
+        jidMatch:         chatId === chatJid,
+        sentToSuffix:     '@c.us',
+        returnedSuffix:   chatJid?.includes('@lid')  ? '@lid'
+                        : chatJid?.includes('@c.us') ? '@c.us'
+                        : chatJid ? 'other' : null,
+        restaurantId,
+        to: normalised,
+        attempt,
+      });
+
+      logger.info(`Message sent`, {
+        restaurantId,
+        to: normalised,
+        attempt,
+        chatJid,
+        chatJidSuffix: chatJid?.includes('@lid')  ? '@lid'
+                     : chatJid?.includes('@c.us') ? '@c.us'
+                     : chatJid ? 'other' : null,
+      });
+      res.json({ success: true, message: 'Message sent', restaurantId, to: normalised, chatJid });
       return;
     } catch (err) {
       lastError = err as Error;

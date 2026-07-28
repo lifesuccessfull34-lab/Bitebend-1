@@ -382,7 +382,10 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
 
     // Webhook delivery is never retried — only the download is resilient.
     await sendWebhook({ restaurantId, customerPhone, messageType: 'image', imageUrl: dataUrl, timestamp });
-    await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl: dataUrl, timestamp });
+    // Pass msg.from as senderJid — this is the raw WhatsApp JID (@c.us or @lid)
+    // that the API server stores and matches against session_bills.chat_jid for
+    // Priority 0 (deterministic) screenshot matching.
+    await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl: dataUrl, timestamp, senderJid: msg.from });
     return;
   }
 
@@ -392,7 +395,7 @@ export async function handleIncomingMessage(restaurantId: number, msg: Message):
       const imageUrl = urlMatch[0];
       logger.info(`Detected image URL in text message from ${customerPhone}`, { imageUrl });
       await sendWebhook({ restaurantId, customerPhone, messageType: 'image', imageUrl, timestamp });
-      await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl, timestamp });
+      await sendPaymentScreenshotWebhook({ restaurantId, customerPhone, imageUrl, timestamp, senderJid: msg.from });
       return;
     }
     await sendWebhook({ restaurantId, customerPhone, messageType: 'text', text: msg.body, timestamp });

@@ -386,12 +386,27 @@ export const sessionBills = pgTable(
     senderPhone: text("sender_phone"),
     /** True when the screenshot was sent from a different phone than customer_phone */
     phoneMismatch: boolean("phone_mismatch").notNull().default(false),
+    /**
+     * WhatsApp-server-assigned JID for this conversation, captured from
+     * sentMsg.id.remote._serialized when the bill is sent.
+     *
+     * This is identical to msg.from on every subsequent inbound message in the
+     * same conversation, regardless of whether the customer's device uses the
+     * standard @c.us JID or a multi-device @lid JID.  Storing it enables
+     * Priority 0 (deterministic) matching in the screenshot webhook without
+     * relying on the number of concurrent pending bills.
+     *
+     * NULL for bills sent before migration 0027 — those fall through to the
+     * existing phone-match and LID-fallback strategies unchanged.
+     */
+    chatJid: text("chat_jid"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => [
     index("idx_session_bills_session_id").on(t.sessionId),
     index("idx_session_bills_restaurant_id").on(t.restaurantId),
+    index("idx_session_bills_chat_jid").on(t.restaurantId, t.chatJid),
     check(
       "session_bills_status_check",
       sql`${t.status} IN ('generated','sent','awaiting_verification','paid','cancelled')`,
