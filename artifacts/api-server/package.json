@@ -12,7 +12,8 @@
     "validate:db": "pnpm run build && node dist/validate-db.mjs",
     "seed:dev": "tsx src/seed-dev.ts",
     "seed": "pnpm run build && node dist/seed-dev.mjs",
-    "reset-db": "pnpm run build && node dist/reset-db.mjs"
+    "reset-db": "pnpm run build && node dist/reset-db.mjs",
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
@@ -56,6 +57,7 @@
     "esbuild-plugin-pino": "^2.3.3",
     "pino-pretty": "^13",
     "thread-stream": "3.1.0",
-    "tsx": "catalog:"
+    "tsx": "catalog:",
+    "vitest": "^3.2.4"
   }
 }

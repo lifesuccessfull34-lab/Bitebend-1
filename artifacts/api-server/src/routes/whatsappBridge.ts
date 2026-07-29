@@ -1,11 +1,9 @@
 import { Router } from "express";
 import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
-import { db } from "@workspace/db";
-import { sessionBills, tableSessions } from "@workspace/db";
-import { eq, and, or, desc, gte } from "drizzle-orm";
 import { emitSessionScreenshotEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
+import { matchAndAttachScreenshot } from "../lib/screenshotMatcher";
 import type { RequestHandler } from "express";
 
 const router = Router();
@@ -154,16 +152,22 @@ router.post("/whatsapp/incoming", ((req, res) => {
 // ── Payment screenshot webhook from the bridge ────────────────────────────────
 // Called when a customer sends an image via WhatsApp.
 //
-// Matching priority:
-//   1. Session bill match (deterministic):
-//      incoming phone === session_bill.customer_phone
-//      AND session_bill.status = 'sent'
-//      AND session_bill.restaurant_id = restaurantId
-//      → Screenshot attached to session bill; session moves to awaiting_verification
+// Full matching algorithm lives in lib/screenshotMatcher.ts (DB layer, locking)
+// and lib/screenshotMatchDecider.ts (pure decision function, unit-tested).
 //
-//   2. Fallback — order-level match (legacy / individual orders without sessions):
-//      Find latest unpaid order for that phone + restaurant
-//      → Screenshot attached to the order
+// Priority order:
+//   P0  conversation_mapping  chatJid exact match            deterministic
+//   P1  phone_match           normalised phone, 1 result     deterministic
+//   P1  ambiguous             normalised phone, 2+ results   → discard
+//   P1.5 phone_mismatch       phone 0 matches, senderJid     heuristic
+//                             absent, 1 recent pending       (backward compat)
+//   P2  lid_single_pending    phone absent, senderJid        heuristic
+//                             absent, 1 recent pending       (backward compat)
+//   —   discard               everything else
+//
+// Race safety: all SELECT + UPDATE run inside a DB transaction with
+// SELECT … FOR UPDATE SKIP LOCKED — simultaneous deliveries of the same
+// screenshot cannot double-attach to the same bill.
 router.post("/whatsapp/payment-screenshot", (async (req, res) => {
   const secret = req.headers["x-webhook-secret"];
   if (BITEBEND_WEBHOOK_SECRET && secret !== BITEBEND_WEBHOOK_SECRET) {
@@ -230,425 +234,114 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
 
   const now = new Date();
 
-  // ── Helper: attach screenshot to a bill and emit SSE ─────────────────────
-  // Shared by Priority 0 and Priority 1 so the update logic is not duplicated.
-  async function attachScreenshotToBill(
-    bill: typeof sessionBills.$inferSelect,
-    opts: { phoneMismatch: boolean; effectivePhone: string | null },
-  ): Promise<void> {
-    await db
-      .update(sessionBills)
-      .set({
-        screenshotUrl: screenshotDataUrl,
-        screenshotReceivedAt: now,
-        senderPhone: opts.effectivePhone,
-        phoneMismatch: opts.phoneMismatch,
-        status: "awaiting_verification",
-        updatedAt: now,
-      })
-      .where(eq(sessionBills.id, bill.id));
-
-    await db
-      .update(tableSessions)
-      .set({ status: "awaiting_verification", updatedAt: now })
-      .where(eq(tableSessions.id, bill.sessionId));
-
-    const [session] = await db
-      .select()
-      .from(tableSessions)
-      .where(eq(tableSessions.id, bill.sessionId))
-      .limit(1);
-
-    emitSessionScreenshotEvent(restaurantId, {
-      sessionId: bill.sessionId,
-      billId: bill.id,
-      tableNumber: session?.tableNumber ?? "?",
-      billNumber: bill.billNumber,
-      total: bill.total,
-      customerPhone: opts.effectivePhone ?? bill.customerPhone ?? "",
-    });
-  }
-
-  // ── Priority 0: Deterministic conversation-mapping match ───────────────────
+  // ── Match and attach (atomic: DB transaction + row-level locking) ──────────
   //
-  // When "Send Bill" fires, the bridge captures sentMsg.id.remote._serialized
-  // (the WhatsApp-server-assigned JID for that conversation) and stores it as
-  // session_bills.chat_jid.  The incoming message's msg.from — passed here as
-  // senderJid — is the same JID, whether it is a @c.us or @lid address.
+  // All SELECT + UPDATE operations run inside a single PostgreSQL transaction
+  // with SELECT … FOR UPDATE SKIP LOCKED, guaranteeing:
   //
-  // This lookup is O(1) via idx_session_bills_chat_jid and is completely
-  // independent of how many other pending bills exist for the restaurant.
+  //   • Two simultaneous screenshots for the SAME bill: the second request sees
+  //     0 rows (the first transaction holds the lock) and returns "no_match"
+  //     immediately — no double-attach, no blocking.
   //
-  // Falls through gracefully when:
-  //   • senderJid is absent (older bridge version)
-  //   • chat_jid was never stored (bill pre-dates this feature)
-  //   • No sent bill with that chatJid exists (race / already processed)
-  if (senderJid) {
-    const [chatJidBill] = await db
-      .select()
-      .from(sessionBills)
-      .where(
-        and(
-          eq(sessionBills.restaurantId, restaurantId),
-          eq(sessionBills.chatJid, senderJid),
-          eq(sessionBills.status, "sent"),
-        )
-      )
-      .orderBy(desc(sessionBills.createdAt))
-      .limit(1);
-
-    if (chatJidBill) {
-      // Resolve normalizedPhone from the bill so subsequent logging is consistent.
-      // For @lid senders where phone normalisation failed, this fills the gap.
-      if (!normalizedPhone) normalizedPhone = chatJidBill.customerPhone;
-
-      await attachScreenshotToBill(chatJidBill, {
-        phoneMismatch: false,
-        effectivePhone: normalizedPhone,
-      });
-
-      // ── [JID-AUDIT] P0 match — log JID comparison for production validation ──
-      // Confirms that sentMsg.id.remote._serialized (stored as chat_jid when
-      // bill was sent) is identical to msg.from (senderJid, arrived with
-      // screenshot).  jidMatch should always be true here because P0 only
-      // reaches this branch on an exact chatJid equality match — this log
-      // exists to double-check the round-trip in production logs.
-      //
-      // Remove once production confirms 100% match rate.
-      logger.info(
-        {
-          event: "jid_audit",
-          matchStrategy: "p0_conversation_mapping",
-          senderJid,
-          storedChatJid:      chatJidBill.chatJid,
-          jidMatch:           senderJid === chatJidBill.chatJid,  // always true at P0
-          senderJidSuffix:    senderJid?.includes('@lid')  ? '@lid'
-                            : senderJid?.includes('@c.us') ? '@c.us' : 'other',
-          storedChatJidSuffix: chatJidBill.chatJid?.includes('@lid')  ? '@lid'
-                             : chatJidBill.chatJid?.includes('@c.us') ? '@c.us' : 'other',
-          sessionBillId:      chatJidBill.id,
-          billAgeMs:          chatJidBill.sentAt ? Date.now() - chatJidBill.sentAt.getTime() : null,
-        },
-        "[jid-audit:p0] JID round-trip check"
-      );
-
-      logger.info(
-        {
-          event: "session_screenshot_received",
-          matchStrategy: "conversation_mapping",
-          sessionBillId: chatJidBill.id,
-          sessionId: chatJidBill.sessionId,
-          restaurantId,
-          senderJid,
-          chatJid: chatJidBill.chatJid,
-          customerPhone: normalizedPhone,
-        },
-        "[whatsapp:payment-screenshot] screenshot attached via chatJid — matchStrategy: conversation_mapping"
-      );
-
-      res.json({
-        ok: true,
-        matched: "session_bill",
-        matchStrategy: "conversation_mapping",
-        sessionBillId: chatJidBill.id,
-      });
-      return;
-    }
-
-    logger.info(
-      { restaurantId, senderJid, reason: "no_chat_jid_match" },
-      "[whatsapp:payment-screenshot:p0] no chatJid match — falling through to phone matching"
-    );
-  }
-
-  // ── LID / unresolvable phone fallback ──────────────────────────────────────
-  // Only reached when:
-  //   (a) phone normalisation failed (raw LID digits, non-Indian number), AND
-  //   (b) Priority 0 chatJid lookup found nothing (senderJid absent, or
-  //       chat_jid not yet stored for this bill).
+  //   • Two simultaneous screenshots for DIFFERENT bills: they lock different
+  //     rows and proceed concurrently without interfering.
   //
-  // WhatsApp's linked-device architecture can deliver msg.from as an @lid JID
-  // (e.g. "268641748652129@lid").  whatsapp-web.js contact.number returns the
-  // LID digits, not the real phone — so Indian-pattern normalisation always
-  // fails for these senders when the contact hasn't been resolved yet.
+  //   • Retry webhook: after the first delivery commits, the bill's status is
+  //     'awaiting_verification', so the retry query (status='sent') returns 0
+  //     rows — idempotent by construction.
   //
-  // Safety invariant: if exactly ONE session bill is in 'sent' status for this
-  // restaurant within the last 30 minutes, the screenshot is unambiguously from
-  // that customer.  Zero or multiple pending bills → 422 (fail closed).
-  if (!normalizedPhone) {
-    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-    const pendingBills = await db
-      .select({ id: sessionBills.id, customerPhone: sessionBills.customerPhone, sentAt: sessionBills.sentAt })
-      .from(sessionBills)
-      .where(
-        and(
-          eq(sessionBills.restaurantId, restaurantId),
-          eq(sessionBills.status, "sent"),
-          gte(sessionBills.sentAt, thirtyMinutesAgo),
-        )
-      )
-      .limit(2);
-
-    logger.info(
-      { customerPhone, restaurantId, senderJid, pendingBillCount: pendingBills.length, windowMinutes: 30 },
-      "[whatsapp:payment-screenshot:fallback] queried recent sent bills"
-    );
-
-    if (pendingBills.length === 1) {
-      const bill = pendingBills[0];
-      normalizedPhone = bill.customerPhone;
-      logger.info(
-        {
-          customerPhone,
-          resolvedTo: normalizedPhone,
-          sessionBillId: bill.id,
-          sentAt: bill.sentAt,
-          matchStrategy: "lid_single_pending",
-          fallbackAccepted: true,
-        },
-        "[whatsapp:payment-screenshot:fallback] accepted — exactly 1 recent pending bill, phone resolved"
-      );
-    } else {
-      logger.warn(
-        {
-          customerPhone,
-          restaurantId,
-          senderJid,
-          pendingBillCount: pendingBills.length,
-          windowMinutes: 30,
-          fallbackAccepted: false,
-          reason: pendingBills.length === 0 ? "no_recent_pending_bills" : "multiple_pending_bills",
-        },
-        "[whatsapp:payment-screenshot:fallback] rejected — cannot safely assign screenshot"
-      );
-      res.status(422).json({ error: "Could not normalize phone number" });
-      return;
-    }
-  }
-
-  // ── Priority 1: Session bill match (deterministic phone-based) ─────────────
-  // ROOT CAUSE OF MISSING SCREENSHOTS (historical, now also fixed by Priority 0):
-  //   WhatsApp always delivers msg.from with the full country-code prefix
-  //   (e.g. "917086670033").  But customers typically type their 10-digit
-  //   number on the menu ("7086670033"), which is what gets stored in
-  //   session_bills.customer_phone.  An exact-string match always failed.
+  // Side effects (SSE, auto-reply) are intentionally performed AFTER this call
+  // so they only fire once the DB is in a consistent committed state.
   //
-  // FIX: derive the 10-digit sibling of the normalised 12-digit phone and
-  //   match either form.  sendSessionBill now also canonicalises before
-  //   storing, so future bills will match on the 12-digit form; the 10-digit
-  //   OR arm handles existing/legacy bills.
-  const phone10 =
-    normalizedPhone?.length === 12 && normalizedPhone.startsWith("91")
-      ? normalizedPhone.slice(2)   // "917086670033" → "7086670033"
-      : null;
+  // Matching priority (full algorithm in screenshotMatcher.ts):
+  //   P0  conversation_mapping  chatJid exact match            deterministic
+  //   P1  phone_match           normalised phone, 1 result     deterministic
+  //   P1  ambiguous             normalised phone, 2+ results   → discard
+  //   P1.5 phone_mismatch       phone 0 matches, senderJid     heuristic
+  //                             absent, 1 recent pending       (backward compat)
+  //   P2  lid_single_pending    phone absent, senderJid        heuristic
+  //                             absent, 1 recent pending       (backward compat)
+  //   —   discard               everything else
+  const outcome = await matchAndAttachScreenshot({
+    restaurantId,
+    senderJid,
+    normalizedPhone,
+    screenshotDataUrl,
+    now,
+  });
 
-  const [sessionBill] = await db
-    .select()
-    .from(sessionBills)
-    .where(
-      and(
-        eq(sessionBills.restaurantId, restaurantId),
-        or(
-          eq(sessionBills.customerPhone, normalizedPhone ?? ""),
-          ...(phone10 ? [eq(sessionBills.customerPhone, phone10)] : []),
-        ),
-        eq(sessionBills.status, "sent"),
-      )
-    )
-    .orderBy(desc(sessionBills.createdAt))
-    .limit(1);
-
-  if (sessionBill) {
-    // ── [JID-AUDIT] P1 match — log JID comparison for production validation ──
-    // When P1 (phone match) fires, chat_jid may be null (bills sent before
-    // the conversation-mapping feature was deployed) or set (new bills).
-    //
-    // If chatJidPresent=true and jidMatch=true → P0 should have caught it
-    //   (indicates senderJid was absent or P0 lookup missed — worth noting).
-    // If chatJidPresent=true and jidMatch=false → JID mismatch despite phone
-    //   match (investigate separately — e.g. number ported, account switch).
-    // If chatJidPresent=false → bill pre-dates the feature; expected for now.
-    //
-    // Remove once production confirms 100% chatJid coverage on new bills.
-    logger.info(
+  if (!outcome.ok) {
+    // ── Unmatched: log and return (no screenshot attached) ────────────────────
+    logger.warn(
       {
-        event: "jid_audit",
-        matchStrategy: "p1_phone_match",
-        senderJid,
-        storedChatJid:      sessionBill.chatJid,
-        chatJidPresent:     sessionBill.chatJid != null,
-        jidMatch:           senderJid != null && sessionBill.chatJid != null
-                              ? senderJid === sessionBill.chatJid
-                              : null,  // null means "cannot compare"
-        senderJidSuffix:    senderJid?.includes('@lid')  ? '@lid'
-                          : senderJid?.includes('@c.us') ? '@c.us'
-                          : senderJid ? 'other' : null,
-        storedChatJidSuffix: sessionBill.chatJid?.includes('@lid')  ? '@lid'
-                           : sessionBill.chatJid?.includes('@c.us') ? '@c.us'
-                           : sessionBill.chatJid ? 'other' : null,
-        sessionBillId:      sessionBill.id,
-        billAgeMs:          sessionBill.sentAt ? Date.now() - sessionBill.sentAt.getTime() : null,
-      },
-      "[jid-audit:p1] JID round-trip check"
-    );
-
-    await attachScreenshotToBill(sessionBill, {
-      phoneMismatch: false,
-      effectivePhone: normalizedPhone,
-    });
-
-    logger.info(
-      {
-        event: "session_screenshot_received",
-        matchStrategy: "phone_match",
-        sessionBillId: sessionBill.id,
-        sessionId: sessionBill.sessionId,
+        event: "screenshot_unmatched",
+        matchStrategy: "no_match",
         restaurantId,
-        customerPhone: normalizedPhone,
+        senderPhone: normalizedPhone,
         senderJid,
+        reason: outcome.reason,
+        details: outcome.details,
+        candidates: outcome.candidates,
       },
-      "[whatsapp:payment-screenshot] screenshot attached to session bill — matchStrategy: phone_match"
+      "[whatsapp:payment-screenshot] screenshot not attached — no matching 'sent' session bill found"
     );
-
-    res.json({
-      ok: true,
-      matched: "session_bill",
-      matchStrategy: "phone_match",
-      sessionBillId: sessionBill.id,
-    });
+    res.json({ ok: true, matched: "none", matchStrategy: "no_match", reason: outcome.reason });
     return;
   }
 
-  // ── Priority 1.5: Phone mismatch — screenshot from wrong phone ────────────
-  // A screenshot arrived from a phone that does NOT match any 'sent' bill.
-  // If exactly one 'sent' bill exists for this restaurant in the last 30 min,
-  // we can safely attach the screenshot with phone_mismatch=true, send an
-  // auto-reply to the sender, and let staff handle it via the warning UI.
-  // If zero or multiple bills are pending we cannot assign the screenshot.
-  {
-    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
-    const sentBills = await db
-      .select()
-      .from(sessionBills)
-      .where(
-        and(
-          eq(sessionBills.restaurantId, restaurantId),
-          eq(sessionBills.status, "sent"),
-          gte(sessionBills.sentAt, thirtyMinutesAgo),
-        )
-      )
-      .orderBy(desc(sessionBills.createdAt))
-      .limit(2);
+  // ── Side effects after successful commit ──────────────────────────────────
+  // These run OUTSIDE the transaction: the DB is already consistent and these
+  // are best-effort / fire-and-forget operations.
 
-    if (sentBills.length === 1) {
-      const mismatchBill = sentBills[0]!;
+  emitSessionScreenshotEvent(restaurantId, {
+    sessionId: outcome.sessionId,
+    billId: outcome.sessionBillId,
+    tableNumber: outcome.tableNumber,
+    billNumber: outcome.billNumber,
+    total: outcome.total,
+    customerPhone: outcome.effectivePhone ?? "",
+  });
 
-      // ── [JID-AUDIT] P1.5 mismatch — log JID comparison ────────────────────
-      // Phone mismatch case: inbound phone didn't match any bill, but exactly
-      // one bill is pending.  Log the JID comparison to help determine if
-      // the mismatch was caused by the customer using a different phone or by
-      // an @lid sender whose phone resolution failed.
-      //
-      // If jidMatch=true here → P0 should have intercepted it; senderJid was
-      //   likely absent (old bridge) or chat_jid was not stored.
-      // If chatJidPresent=false → bill pre-dates conversation-mapping feature.
-      //
-      // Remove once production confirms 100% chatJid coverage on new bills.
-      logger.info(
-        {
-          event: "jid_audit",
-          matchStrategy: "p1_5_phone_mismatch",
-          senderJid,
-          storedChatJid:      mismatchBill.chatJid,
-          chatJidPresent:     mismatchBill.chatJid != null,
-          jidMatch:           senderJid != null && mismatchBill.chatJid != null
-                                ? senderJid === mismatchBill.chatJid
-                                : null,
-          senderJidSuffix:    senderJid?.includes('@lid')  ? '@lid'
-                            : senderJid?.includes('@c.us') ? '@c.us'
-                            : senderJid ? 'other' : null,
-          storedChatJidSuffix: mismatchBill.chatJid?.includes('@lid')  ? '@lid'
-                             : mismatchBill.chatJid?.includes('@c.us') ? '@c.us'
-                             : mismatchBill.chatJid ? 'other' : null,
-          sessionBillId:      mismatchBill.id,
-          expectedPhone:      mismatchBill.customerPhone,
-          senderPhone:        normalizedPhone,
-          billAgeMs:          mismatchBill.sentAt ? Date.now() - mismatchBill.sentAt.getTime() : null,
-        },
-        "[jid-audit:p1.5] JID round-trip check"
-      );
-
-      await attachScreenshotToBill(mismatchBill, {
-        phoneMismatch: true,
-        effectivePhone: normalizedPhone,
-      });
-
-      // Auto-reply to the sender's phone
-      const replyMessage =
-        "The phone number used to send this payment proof does not match the phone number used to place the order.\n\nPlease resend the payment proof from the original ordering phone number.";
-      try {
-        await fetch(`${BRIDGE_URL}/api/send-message`, {
-          method: "POST",
-          headers: bridgeHeaders(),
-          body: JSON.stringify({ restaurantId, phone: normalizedPhone, message: replyMessage }),
-          signal: AbortSignal.timeout(8000),
-        });
+  if (outcome.needsAutoReply) {
+    // P1.5 phone_mismatch: notify the sender that their phone doesn't match.
+    const replyMessage =
+      "The phone number used to send this payment proof does not match the phone number used to place the order.\n\nPlease resend the payment proof from the original ordering phone number.";
+    fetch(`${BRIDGE_URL}/api/send-message`, {
+      method: "POST",
+      headers: bridgeHeaders(),
+      body: JSON.stringify({ restaurantId, phone: outcome.effectivePhone, message: replyMessage }),
+      signal: AbortSignal.timeout(8000),
+    })
+      .then(() => {
         logger.info(
-          { restaurantId, senderPhone: normalizedPhone },
+          { restaurantId, senderPhone: outcome.effectivePhone },
           "[whatsapp:payment-screenshot:mismatch] auto-reply sent to sender"
         );
-      } catch (replyErr) {
+      })
+      .catch((replyErr: unknown) => {
         logger.warn(
           { error: (replyErr as Error).message },
           "[whatsapp:payment-screenshot:mismatch] auto-reply failed — continuing"
         );
-      }
-
-      logger.warn(
-        {
-          event: "session_screenshot_phone_mismatch",
-          matchStrategy: "phone_mismatch",
-          sessionBillId: mismatchBill.id,
-          sessionId: mismatchBill.sessionId,
-          restaurantId,
-          expectedPhone: mismatchBill.customerPhone,
-          senderPhone: normalizedPhone,
-          senderJid,
-        },
-        "[whatsapp:payment-screenshot] phone mismatch — screenshot stored, approval blocked — matchStrategy: phone_mismatch"
-      );
-
-      res.json({
-        ok: true,
-        matched: "session_bill_mismatch",
-        matchStrategy: "phone_mismatch",
-        sessionBillId: mismatchBill.id,
       });
-      return;
-    }
-
-    logger.info(
-      { restaurantId, senderPhone: normalizedPhone, senderJid, pendingBillCount: sentBills.length },
-      "[whatsapp:payment-screenshot:mismatch] cannot assign — skipping to order fallback"
-    );
   }
 
-  // ── No matching sent bill — screenshot is unmatched, log and discard ─────────
-  // A screenshot arrived but there is no session bill in 'sent' status that can
-  // receive it (zero or multiple pending bills, and no phone match).
-  // We do NOT attach it to any order.
-  logger.warn(
+  const logLevel = outcome.phoneMismatch ? "warn" : "info";
+  logger[logLevel](
     {
-      event: "screenshot_unmatched",
-      matchStrategy: "no_match",
+      event: outcome.phoneMismatch ? "session_screenshot_phone_mismatch" : "session_screenshot_received",
+      matchStrategy: outcome.strategy,
+      sessionBillId: outcome.sessionBillId,
+      sessionId: outcome.sessionId,
       restaurantId,
-      senderPhone: normalizedPhone,
       senderJid,
-      reason: "no_sent_bill_to_match",
+      customerPhone: outcome.effectivePhone,
+      phoneMismatch: outcome.phoneMismatch,
     },
-    "[whatsapp:payment-screenshot] screenshot discarded — no matching 'sent' session bill found"
+    `[whatsapp:payment-screenshot] screenshot attached — matchStrategy: ${outcome.strategy}`
   );
-  res.json({ ok: true, matched: "none", matchStrategy: "no_match", reason: "no_sent_bill_to_match" });
+
+  res.json(outcome.matchedResponse);
 }) as RequestHandler);
 
 export default router;

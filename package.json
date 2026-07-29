@@ -16,7 +16,7 @@
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
 
-    "test": "pnpm --filter @workspace/url-utils run test && pnpm --filter @workspace/menu run test",
+    "test": "pnpm --filter @workspace/url-utils run test && pnpm --filter @workspace/menu run test && pnpm --filter @workspace/api-server run test",
 
     "lint": "eslint artifacts/menu/src artifacts/portal/src",
     "check:hooks": "eslint artifacts/menu/src artifacts/portal/src",
