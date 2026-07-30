@@ -200,45 +200,51 @@ const attachHandler: RequestHandler = async (req, res) => {
 
   const now = new Date();
 
-  // Fetch session for tableNumber (for SSE payload)
+  // Fetch session for tableNumber (for SSE payload — read before the transaction)
   const [session] = await db
     .select({ tableNumber: tableSessions.tableNumber })
     .from(tableSessions)
     .where(eq(tableSessions.id, bill.sessionId))
     .limit(1);
 
-  // Attach screenshot to session bill
-  await db
-    .update(sessionBills)
-    .set({
-      screenshotUrl:        entry.screenshotData,
-      screenshotReceivedAt: now,
-      senderPhone:          entry.senderPhone ?? null,
-      phoneMismatch:        false,
-      status:               "awaiting_verification",
-      updatedAt:            now,
-    })
-    .where(eq(sessionBills.id, sessionBillId));
+  // All three DB writes run inside a single transaction so that a failure in any
+  // one of them rolls back the others automatically.  SSE is emitted only after
+  // the transaction commits successfully.
+  await db.transaction(async (tx) => {
+    // 1. Attach screenshot to session bill
+    await tx
+      .update(sessionBills)
+      .set({
+        screenshotUrl:        entry.screenshotData,
+        screenshotReceivedAt: now,
+        senderPhone:          entry.senderPhone ?? null,
+        phoneMismatch:        false,
+        status:               "awaiting_verification",
+        updatedAt:            now,
+      })
+      .where(eq(sessionBills.id, sessionBillId));
 
-  // Update table session status
-  await db
-    .update(tableSessions)
-    .set({ status: "awaiting_verification", updatedAt: now })
-    .where(eq(tableSessions.id, bill.sessionId));
+    // 2. Update table session status
+    await tx
+      .update(tableSessions)
+      .set({ status: "awaiting_verification", updatedAt: now })
+      .where(eq(tableSessions.id, bill.sessionId));
 
-  // Update inbox entry as matched
-  await db
-    .update(paymentScreenshotInbox)
-    .set({
-      matchStatus:       "matched",
-      matchedSessionId:  bill.sessionId,
-      matchedBillId:     sessionBillId,
-      matchingStrategy:  "manual",
-      updatedAt:         now,
-    })
-    .where(eq(paymentScreenshotInbox.id, id));
+    // 3. Update inbox entry as matched
+    await tx
+      .update(paymentScreenshotInbox)
+      .set({
+        matchStatus:       "matched",
+        matchedSessionId:  bill.sessionId,
+        matchedBillId:     sessionBillId,
+        matchingStrategy:  "manual",
+        updatedAt:         now,
+      })
+      .where(eq(paymentScreenshotInbox.id, id));
+  });
 
-  // Emit existing SSE event (same as auto-match path — triggers dashboard refresh)
+  // Emit existing SSE event only after the transaction has committed successfully
+  // (same event as the auto-match path — triggers dashboard refresh)
   emitSessionScreenshotEvent(restaurantId, {
     sessionId:     bill.sessionId,
     billId:        bill.id,
