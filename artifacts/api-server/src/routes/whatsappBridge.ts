@@ -1,9 +1,12 @@
+import { createHash } from "node:crypto";
 import { Router } from "express";
 import { requireOwner } from "../middlewares/auth";
 import { logger } from "../lib/logger";
-import { emitSessionScreenshotEvent } from "../lib/orderEvents";
+import { emitSessionScreenshotEvent, emitScreenshotInboxEvent } from "../lib/orderEvents";
 import { getBridgeState, isBridgeManaged } from "../lib/bridgeManager";
 import { matchAndAttachScreenshot } from "../lib/screenshotMatcher";
+import { db, paymentScreenshotInbox } from "@workspace/db";
+import { eq, and, gte } from "drizzle-orm";
 import type { RequestHandler } from "express";
 
 const router = Router();
@@ -234,6 +237,64 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
 
   const now = new Date();
 
+  // ── Screenshot Inbox: persist BEFORE matching ─────────────────────────────
+  //
+  // Every incoming screenshot is written to the inbox first, regardless of
+  // whether matching succeeds. This ensures no screenshot is ever silently
+  // discarded (wrong phone, @lid sender, ambiguous candidates, future algo
+  // changes). If this insert fails we still proceed so no screenshot is lost.
+  //
+  // Duplicate detection: same restaurant + same image hash + within 5 minutes.
+  // This prevents duplicate inbox rows when the customer re-sends the same image.
+  const imageHash = createHash("sha256").update(screenshotDataUrl).digest("hex");
+
+  let inboxId: number | null = null;
+  try {
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    const [existingDup] = await db
+      .select({ id: paymentScreenshotInbox.id })
+      .from(paymentScreenshotInbox)
+      .where(
+        and(
+          eq(paymentScreenshotInbox.restaurantId, restaurantId),
+          eq(paymentScreenshotInbox.imageHash, imageHash),
+          gte(paymentScreenshotInbox.receivedAt, fiveMinutesAgo),
+        ),
+      )
+      .limit(1);
+
+    if (existingDup) {
+      logger.info(
+        { restaurantId, senderJid, imageHash, duplicateOfId: existingDup.id },
+        "[screenshot-inbox] Duplicate screenshot detected within 5 min — skipping",
+      );
+      res.json({ ok: true, matched: "none", matchStrategy: "duplicate", duplicateOfId: existingDup.id });
+      return;
+    }
+
+    const [inserted] = await db
+      .insert(paymentScreenshotInbox)
+      .values({
+        restaurantId,
+        receivedAt:     now,
+        senderJid:      senderJid ?? null,
+        senderPhone:    normalizedPhone,
+        screenshotData: screenshotDataUrl,
+        source:         "whatsapp",
+        matchStatus:    "unmatched",
+        imageHash,
+        isDuplicate:    false,
+      })
+      .returning({ id: paymentScreenshotInbox.id });
+    inboxId = inserted?.id ?? null;
+    logger.debug({ inboxId, restaurantId }, "[screenshot-inbox] Inbox entry created");
+  } catch (inboxErr) {
+    logger.error(
+      { error: (inboxErr as Error).message },
+      "[screenshot-inbox] Failed to insert inbox entry — continuing with matching",
+    );
+  }
+
   // ── Match and attach (atomic: DB transaction + row-level locking) ──────────
   //
   // All SELECT + UPDATE operations run inside a single PostgreSQL transaction
@@ -285,6 +346,28 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
       },
       "[whatsapp:payment-screenshot] screenshot not attached — no matching 'sent' session bill found"
     );
+
+    // Update inbox entry + emit SSE so dashboard can alert the owner
+    if (inboxId !== null) {
+      const matchStatus =
+        outcome.reason === "ambiguous_phone_multiple_bills" ? "ambiguous" : "unmatched";
+      db.update(paymentScreenshotInbox)
+        .set({ matchStatus, updatedAt: now })
+        .where(eq(paymentScreenshotInbox.id, inboxId))
+        .execute()
+        .catch((err: unknown) => {
+          logger.warn(
+            { inboxId, error: (err as Error).message },
+            "[screenshot-inbox] Failed to update inbox status to unmatched",
+          );
+        });
+      emitScreenshotInboxEvent(restaurantId, {
+        inboxId,
+        matchStatus,
+        receivedAt: now.toISOString(),
+      });
+    }
+
     res.json({ ok: true, matched: "none", matchStrategy: "no_match", reason: outcome.reason });
     return;
   }
@@ -301,6 +384,26 @@ router.post("/whatsapp/payment-screenshot", (async (req, res) => {
     total: outcome.total,
     customerPhone: outcome.effectivePhone ?? "",
   });
+
+  // Update inbox entry to matched (fire-and-forget — screenshot is already on the bill)
+  if (inboxId !== null) {
+    db.update(paymentScreenshotInbox)
+      .set({
+        matchStatus:      "matched",
+        matchedSessionId: outcome.sessionId,
+        matchedBillId:    outcome.sessionBillId,
+        matchingStrategy: outcome.strategy,
+        updatedAt:        now,
+      })
+      .where(eq(paymentScreenshotInbox.id, inboxId))
+      .execute()
+      .catch((err: unknown) => {
+        logger.warn(
+          { inboxId, error: (err as Error).message },
+          "[screenshot-inbox] Failed to update inbox status to matched",
+        );
+      });
+  }
 
   if (outcome.needsAutoReply) {
     // P1.5 phone_mismatch: notify the sender that their phone doesn't match.

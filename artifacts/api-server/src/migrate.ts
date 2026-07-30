@@ -36,6 +36,7 @@ const REQUIRED_TABLES = [
   "sessions",
   "table_sessions",
   "session_bills",
+  "payment_screenshot_inbox",
 ] as const;
 
 const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
@@ -67,6 +68,11 @@ const REQUIRED_COLUMNS: Array<{ table: string; column: string }> = [
   // 0018_session_bill_resend
   { table: "session_bills",                column: "resent_at"        },
   { table: "session_bills",                column: "resent_count"     },
+  // 0028_payment_screenshot_inbox
+  { table: "payment_screenshot_inbox",     column: "restaurant_id"    },
+  { table: "payment_screenshot_inbox",     column: "received_at"      },
+  { table: "payment_screenshot_inbox",     column: "match_status"     },
+  { table: "payment_screenshot_inbox",     column: "image_hash"       },
 ];
 
 /**

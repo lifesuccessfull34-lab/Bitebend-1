@@ -33,9 +33,11 @@ interface UseOrderNotificationsOptions {
   enabled: boolean;
   onNewOrder?: () => void;
   onSessionScreenshotReceived?: (sessionId: number) => void;
+  /** Called when an unmatched/ambiguous screenshot arrives in the inbox */
+  onScreenshotInboxReceived?: () => void;
 }
 
-export function useOrderNotifications({ enabled, onNewOrder, onSessionScreenshotReceived }: UseOrderNotificationsOptions) {
+export function useOrderNotifications({ enabled, onNewOrder, onSessionScreenshotReceived, onScreenshotInboxReceived }: UseOrderNotificationsOptions) {
   const { toast } = useToast();
   const retryDelayRef = useRef(1000);
   const esRef = useRef<EventSource | null>(null);
@@ -45,8 +47,10 @@ export function useOrderNotifications({ enabled, onNewOrder, onSessionScreenshot
   // just because the callback identity changes between renders.
   const onNewOrderRef = useRef(onNewOrder);
   const onSessionScreenshotRef = useRef(onSessionScreenshotReceived);
+  const onScreenshotInboxRef = useRef(onScreenshotInboxReceived);
   useEffect(() => { onNewOrderRef.current = onNewOrder; }, [onNewOrder]);
   useEffect(() => { onSessionScreenshotRef.current = onSessionScreenshotReceived; }, [onSessionScreenshotReceived]);
+  useEffect(() => { onScreenshotInboxRef.current = onScreenshotInboxReceived; }, [onScreenshotInboxReceived]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -136,6 +140,28 @@ export function useOrderNotifications({ enabled, onNewOrder, onSessionScreenshot
         // click loads a fresh image even if a previous screenshot was cached.
         onSessionScreenshotRef.current?.(event.sessionId);
         onNewOrderRef.current?.();
+      });
+
+      es.addEventListener("screenshot-inbox-received", (e: MessageEvent) => {
+        retryDelayRef.current = 1000;
+
+        interface InboxEvent { inboxId: number; matchStatus: string; receivedAt: string; }
+        let event: InboxEvent;
+        try {
+          event = JSON.parse(e.data as string) as InboxEvent;
+        } catch {
+          return;
+        }
+
+        playNotificationSound();
+
+        const label = event.matchStatus === "ambiguous" ? "Ambiguous" : "Unmatched";
+        toast({
+          title: "⚠️ Payment Screenshot Unmatched",
+          description: `${label} screenshot received — manual review required`,
+        });
+
+        onScreenshotInboxRef.current?.();
       });
 
       es.addEventListener("heartbeat", () => {

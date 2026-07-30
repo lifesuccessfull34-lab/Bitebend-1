@@ -67,6 +67,25 @@ interface SessionScreenshotEventPayload {
   customerPhone: string;
 }
 
+interface ScreenshotInboxEventPayload {
+  inboxId: number;
+  matchStatus: "unmatched" | "ambiguous";
+  receivedAt: string;
+}
+
+export function emitScreenshotInboxEvent(restaurantId: number, payload: ScreenshotInboxEventPayload) {
+  const clients = connections.get(restaurantId);
+  if (!clients || clients.size === 0) return;
+  const data = JSON.stringify(payload);
+  for (const res of clients) {
+    try {
+      res.write(`event: screenshot-inbox-received\ndata: ${data}\n\n`);
+    } catch {
+      clients.delete(res);
+    }
+  }
+}
+
 export function emitSessionScreenshotEvent(restaurantId: number, payload: SessionScreenshotEventPayload) {
   const clients = connections.get(restaurantId);
   const clientCount = clients?.size ?? 0;

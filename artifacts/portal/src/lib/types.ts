@@ -321,3 +321,30 @@ export interface AdminCustomer {
   district: string | null;
   city: string | null;
 }
+
+// ── Payment Screenshot Inbox (migration 0028) ─────────────────────────────────
+
+export interface ScreenshotInboxEntry {
+  id: number;
+  restaurantId: number;
+  receivedAt: string;
+  senderJid: string | null;
+  senderPhone: string | null;
+  source: string;
+  matchStatus: "matched" | "unmatched" | "ambiguous";
+  matchedSessionId: number | null;
+  matchedBillId: number | null;
+  matchingStrategy: string | null;
+  isDuplicate: boolean;
+  /** True when screenshot_data is still present (not yet purged by retention policy) */
+  hasScreenshot: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScreenshotInboxPage {
+  entries: ScreenshotInboxEntry[];
+  total: number;
+  page: number;
+  totalPages: number;
+}

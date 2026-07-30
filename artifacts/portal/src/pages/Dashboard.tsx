@@ -5,7 +5,7 @@ import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useOrderNotifications } from "@/hooks/useOrderNotifications";
-import type { Order, DashboardStats, SessionSummary, SessionBill } from "@/lib/types";
+import type { Order, DashboardStats, SessionSummary, SessionBill, ScreenshotInboxEntry, ScreenshotInboxPage } from "@/lib/types";
 import { HistoryTab } from "@/pages/history/HistoryTab";
 import {
   IndianRupee,
@@ -35,6 +35,9 @@ import {
   Camera,
   Eye,
   FileText,
+  Inbox,
+  Link2,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -145,6 +148,19 @@ export default function Dashboard() {
   // View Bill modal — shows itemized bill for a session
   const [viewingBillSessionId, setViewingBillSessionId] = useState<number | null>(null);
 
+  // ── Screenshot Inbox ──────────────────────────────────────────────────────
+  const [screenshotInbox, setScreenshotInbox] = useState<ScreenshotInboxEntry[]>([]);
+  const [inboxTotal, setInboxTotal] = useState(0);
+  const [inboxFilter, setInboxFilter] = useState<"all" | "unmatched" | "ambiguous" | "matched">("all");
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [inboxPage, setInboxPage] = useState(1);
+  const [viewingInboxImage, setViewingInboxImage] = useState<{ id: number; data: string | null }>({ id: -1, data: null });
+  const [loadingInboxImageId, setLoadingInboxImageId] = useState<number | null>(null);
+  const [attachEntry, setAttachEntry] = useState<ScreenshotInboxEntry | null>(null);
+  const [attachBillId, setAttachBillId] = useState<number | null>(null);
+  const [attachConfirmReplace, setAttachConfirmReplace] = useState(false);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [retryingInboxId, setRetryingInboxId] = useState<number | null>(null);
 
   const handleSessionScreenshotReceived = useCallback((sessionId: number) => {
     setSessionScreenshots((prev) => { const next = new Map(prev); next.delete(sessionId); return next; });
@@ -192,7 +208,93 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchData, user]);
 
-  useOrderNotifications({ enabled: !!user && user.role === "owner", onNewOrder: fetchData });
+  const fetchInbox = useCallback(async () => {
+    if (!user?.restaurantId) return;
+    setInboxLoading(true);
+    try {
+      const data = await apiFetch<ScreenshotInboxPage>(
+        `/owner/screenshot-inbox?status=${inboxFilter}&page=${inboxPage}`,
+      );
+      setScreenshotInbox(data.entries);
+      setInboxTotal(data.total);
+    } catch { /* silently fail on poll */ } finally {
+      setInboxLoading(false);
+    }
+  }, [user, inboxFilter, inboxPage]);
+
+  useEffect(() => {
+    if (!user) return;
+    void fetchInbox();
+  }, [fetchInbox, user]);
+
+  const loadInboxImage = useCallback(async (id: number) => {
+    setLoadingInboxImageId(id);
+    setViewingInboxImage({ id, data: null }); // open dialog immediately while loading
+    try {
+      const res = await apiFetch<{ screenshotData: string }>(`/owner/screenshot-inbox/${id}/image`);
+      setViewingInboxImage({ id, data: res.screenshotData });
+    } catch {
+      toast.error("Could not load screenshot");
+      setViewingInboxImage({ id: -1, data: null });
+    } finally {
+      setLoadingInboxImageId(null);
+    }
+  }, []);
+
+  const handleRetryMatch = useCallback(async (inboxId: number) => {
+    setRetryingInboxId(inboxId);
+    try {
+      const res = await apiFetch<{ ok: boolean; matchStatus: string; strategy?: string }>(
+        `/owner/screenshot-inbox/${inboxId}/retry-match`,
+        { method: "POST" },
+      );
+      if (res.matchStatus === "matched") {
+        toast.success(`Screenshot matched via ${res.strategy?.replace(/_/g, " ") ?? "auto"} ✓`);
+        await Promise.all([fetchData(), fetchInbox()]);
+      } else {
+        toast.info(`Retry complete — still ${res.matchStatus}`);
+        await fetchInbox();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Retry failed");
+    } finally {
+      setRetryingInboxId(null);
+    }
+  }, [fetchData, fetchInbox]);
+
+  const handleManualAttach = useCallback(async () => {
+    if (!attachEntry || !attachBillId) return;
+    setAttachLoading(true);
+    try {
+      const res = await apiFetch<{ ok?: boolean; needsConfirmation?: boolean }>(
+        `/owner/screenshot-inbox/${attachEntry.id}/attach`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ sessionBillId: attachBillId, forceReplace: attachConfirmReplace }),
+        },
+      );
+      if (res.needsConfirmation && !attachConfirmReplace) {
+        setAttachConfirmReplace(true);
+        return;
+      }
+      toast.success("Screenshot attached to session ✓");
+      setAttachEntry(null);
+      setAttachBillId(null);
+      setAttachConfirmReplace(false);
+      await Promise.all([fetchData(), fetchInbox()]);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to attach screenshot");
+    } finally {
+      setAttachLoading(false);
+    }
+  }, [attachEntry, attachBillId, attachConfirmReplace, fetchData, fetchInbox]);
+
+  useOrderNotifications({
+    enabled: !!user && user.role === "owner",
+    onNewOrder: fetchData,
+    onSessionScreenshotReceived: handleSessionScreenshotReceived,
+    onScreenshotInboxReceived: fetchInbox,
+  });
 
   const handleGenerateBill = useCallback(async (sessionId: number) => {
     // Pre-flight: block if any non-cancelled, non-completed orders exist.
@@ -644,6 +746,19 @@ export default function Dashboard() {
       s.orderCount > 0,
   );
 
+  // Bills available for manual screenshot attachment: must be in 'sent' or 'awaiting_verification'
+  const availableBillsForAttach = sessions
+    .filter((s) => s.bill && (s.bill.status === "sent" || s.bill.status === "awaiting_verification"))
+    .map((s) => ({
+      billId:                s.bill!.id,
+      billNumber:            s.bill!.billNumber,
+      total:                 s.bill!.total,
+      tableLabel:            deriveSessionTableLabel(s),
+      billStatus:            s.bill!.status,
+      hasExistingScreenshot: !!s.bill!.screenshotReceivedAt,
+      customerPhone:         s.bill!.customerPhone,
+    }));
+
   return (
     <AppShell>
 
@@ -946,6 +1061,150 @@ export default function Dashboard() {
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {/* ── Payment Screenshot Inbox ─────────────────────────────────── */}
+        {activeTab === "live" && (
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            {/* Header + filter tabs */}
+            <div className="px-4 py-3 border-b border-border flex flex-wrap items-center gap-2">
+              <Inbox className="w-4 h-4 text-violet-500 shrink-0" />
+              <h2 className="text-base font-semibold">Payment Screenshots</h2>
+              {inboxTotal > 0 && (
+                <span className="text-xs bg-violet-100 text-violet-700 border border-violet-200 rounded-full px-2 py-0.5 font-semibold">
+                  {inboxTotal}
+                </span>
+              )}
+              <div className="ml-auto flex gap-1 flex-wrap">
+                {(["all", "unmatched", "ambiguous", "matched"] as const).map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => { setInboxFilter(f); setInboxPage(1); }}
+                    className={cn(
+                      "text-xs px-2.5 py-1 rounded-md font-medium transition-all capitalize",
+                      inboxFilter === f
+                        ? "bg-violet-100 text-violet-700"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {inboxLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : screenshotInbox.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                <Camera className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                {inboxFilter === "all"
+                  ? "No payment screenshots received yet"
+                  : `No ${inboxFilter} screenshots`}
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {screenshotInbox.map((entry) => {
+                  const badge = {
+                    matched:   { label: "Matched",   cls: "bg-green-100 text-green-700 border-green-200",   dot: "bg-green-500"  },
+                    unmatched: { label: "Unmatched", cls: "bg-yellow-100 text-yellow-700 border-yellow-200", dot: "bg-yellow-500" },
+                    ambiguous: { label: "Ambiguous", cls: "bg-orange-100 text-orange-700 border-orange-200", dot: "bg-orange-500" },
+                  }[entry.matchStatus];
+                  const isRetrying = retryingInboxId === entry.id;
+                  const isLoadingImg = loadingInboxImageId === entry.id;
+                  return (
+                    <div key={entry.id} className="p-3 flex items-start gap-3">
+                      {/* Icon placeholder */}
+                      <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                        <Camera className="w-5 h-5 text-muted-foreground" />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className={cn("text-xs px-2 py-0.5 rounded-full border font-medium flex items-center gap-1", badge.cls)}>
+                            <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", badge.dot)} />
+                            {badge.label}
+                          </span>
+                          {entry.matchingStrategy && (
+                            <span className="text-xs text-muted-foreground font-mono">
+                              via {entry.matchingStrategy.replace(/_/g, " ")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground space-y-0.5">
+                          <div>
+                            {new Date(entry.receivedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                          </div>
+                          {entry.senderPhone && <div>Phone: <span className="font-mono">{entry.senderPhone}</span></div>}
+                          {entry.senderJid && (
+                            <div className="font-mono text-[10px] text-muted-foreground/60 truncate">JID: {entry.senderJid}</div>
+                          )}
+                          {entry.matchStatus === "matched" && entry.matchedSessionId && (
+                            <div className="text-green-600 font-medium">→ Session #{entry.matchedSessionId}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex flex-col gap-1.5 shrink-0 items-end">
+                        {entry.hasScreenshot && (
+                          <Button
+                            size="sm" variant="outline" className="h-7 px-2 text-xs"
+                            onClick={() => void loadInboxImage(entry.id)}
+                            disabled={isLoadingImg}
+                          >
+                            {isLoadingImg ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3 mr-1" />}
+                            View
+                          </Button>
+                        )}
+                        {(entry.matchStatus === "unmatched" || entry.matchStatus === "ambiguous") && (<>
+                          <Button
+                            size="sm" variant="outline"
+                            className="h-7 px-2 text-xs text-violet-700 border-violet-300 hover:bg-violet-50"
+                            onClick={() => { setAttachEntry(entry); setAttachBillId(null); setAttachConfirmReplace(false); }}
+                          >
+                            <Link2 className="w-3 h-3 mr-1" />
+                            Attach
+                          </Button>
+                          <Button
+                            size="sm" variant="outline" className="h-7 px-2 text-xs"
+                            onClick={() => void handleRetryMatch(entry.id)}
+                            disabled={isRetrying}
+                          >
+                            {isRetrying ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3 mr-1" />}
+                            Retry
+                          </Button>
+                        </>)}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Pagination */}
+            {inboxTotal > 50 && (
+              <div className="px-4 py-3 border-t border-border flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">
+                  Page {inboxPage} of {Math.ceil(inboxTotal / 50)}
+                </span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => setInboxPage((p) => Math.max(1, p - 1))}
+                    disabled={inboxPage === 1}>
+                    Previous
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    onClick={() => setInboxPage((p) => p + 1)}
+                    disabled={inboxPage >= Math.ceil(inboxTotal / 50)}>
+                    Next
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1299,6 +1558,122 @@ export default function Dashboard() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ── Inbox Screenshot Viewer ─────────────────────────────────── */}
+      <Dialog
+        open={viewingInboxImage.id !== -1}
+        onOpenChange={(open) => { if (!open) setViewingInboxImage({ id: -1, data: null }); }}
+      >
+        <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="w-4 h-4 text-violet-600 shrink-0" />
+              Payment Screenshot
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2">
+            {viewingInboxImage.data ? (
+              <img
+                src={viewingInboxImage.data}
+                alt="Payment screenshot"
+                className="w-full rounded-lg object-contain max-h-[60vh]"
+              />
+            ) : (
+              <div className="flex items-center justify-center py-10 text-muted-foreground">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                Loading screenshot…
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button size="sm" variant="outline" onClick={() => setViewingInboxImage({ id: -1, data: null })}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Manual Attach Screenshot ──────────────────────────────────── */}
+      <Dialog
+        open={attachEntry !== null}
+        onOpenChange={(open) => {
+          if (!open) { setAttachEntry(null); setAttachBillId(null); setAttachConfirmReplace(false); }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="w-4 h-4 text-violet-600 shrink-0" />
+              Manually Attach Screenshot
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {attachConfirmReplace && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>This session already has a payment screenshot. Attaching will replace it — this is irreversible.</span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Select Session Bill</label>
+              {availableBillsForAttach.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No open session bills available. Bills must be in <span className="font-medium">Sent</span> or <span className="font-medium">Awaiting Verification</span> status.
+                </p>
+              ) : (
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={attachBillId ?? ""}
+                  onChange={(e) => {
+                    setAttachBillId(e.target.value ? parseInt(e.target.value, 10) : null);
+                    setAttachConfirmReplace(false);
+                  }}
+                >
+                  <option value="">Select a session…</option>
+                  {availableBillsForAttach.map((b) => (
+                    <option key={b.billId} value={b.billId}>
+                      {b.tableLabel.prefix} {b.tableLabel.label} — {b.billNumber} — ₹{Number(b.total).toFixed(2)}
+                      {b.billStatus === "awaiting_verification" ? " (has screenshot)" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {attachEntry && (
+              <div className="rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs text-muted-foreground space-y-0.5">
+                <div>Screenshot from: {new Date(attachEntry.receivedAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</div>
+                {attachEntry.senderPhone && <div>Sender phone: <span className="font-mono">{attachEntry.senderPhone}</span></div>}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              size="sm" variant="outline"
+              onClick={() => { setAttachEntry(null); setAttachBillId(null); setAttachConfirmReplace(false); }}
+            >
+              Cancel
+            </Button>
+            {attachBillId && (
+              <Button
+                size="sm"
+                className="bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={() => void handleManualAttach()}
+                disabled={attachLoading}
+              >
+                {attachLoading
+                  ? <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Attaching…</>
+                  : attachConfirmReplace
+                  ? <><AlertTriangle className="w-3 h-3 mr-1" /> Confirm Replace</>
+                  : <><Link2 className="w-3 h-3 mr-1" /> Attach Screenshot</>}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </AppShell>
   );
 }

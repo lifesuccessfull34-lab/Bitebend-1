@@ -1,5 +1,5 @@
-import { db, orders } from "@workspace/db";
-import { and, isNotNull, lt, or, eq } from "drizzle-orm";
+import { db, orders, paymentScreenshotInbox } from "@workspace/db";
+import { and, isNotNull, lt, or, eq, isNull } from "drizzle-orm";
 import { logger } from "./logger";
 
 /**
@@ -47,5 +47,30 @@ export async function purgeExpiredScreenshots(): Promise<void> {
     }
   } catch (err) {
     logger.error({ err }, "screenshot_cleanup: failed to purge payment screenshots");
+  }
+
+  // ── Screenshot Inbox: null out screenshot_data after retention window ────────
+  // Keeps audit metadata (match_status, matched IDs, sender info) forever but
+  // removes the binary blob on the same 30-day schedule as orders.
+  try {
+    const inboxPurged = await db
+      .update(paymentScreenshotInbox)
+      .set({ screenshotData: null, updatedAt: new Date() })
+      .where(
+        and(
+          isNotNull(paymentScreenshotInbox.screenshotData),
+          lt(paymentScreenshotInbox.receivedAt, cutoff),
+        ),
+      )
+      .returning({ id: paymentScreenshotInbox.id });
+
+    if (inboxPurged.length > 0) {
+      logger.info(
+        { purged: inboxPurged.length, cutoff },
+        "screenshot_cleanup: purged inbox screenshot blobs",
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "screenshot_cleanup: failed to purge inbox screenshot blobs");
   }
 }

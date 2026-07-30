@@ -31,6 +31,7 @@ const REQUIRED_TABLES = [
   "sessions",
   "table_sessions",
   "session_bills",
+  "payment_screenshot_inbox",
 ] as const;
 
 const REQUIRED_COLUMNS: Array<{ table: string; column: string; note?: string }> = [

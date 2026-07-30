@@ -414,6 +414,46 @@ export const sessionBills = pgTable(
   ],
 );
 
+// ── Payment Screenshot Inbox (migration 0028) ─────────────────────────────────
+// Captures every incoming WhatsApp payment screenshot BEFORE matching runs.
+// Ensures no screenshot is silently discarded when the automatic matching
+// engine fails (wrong phone, @lid sender, ambiguous candidates, etc.).
+// After matching, the row is updated with match_status + matched IDs.
+// screenshot_data is nullable so the 30-day cleanup job can null it out
+// (same policy as orders.payment_screenshot_url) while keeping audit metadata.
+export const paymentScreenshotInbox = pgTable(
+  "payment_screenshot_inbox",
+  {
+    id:               serial("id").primaryKey(),
+    restaurantId:     integer("restaurant_id").notNull().references(() => restaurants.id, { onDelete: "cascade" }),
+    receivedAt:       timestamp("received_at").notNull(),
+    senderJid:        text("sender_jid"),
+    senderPhone:      text("sender_phone"),
+    /** Base64 data URL — nullable after 30-day retention cleanup */
+    screenshotData:   text("screenshot_data"),
+    source:           text("source").notNull().default("whatsapp"),
+    matchStatus:      text("match_status", { enum: ["matched", "unmatched", "ambiguous"] }).notNull().default("unmatched"),
+    matchedSessionId: integer("matched_session_id").references(() => tableSessions.id, { onDelete: "set null" }),
+    matchedBillId:    integer("matched_bill_id").references(() => sessionBills.id, { onDelete: "set null" }),
+    matchingStrategy: text("matching_strategy"),
+    /** SHA-256 of screenshotData for duplicate detection */
+    imageHash:        text("image_hash"),
+    isDuplicate:      boolean("is_duplicate").notNull().default(false),
+    duplicateOfId:    integer("duplicate_of_id"),
+    createdAt:        timestamp("created_at").defaultNow().notNull(),
+    updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_psi_restaurant_status").on(t.restaurantId, t.matchStatus),
+    index("idx_psi_restaurant_received").on(t.restaurantId, t.receivedAt),
+    index("idx_psi_image_hash").on(t.restaurantId, t.imageHash),
+    check(
+      "psi_match_status_check",
+      sql`${t.matchStatus} IN ('matched','unmatched','ambiguous')`,
+    ),
+  ],
+);
+
 export const resources = pgTable("resources", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
