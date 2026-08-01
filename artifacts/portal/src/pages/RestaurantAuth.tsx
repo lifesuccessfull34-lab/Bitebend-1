@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/contexts/AuthContext";
+import { useVisitorTracking } from "@/hooks/useVisitorTracking";
 import { apiFetch } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -487,6 +488,8 @@ function LeftPanel() {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function RestaurantAuth() {
   const [tab, setTab] = useState<Tab>("signin");
+  // Track every /login page visit for platform analytics (fire-and-forget)
+  useVisitorTracking("/login");
 
   return (
     <div className="min-h-screen flex">

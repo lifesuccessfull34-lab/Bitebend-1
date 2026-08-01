@@ -22,11 +22,12 @@ import {
   LayoutDashboard, TrendingDown, KeyRound, Copy, Eye, EyeOff,
   Filter, ChevronDown, Smartphone, ShieldCheck, Pencil, Clock,
   FileText, ScrollText, ExternalLink, Download, FileSpreadsheet,
-  Receipt, BookOpen, Database, Lock, PowerOff,
+  Receipt, BookOpen, Database, Lock, PowerOff, LineChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { STATE_NAMES, getDistricts } from "@/data/india-states-districts";
 import * as XLSX from "xlsx";
+import { VisitorAnalyticsDashboard } from "./VisitorAnalytics";
 
 const STATUS_SUB_COLORS: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700",
@@ -1020,6 +1021,7 @@ export default function Admin() {
     bills: { title: "Bill Metrics", desc: "Payment bill delivery analytics", icon: Receipt },
     resources: { title: "Tutorials", desc: `${adminResources.length} tutorials · ${adminResources.filter((r) => r.approvalStatus === "pending").length} pending`, icon: BookOpen },
     security: { title: "Security", desc: "Sensitive action password & access controls", icon: ShieldCheck },
+    analytics: { title: "Visitor Analytics", desc: "Platform visitors · /login traffic", icon: LineChart },
   };
   const current = PAGE_TITLES[tab];
 
@@ -3015,6 +3017,11 @@ export default function Admin() {
             </p>
           </div>
         </div>
+      )}
+
+      {/* ── Visitor Analytics ── */}
+      {tab === "analytics" && (
+        <VisitorAnalyticsDashboard />
       )}
 
       {/* ── Sensitive Action Auth Dialog ── */}

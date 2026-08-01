@@ -454,6 +454,67 @@ export const paymentScreenshotInbox = pgTable(
   ],
 );
 
+// ── Visitor Analytics (migration 0029) ────────────────────────────────────────
+// Platform-level visitor tracking for Bitebend pages (initially /login).
+// One row per unique visitor (visitor_id UUID from localStorage).
+// No PII: IP is SHA-256 hashed, no emails/names stored.
+export const visitorSessions = pgTable(
+  "visitor_sessions",
+  {
+    id:          serial("id").primaryKey(),
+    visitorId:   text("visitor_id").notNull(),   // UUID in localStorage
+    sessionId:   text("session_id").notNull(),   // UUID per browser session
+    firstVisit:  timestamp("first_visit").defaultNow().notNull(),
+    lastVisit:   timestamp("last_visit").defaultNow().notNull(),
+    visitCount:  integer("visit_count").notNull().default(1),
+    isNew:       boolean("is_new").notNull().default(true),
+    country:     text("country"),
+    state:       text("state"),
+    city:        text("city"),
+    browser:     text("browser"),
+    os:          text("os"),
+    device:      text("device"),
+    language:    text("language"),
+    timezone:    text("timezone"),
+    hashedIp:    text("hashed_ip"),
+    createdAt:   timestamp("created_at").defaultNow().notNull(),
+    updatedAt:   timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_vs_visitor_id").on(t.visitorId),
+    index("idx_vs_last_visit").on(t.lastVisit),
+    index("idx_vs_is_new").on(t.isNew),
+  ],
+);
+
+// One row per page load event, linked to a visitor_sessions row.
+export const pageViews = pgTable(
+  "page_views",
+  {
+    id:               serial("id").primaryKey(),
+    visitorSessionId: integer("visitor_session_id")
+      .notNull()
+      .references(() => visitorSessions.id, { onDelete: "cascade" }),
+    page:             text("page").notNull(),
+    referrer:         text("referrer"),
+    utmSource:        text("utm_source"),
+    utmMedium:        text("utm_medium"),
+    utmCampaign:      text("utm_campaign"),
+    utmContent:       text("utm_content"),
+    screenWidth:      integer("screen_width"),
+    screenHeight:     integer("screen_height"),
+    userAgent:        text("user_agent"),
+    createdAt:        timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_pv_visitor_session_id").on(t.visitorSessionId),
+    index("idx_pv_created_at").on(t.createdAt),
+    index("idx_pv_utm_source").on(t.utmSource),
+    index("idx_pv_utm_campaign").on(t.utmCampaign),
+    index("idx_pv_page").on(t.page),
+  ],
+);
+
 export const resources = pgTable("resources", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),

@@ -14,6 +14,7 @@ import {
   FileText,
   Receipt,
   BookOpen,
+  LineChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
@@ -30,7 +31,8 @@ export type AdminSection =
   | "legal"
   | "bills"
   | "resources"
-  | "security";
+  | "security"
+  | "analytics";
 
 interface NavItem {
   key: AdminSection;
@@ -173,5 +175,6 @@ export const ADMIN_NAV_ITEMS = (
   { key: "legal", label: "Legal Pages", icon: FileText },
   { key: "bills", label: "Bill Metrics", icon: Receipt },
   { key: "resources", label: "Tutorials", icon: BookOpen },
+  { key: "analytics", label: "Visitor Analytics", icon: LineChart },
   { key: "security", label: "Security", icon: Shield },
 ];
