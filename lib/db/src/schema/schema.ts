@@ -4,6 +4,7 @@ import {
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgTable,
   serial,
   text,
@@ -468,6 +469,8 @@ export const visitorSessions = pgTable(
     lastVisit:   timestamp("last_visit").defaultNow().notNull(),
     visitCount:  integer("visit_count").notNull().default(1),
     isNew:       boolean("is_new").notNull().default(true),
+    // migration 0030: bot filtering
+    isBot:       boolean("is_bot").notNull().default(false),
     country:     text("country"),
     state:       text("state"),
     city:        text("city"),
@@ -504,6 +507,11 @@ export const pageViews = pgTable(
     screenWidth:      integer("screen_width"),
     screenHeight:     integer("screen_height"),
     userAgent:        text("user_agent"),
+    // migration 0030: bot filtering, duration, pre-computed classification
+    isBot:            boolean("is_bot").notNull().default(false),
+    durationSeconds:  integer("duration_seconds"),
+    referrerDomain:   text("referrer_domain"),
+    trafficSource:    text("traffic_source"),
     createdAt:        timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
@@ -512,6 +520,30 @@ export const pageViews = pgTable(
     index("idx_pv_utm_source").on(t.utmSource),
     index("idx_pv_utm_campaign").on(t.utmCampaign),
     index("idx_pv_page").on(t.page),
+  ],
+);
+
+// Generic named-event tracking for conversion funnel (migration 0030).
+// Events link back to visitor_sessions when the visitor UUID is known.
+export const analyticsEvents = pgTable(
+  "analytics_events",
+  {
+    id:               serial("id").primaryKey(),
+    visitorSessionId: integer("visitor_session_id")
+      .references(() => visitorSessions.id, { onDelete: "set null" }),
+    sessionId:        text("session_id").notNull(),
+    eventName:        text("event_name").notNull(),
+    page:             text("page"),
+    // JSONB bag — lets callers store arbitrary structured data without schema changes
+    properties:       jsonb("properties"),
+    isBot:            boolean("is_bot").notNull().default(false),
+    createdAt:        timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("idx_ae_event_name").on(t.eventName),
+    index("idx_ae_session_id").on(t.sessionId),
+    index("idx_ae_created_at").on(t.createdAt),
+    index("idx_ae_visitor_session").on(t.visitorSessionId),
   ],
 );
 
